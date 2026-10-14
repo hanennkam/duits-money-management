@@ -25,6 +25,43 @@ SETTINGS, ADD NEW TRANSACTION). **All five screens are built and in use.**
 
 Completed since the last handoff (all verified, see §3):
 
+- **Full screen on the Home Screen, and the Add sheet's head no longer under the status bar.**
+  - **The Add sheet is a full-screen page now**: `position: fixed; inset: 0; height: 100dvh` (a
+    `100%` fallback) with `padding-top: max(var(--sat), 8px)` and no JS height at all. The old
+    `addSheet.style.height = window.innerHeight + "px"` was the bug: in a standalone app
+    `innerHeight` is not the screen, so the sheet was short and its head (Cancel / New Transaction /
+    Save) sat under the status bar. The keypad pads its bottom by `--sab`, and the edit sheet and the
+    month wheel get the same from the overlay: `padding: max(var(--sat), 12px) 12px calc(12px +
+    var(--sab))` plus `max-height: min(88dvh, calc(100dvh - insets))`.
+  - **One name per inset** — `--sat/--sab/--sal/--sar` resolved once from `env()` at `:root`; nothing
+    else in the file calls `env()` directly, which is also what lets a probe simulate a notch.
+  - **Edge to edge in both themes**: `html { background: var(--bg) }` paints the canvas behind the
+    status bar and home indicator; the nav bar's inset is padding (so its frosted background reaches
+    y=0 while its content starts below the clock) and the tab bar's bottom padding clears the home
+    indicator. `viewport-fit=cover` was already there; `apple-mobile-web-app-capable=yes` is
+    unchanged.
+  - **Status bar style is theme-aware**, and this is the judgement call to review: the meta ships as
+    `apple-mobile-web-app-status-bar-style = black-translucent` (as asked) but the pre-paint script and
+    `applyTheme` keep `black-translucent` only for the dark palette and ask for `default` in light,
+    because iOS gives `black-translucent` **white** glyphs and our light bar is
+    `rgba(249, 249, 249, .85)` — white on near-white. Full-screen-ness does not depend on that value
+    (`viewport-fit=cover` + the safe-area padding do that, and `env()` adapts either way). The
+    alternative is `black-translucent` in both themes with a darkened top strip in light mode, which
+    is the colour hack deliberately not taken.
+  - **Short-box container queries** make the sheet fit rather than scroll when the insets take real
+    space: `@container (max-height: 640px)` → 44px keys, tighter gaps, amount floor 1em;
+    `(max-height: 560px)` → 40px keys, smaller amount, no hint; `(max-height: 500px)` → the content
+    column scrolls as a last resort. The container is the sheet's own content box, so 667px of box
+    (a phone with no notch) trips none of them and keeps its old sizes.
+  - **Build row** is now `motion 5 · fullscreen` plus the live status bar style and
+    `standalone`/`browser` (`window.navigator.standalone`), painted by `paintBuild()` — the field
+    check for "did this phone load the new meta".
+- Earlier in the same session: **three iPhone-only defects** — sheets now animate through the Web
+  Animations API (cancel + close token + 500ms fallback), the save highlight runs after the sheet has
+  closed and animates the row's own background in both lists, and the Add sheet's text mode /
+  `visualViewport` keyboard handling was deleted in favour of one fixed page (the height pin above was
+  part of that change).
+
 - **Three iPhone-only defects, all three traced to a real cause in the code and fixed with no backend
   change.**
   1. **`+` sheet animated only once.** The sheet moved on a CSS **transition** driven by `.open`; iOS
@@ -234,7 +271,39 @@ Decisions worth knowing:
 
 ## 3. Validation (all executed this session)
 
-**This session — the three iPhone fixes (all re-run after the final edit):**
+**This session — full screen + the Add sheet's safe area (all re-run after the final edit):**
+
+- `./.venv/bin/python -m pytest -q` → **83 passed**; `node /tmp/duits-ui-check.js` → **634 assertions**
+  / **776 in total** (21 new pins: `viewport-fit=cover`, the `black-translucent` meta, the four
+  `--sat/--sab/--sal/--sar` declarations being the only `env()` uses, `html` painting the screen, the
+  nav/tab-bar variable padding, the full-screen `#addSheet` rules, `container-type: size` and the three
+  container queries, the overlay's two-ended padding and `min(88dvh, …)` max-height, the theme-aware
+  status bar style and `paintBuild`). The old pins for the pixel height are gone, and the sandbox's
+  fake nodes gained `getAttribute` for the Build row.
+- **Safe-area probe over CDP** (`/tmp/cdp-js-fullscreen.js`), insets simulated through the variables
+  (375×667 + 47/34, 390×844 + 47/34, 430×932 + 59/34):
+  - nav bar: `top=0 reachesEdge=true`, `padTop=55/55/67px`, brand top `60/60/72` (≥ the inset),
+    refresh inside the bar;
+  - tab bar: `bottom = the viewport`, `padBottom=36px`, first tab bottom `631/808/896` ≤ vh − 34,
+    `reachesEdge=true`;
+  - Add sheet: `position: fixed`, `top=0`, `height = 667/844/932 = the viewport`, `padTop = 47/47/59`,
+    Cancel top `69/69/81` ≥ inset, Save bottom `106/106/118` visible;
+  - keypad: `padBottom = 38/40/40px`, last key bottom `623/798/886` ≤ vh − 34;
+  - `hiddenOrClipped=[]`, `sheetScrolls=false`, `columnScrolls=false`, `overflowX=0` at every size;
+    keys `44px` at 375×667 and `56px` at both taller sizes, amount `44/56/56px`;
+  - keyboard faked to 43% of the screen: `dSheetH=0 dSheetTop=0 pageScrollY=0 zoom=1 focused=true` —
+    still nothing moves;
+  - month wheel: `top=288/465/553` ≥ inset, `bottom=621/798/886` ≤ vh − 34.
+- **Both themes**: dark → `meta=black-translucent theme-color=#000000`; light →
+  `meta=default theme-color=#f2f2f7`, identical geometry (the inset layout does not depend on the
+  glyph choice).
+- **Regressions re-checked after the shell change**: ten open/close pairs still `10/10` with nothing
+  stuck and no thrown errors; reduce motion still opens/closes with opacity only; `sheetHeightStyle`
+  is `(none)` (no inline height left).
+- **Live server**: `GET /` → 200 `cache-control: no-store`, and the served page carries
+  `black-translucent`, the `--sat` variables and `container-type: size`.
+
+**Previous session (unchanged):**
 
 - `./.venv/bin/python -m pytest -q` → **83 passed** (the `no-store` assertions included).
 - `node /tmp/duits-ui-check.js` → **UI CHECK OK: 613 assertions** / **UI INTERACTION OK: 755
@@ -368,6 +437,20 @@ Decisions worth knowing:
   with and without the mark (`barHeightMoved=false`), `barOverflow=no`, refresh button still 34px.
 
 ## 4. Unresolved issues / risks
+
+- **The iOS status bar style is the one judgement call to confirm on a device.** The page ships
+  `black-translucent` and swaps to `default` for the light theme (white glyphs over a near-white bar
+  would be unreadable). Two things cannot be checked from here: whether iOS re-reads the meta on a
+  standalone relaunch rather than only at install, and how the strip looks in the light theme. If the
+  light theme ends up with white glyphs, the fallback is `default` in both themes — `theme-color`
+  already matches the bar, so the top still looks continuous.
+- **Still never run on a real iPhone.** So these remain unverified: real `env(safe-area-inset-*)`
+  values (the probe simulates them through `--sat`/`--sab`, so it proves the *layout* reacts, not that
+  iOS reports 47/59/34), whether a real keyboard leaves `100dvh` alone, WebKit's own Web Animations
+  timing, container-query support on the iOS version in hand (Safari 16+ has it; older falls back to
+  the un-shrunk sizes), the real Reduce Motion switch, and iOS `:active` springs. `http://192.168.1.12:8000/`
+  after deleting and re-adding the shortcut; the **Build** row prints the status bar style it ended up
+  with and whether it is standalone.
 
 - **Still never run on a real iPhone.** Everything above was executed in desktop Chromium sized to
   the phone, so these stay unverified: whether WebKit's Web Animations implementation looks as smooth

@@ -6,7 +6,12 @@
 <meta name="theme-color" id="themeColorMeta" content="#f2f2f7">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" id="statusBarMeta" content="default">
+<!-- The status bar is part of the page: black-translucent is what lets the app paint under it, which
+     is what a full-screen standalone app looks like. iOS only offers white glyphs with that value, and
+     our light theme's bar is near-white (--bar), so the pre-paint script below swaps to "default"
+     (black glyphs) when the theme is light. Content is edge-to-edge either way: viewport-fit=cover is
+     what puts it under the bar, and env(safe-area-inset-top) says how far the bar reaches. -->
+<meta name="apple-mobile-web-app-status-bar-style" id="statusBarMeta" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Duits">
 <meta name="robots" content="noindex">
 <title>Duits</title>
@@ -22,6 +27,9 @@
   root.setAttribute("data-theme", dark ? "dark" : "light");
   var colour = document.getElementById("themeColorMeta");
   if (colour) colour.setAttribute("content", dark ? "#000000" : "#f2f2f7");
+  // The status bar style has to be decided with the theme, not after it: black-translucent means
+  // white glyphs, which is right over the dark bar and invisible over the light one, so the light
+  // theme asks for "default" (black glyphs). Both values are set before the first paint.
   var status = document.getElementById("statusBarMeta");
   if (status) status.setAttribute("content", dark ? "black-translucent" : "default");
 })();
@@ -38,6 +46,12 @@
      overrides them, and [data-theme] on <html> (set before first paint) picks which applies. */
   :root {
     color-scheme: light;
+    /* One name per inset: env() is resolved once here and everything else reads the variable, so a
+       simulated inset (a probe, or a device without a notch) has a single place to change. */
+    --sat: env(safe-area-inset-top, 0px);
+    --sab: env(safe-area-inset-bottom, 0px);
+    --sal: env(safe-area-inset-left, 0px);
+    --sar: env(safe-area-inset-right, 0px);
     --bg: #f2f2f7;
     --card: #ffffff;
     --card-2: #f4f3f8;
@@ -195,6 +209,10 @@
   /* Keys and buttons: no text selection and no long-press callout. Inputs keep both, so a typed
      transaction can still be selected and corrected. */
   button, .key { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  /* The root paints the whole screen, including the strips behind the status bar and the home
+     indicator: with viewport-fit=cover the page background is the canvas, so neither edge can show a
+     band of another colour. */
+  html { background: var(--bg); min-height: 100%; }
   body {
     background: var(--bg);
     color: var(--text);
@@ -203,13 +221,15 @@
     -webkit-font-smoothing: antialiased;
     overscroll-behavior-y: none;
   }
-  .app { max-width: 640px; margin: 0 auto; padding: 0 16px calc(96px + env(safe-area-inset-bottom)); }
+  .app { max-width: 640px; margin: 0 auto; padding: 0 16px calc(96px + var(--sab)); }
 
   /* ---------- nav bar ---------- */
   .topbar {
     position: sticky; top: 0; z-index: 5;
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
-    margin: 0 -16px; padding: calc(8px + env(safe-area-inset-top)) 16px 9px;
+    /* The bar background reaches up behind the status bar: the inset is padding, not a margin, so
+       the frosted surface is painted under the clock and the battery. */
+    margin: 0 -16px; padding: calc(8px + var(--sat)) 16px 9px;
     background: var(--bar);
     backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
     border-bottom: .5px solid var(--hairline);
@@ -431,7 +451,7 @@
   .tabbar {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
     display: flex; justify-content: center;
-    padding: 6px 16px calc(2px + env(safe-area-inset-bottom));
+    padding: 6px 16px calc(2px + var(--sab));          /* clears the home indicator */
     background: var(--bar);
     backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
     border-top: .5px solid var(--hairline);
@@ -484,20 +504,32 @@
     background: var(--grab); margin: 0 auto;
   }
   .sheet-done[disabled] { color: var(--muted); }
-  /* Full-height sheet: 100dvh minus the safe areas, and nothing inside it scrolls.
-     Scoped to the id because the base .sheet rule (88dvh + its own scroll) is declared later. */
-  #addOverlay { padding: 0 0 env(safe-area-inset-bottom); }
+  /* The Add sheet is a full-screen page, not a card hanging off the bottom: fixed, inset: 0, the whole
+     screen tall. It used to be pinned to window.innerHeight in pixels, which is wrong in a standalone
+     app (innerHeight is not the screen once the status bar and the home indicator are involved) and
+     that is exactly what pushed Cancel / New Transaction / Save under the status bar. The safe-area
+     inset is the top padding instead, so the head always sits fully below the clock. Nothing inside
+     scrolls, and the keyboard does not resize it: iOS leaves 100dvh alone when the keyboard opens. */
+  #addOverlay { padding: 0; }
   #addSheet {
-    height: 100vh;                         /* fallback: no dvh, no dynamic toolbar maths */
-    height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
-    max-height: none; overflow: hidden; padding: 6px 16px 0;
+    position: fixed; inset: 0;
+    height: 100%;                          /* fallback: no dvh anywhere */
+    height: 100dvh;                        /* the whole screen, status bar and home indicator too */
+    max-height: none; overflow: hidden;
+    /* 8px minimum, not 12: with no notch there is nothing to clear, and a 375x667 screen needs every
+       pixel (the amount absorbs whatever the gap above leaves on a taller screen). */
+    padding: max(var(--sat), 8px) 16px 0;
     display: flex; flex-direction: column;
-    border-radius: var(--r-lg) var(--r-lg) 0 0;
+    border-radius: 0;                      /* a page, not a card: no rounded corner under the clock */
+    /* The shrink rules below ask how much room the sheet actually has, which is this box and nothing
+       else: a container query on the content box is the honest measure, where a media query only ever
+       sees the phone. A 375x667 screen with a 47px status bar has ~586px to spend here. */
+    container-type: size;
   }
   #addSheet .sheet-grab { margin: -2px 0 0; padding: 4px 0 8px; }
-  /* min-height: 0 keeps this column shrinkable; the small bottom pad keeps the chips off the
-     sheet edge in the one case where the keypad is hidden (a text field has focus). */
-  #screen-add { display: flex; flex-direction: column; flex: 1; min-height: 0; padding-bottom: 6px; }
+  /* min-height: 0 keeps this column shrinkable. No bottom padding: the keypad is always the sheet's
+     last row now, so there is no case where content meets the sheet edge. */
+  #screen-add { display: flex; flex-direction: column; flex: 1; min-height: 0; }
   #addTypeToggle { flex: none; margin: 0 0 2px; }
   /* The amount owns every spare pixel between the segmented control and the pills, so a tall phone
      spends the slack as breathing room around the number instead of leaving a hole above the keys.
@@ -555,7 +587,7 @@
   .add-field:focus { outline: none; border-color: var(--accent); }
   /* The chips bleed to the sheet edges so the row reads as scrolling, not cut off. */
   .chip-scroll {
-    flex: none; display: flex; gap: 8px; margin: 12px -16px 0; padding: 0 16px;
+    flex: none; display: flex; gap: 8px; margin: 8px -16px 0; padding: 0 16px;
     overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
   }
   .chip-scroll::-webkit-scrollbar { display: none; }
@@ -570,7 +602,7 @@
   .cat-fill { background: var(--cat); }
   .txn-icon, .cat-icon, .highlight-icon { color: var(--cat); }
   /* 12px above (after the chips) and 12px between the two rows: Smart Entry card, then Scan Receipt. */
-  .add-rows { flex: none; display: flex; flex-direction: column; row-gap: 12px; margin: 8px 0 0; }
+  .add-rows { flex: none; display: flex; flex-direction: column; row-gap: 12px; margin: 6px 0 0; }
   /* One full-width row per action: icon left, label, chevron right. Light grey, 48px, 16px radius. */
   .add-row {
     width: 100%; min-height: 48px; padding: 0 14px; border: 0; border-radius: 16px;
@@ -592,7 +624,7 @@
      and a fixed-width Add button. Nothing about it opens or closes, so nothing about the sheet moves
      when the keyboard appears. */
   .smart-card {
-    flex: none; padding: 14px; border-radius: 16px; background: var(--card-2); margin: 0 0 12px;
+    flex: none; padding: 14px; border-radius: 16px; background: var(--card-2); margin: 0 0 8px;
   }
   .smart-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
   .smart-card-row { display: flex; gap: 10px; }
@@ -601,10 +633,12 @@
     flex: 0 0 auto; width: auto; min-width: 64px; min-height: 38px; padding: 0 18px; font-size: 16px;
   }
   .add-hint { flex: none; margin: 8px 2px 0; font-size: 12px; line-height: 1.35; color: var(--muted); }
-  /* The keys are the sheet's own footer: no scroll, no sticky needed. */
+  /* The keys are the sheet's own footer: no scroll, no sticky needed. The bottom inset keeps the last
+     row clear of the home indicator. */
   .keypad {
     position: relative; flex: none; margin: 4px -16px 0;
-    padding: 6px 8px 6px; background: var(--card); border-top: .5px solid var(--hairline);
+    padding: 6px 8px calc(6px + var(--sab));
+    background: var(--card); border-top: .5px solid var(--hairline);
   }
   .keypad-grid {
     display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
@@ -630,6 +664,36 @@
      rows genuinely cannot fit, e.g. Details open on a 320x568 screen) so nothing ever paints over
      the keypad. At 667 and 844 the column never scrolls. The keys stay pinned either way. */
   @media (max-height: 660px) { #screen-add { overflow-y: auto; -webkit-overflow-scrolling: touch; } }
+  /* The sheet's own box is the honest measure of the room left: the phone's height minus the status
+     bar and home indicator. When it is short — a 375x667 screen with a 47px status bar only has
+     586px — give height back in this order, before anything is allowed to scroll: keys 44px, then the
+     gaps and the Smart Entry card, then the amount. A phone without a notch keeps every size it had
+     (667px of box = no trigger), so nothing regresses on the screens the layout was tuned for. */
+  @container (max-height: 640px) {
+    .key { height: 44px; }
+    .keypad-grid { gap: 6px; }
+    /* The amount is the only flexible block, so its own floor is what decides whether the column
+       fits: 1.4em at 48px is 67px of floor the layout cannot reclaim. */
+    .add-amount { font-size: clamp(34px, 7.2dvh, 44px); min-height: 1em; padding: 0; }
+    .smart-card { padding: 10px 12px; margin-bottom: 8px; }
+    .smart-card-head { margin-bottom: 8px; }
+    .add-pill { min-height: 32px; }
+    .cat-chip { min-height: 32px; }
+    .add-row { min-height: 44px; }
+    .chip-scroll { margin-top: 8px; }
+    .add-rows { margin-top: 6px; }
+    .keypad { padding-top: 4px; padding-bottom: calc(4px + var(--sab)); }
+  }
+  @container (max-height: 560px) {
+    .key { height: 40px; }
+    .add-amount { font-size: clamp(32px, 7dvh, 44px); }
+    .add-hint { display: none; }
+  }
+  /* Last resort for a genuinely tiny box: scroll the content column rather than clip it. Nothing
+     scrolls at any of the three target sizes with their real insets — this is the safety net. */
+  @container (max-height: 500px) {
+    #screen-add { overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  }
   /* Sits above the keys, so a failure can never hide below the fold. */
   .add-notice { position: absolute; left: 12px; right: 12px; bottom: 100%; margin-bottom: 6px; }
   .add-notice .card { margin: 0; }
@@ -653,7 +717,10 @@
      fight, and the visibility delay would hold the closed sheet on screen after the animation ends. */
   .overlay {
     position: fixed; inset: 0; z-index: 20; display: flex; align-items: flex-end; justify-content: center;
-    padding: 12px 12px calc(12px + env(safe-area-inset-bottom)); background: var(--scrim);
+    /* Both ends: a tall edit sheet or the month wheel must not slide under the status bar or into the
+       home indicator either. */
+    padding: max(var(--sat), 12px) 12px calc(12px + var(--sab));
+    background: var(--scrim);
     opacity: 0; visibility: hidden; pointer-events: none;
   }
   .overlay.open { opacity: 1; visibility: visible; pointer-events: auto; }
@@ -662,7 +729,10 @@
   .sheet {
     width: 100%; max-width: 640px; padding: 20px;
     background: var(--card); border-radius: var(--r-lg); box-shadow: var(--shadow-up);
-    max-height: 88dvh; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    /* 88dvh, but never taller than the safe areas leave: a sheet that fits between them cannot put its
+       own Cancel button under the clock or its last row under the home indicator. */
+    max-height: min(88dvh, calc(100dvh - max(var(--sat), 12px) - 12px - var(--sab)));
+    overflow-y: auto; -webkit-overflow-scrolling: touch;
   }
   .sheet h2 { margin: 0 0 6px; font-size: 20px; }
   .sheet-note { margin: 0 0 14px; font-size: 15px; color: var(--muted); }
@@ -690,7 +760,7 @@
   /* ---------- toast ---------- */
   .toast {
     position: fixed; left: 50%; transform: translateX(-50%);
-    bottom: calc(84px + env(safe-area-inset-bottom)); z-index: 30;
+    bottom: calc(84px + var(--sab)); z-index: 30;
     max-width: 420px; padding: 11px 16px; border-radius: 14px;
     background: var(--toast-bg); color: var(--toast-ink); font-size: 14px; font-weight: 500;
     box-shadow: var(--toast-shadow);
@@ -1127,13 +1197,13 @@
       <div class="list-card">
         <div class="setting-row"><span class="setting-label">App</span><span class="setting-value">Duits</span></div>
         <div class="row-divider"></div>
-        <div class="setting-row"><span class="setting-label">Build</span><span class="setting-value">motion 4</span></div>
+        <div class="setting-row"><span class="setting-label">Build</span><span class="setting-value" id="buildValue">motion 5 · fullscreen</span></div>
         <div class="row-divider"></div>
         <div class="setting-row"><span class="setting-label">Currency</span><span class="setting-value">MYR</span></div>
         <div class="row-divider"></div>
         <div class="setting-row"><span class="setting-label">Date format</span><span class="setting-value">DD/MM/YYYY</span></div>
       </div>
-      <p class="footnote">Add to Home Screen for the full-screen app view.</p>
+      <p class="footnote">Add to Home Screen for the full-screen app view: no Safari chrome, and the page paints behind the status bar and the home indicator.</p>
     </div>
   </section>
 </div>
@@ -1529,12 +1599,28 @@
     if (meta) meta.setAttribute("content", dark ? THEME_META.dark : THEME_META.light);
     var status = $("statusBarMeta");
     if (status) status.setAttribute("content", dark ? "black-translucent" : "default");
+    paintBuild();                     // the Build row reports this value, so it moves with it
     paintAddToggle("themeToggle", "themeChoice", themeChoice);
   }
 
   function chooseTheme(choice) {
     saveThemeChoice(choice);
     applyTheme(choice);
+  }
+
+  // The Build row is the one place a phone can be asked what it actually loaded: the stamp, the status
+  // bar style the meta ended up with (black-translucent means this page is painting behind the status
+  // bar) and whether it is running as a Home Screen app rather than in Safari. Bump BUILD on any
+  // change to the shell that a device should be able to confirm.
+  var BUILD = "motion 5 · fullscreen";
+
+  function paintBuild() {
+    var row = $("buildValue");
+    if (!row) return;
+    var meta = $("statusBarMeta");
+    var style = meta ? meta.getAttribute("content") : "?";
+    var standalone = (window.navigator && window.navigator.standalone) ? "standalone" : "browser";
+    row.textContent = BUILD + " · " + style + " · " + standalone;
   }
 
   function wireTheme() {
@@ -3021,9 +3107,7 @@
     $("screen-add").hidden = false;
     $("addSheet").style.transform = "";
     $("addSheet").scrollTop = 0;
-    // One fixed page: the height is captured here, in px, and never follows a keyboard-driven resize.
-    $("addSheet").style.height = window.innerHeight + "px";
-    lockPageScroll(true);
+    lockPageScroll(true);              // the height itself is CSS: fixed, inset: 0, 100dvh
     openOverlay($("addOverlay"));
   }
 
@@ -3033,7 +3117,6 @@
     $("addSheet").style.transform = "";
     if ($("textInput").blur) $("textInput").blur();
     unlockPageScroll();                            // before anything can throw, not after
-    closing.then(function () { $("addSheet").style.height = ""; });
     return closing;
   }
 

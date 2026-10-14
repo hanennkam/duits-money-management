@@ -210,7 +210,7 @@ Settings keeps the large title alone.
   touches (one request per month, filtered to the seven days in the browser).
 - **Add** (a full-height sheet opened by the raised `+`) — the Stitch "New Transaction" sheet, three ways
   in, all ending in the same row on the list. It fills one screen and does not scroll at either
-  target size: `height: 100dvh` minus the safe areas (a plain `100vh` first as a fallback),
+  target size: `position: fixed; inset: 0` with `height: 100dvh` (a plain `100%` first as a fallback),
   `overflow: hidden`, and one flex column
   whose only flexible slot is the amount itself — so the slack on a tall phone collects around the
   number, and collapses when a panel opens or the keys step aside.
@@ -250,7 +250,7 @@ Settings keeps the large title alone.
     accepted), **Personal/Business** (tap to toggle) and **Details**.
   - **Details** opens *Merchant* and *Note* inline between the pills and the chips. If the sheet ever
     runs out of height, that is the one area allowed to scroll, so nothing else gets cut off.
-  - The category chips sit one row further down (12px under the pills), in one sideways-scrolling row,
+  - The category chips sit one row further down (8px under the pills), in one sideways-scrolling row,
     in their own colours. Nothing is selected by default and tapping the selected chip again clears it.
     **Personal/Business** starts on the mode of the tab behind the sheet.
   - The **keypad** is pinned to the bottom: 24px-radius container, 3 columns, 48px keys (56px from
@@ -271,8 +271,10 @@ Settings keeps the large title alone.
   *Security* holds one tappable row (blue key icon, "API key",
   live "Saved on this device" / "Not set" value) that opens the change-key sheet, and *About*
   lists App, **Build**, Currency and Date format as plain read-only rows. The Build row is the one
-  way to see *on the phone* whether the Home Screen app is running the current page: bump it whenever
-  `index.html` changes, and if the shortcut shows an older stamp it is serving a cached document.
+  way to see *on the phone* whether the Home Screen app is running the current page: it prints the
+  stamp plus the status bar style the meta ended up with and whether it is running standalone. Bump
+  it whenever `index.html` changes, and if the shortcut shows an older stamp it is serving a cached
+  document.
   There is no service worker here — the page is the only asset, with its CSS and JS inline.
 
 The API key is asked for on first load and kept in `localStorage` under `apiKey`; it is never
@@ -285,6 +287,46 @@ paints an icon's transparency black and applies its own rounded mask — and `GE
 `Cache-Control: no-store`, so a shortcut can never be built from stale HTML. **When the icon art changes, bump the
 `?v=` in `app/static/index.html`**, or the phone keeps showing the old tile. There is no service
 worker, so nothing is cached offline.
+
+### Home Screen: full screen, status bar and home indicator included
+
+The standalone app is edge to edge, in both themes:
+
+- `<meta name="viewport">` carries `viewport-fit=cover`, which is what lets the page reach under the
+  status bar and the home indicator; `apple-mobile-web-app-capable=yes` plus
+  `apple-mobile-web-app-title` make the shortcut launch as an app rather than a Safari tab.
+- **`html` paints the whole screen** (`background: var(--bg)`), so the strip behind the status bar and
+  the one behind the home indicator are the theme's own background, never a band of another colour.
+  `theme-color` is kept in step (#F2F2F7 light / #000000 dark) for the surfaces iOS paints itself.
+- The nav bar's safe-area inset is **padding, not a margin**, so its frosted background extends up
+  behind the clock while its content (the `Duits` mark and the refresh button) starts below it.
+  The tab bar pads its bottom the same way, so its last row clears the home indicator.
+- Every inset has one name — `--sat`, `--sab`, `--sal`, `--sar`, each resolved once from `env()`
+  at `:root` — so a probe (or a device without a notch) has a single place to simulate them. Nothing
+  else in the file calls `env()` directly.
+- **The Add sheet is a full-screen page**: `position: fixed; inset: 0; height: 100dvh`, with
+  `padding-top: max(var(--sat), 8px)` so Cancel / New Transaction / Save always sit fully below the
+  status bar, and the keypad pads its bottom by `--sab`. It is deliberately *not* sized from
+  `window.innerHeight`: in a standalone app that is not the screen, and pinning it in pixels is what
+  used to push the sheet's head under the status bar. The edit sheet and the month wheel get the same
+  treatment from the overlay they live in: `padding: max(var(--sat), 12px) 12px calc(12px + var(--sab))`
+  and a `max-height` of `min(88dvh, 100dvh - the insets)`, so a tall sheet cannot reach either edge.
+- **When the box is short, the sheet gives height back instead of scrolling.** The insets are real
+  space (a 375×667 screen with a 47px status bar has 586px of sheet), so three container queries on
+  the sheet's own box step in: 44px keys and tighter gaps and a smaller amount floor under 640px,
+  40px keys under 560, and a scroll of the content column only under 500. A phone with no notch keeps
+  every size it was tuned with, because 667px of box trips none of them.
+- **The status bar style is theme-aware, and that is the honest answer.** `black-translucent` is what
+  the page ships (it is what lets the page paint under the bar), but iOS gives it **white** glyphs,
+  and the light theme's bar is `rgba(249, 249, 249, .85)` — white on near-white is unreadable. So the
+  pre-paint script (and the theme switch) keep `black-translucent` for dark and ask for `default`
+  (black glyphs) for light: the only two glyph colours iOS offers, chosen by the theme that is already
+  decided before the first paint. Full-screen-ness is unaffected, because `viewport-fit=cover` and the
+  safe-area padding are what put content under the bar; whatever iOS decides, `env()` reports the truth
+  and the layout follows it. The alternative — `black-translucent` in both themes — needs the light
+  theme's top strip darkened to a band, which is the colour hack this deliberately avoids.
+- The **Build** row in Settings prints the stamp, the status bar style the meta ended up with and
+  whether it is running standalone, so a phone can be asked what it actually loaded.
 
 ### iOS touch behaviour
 
@@ -304,8 +346,8 @@ Safari's own gestures are kept out of the way, because each one breaks the sheet
 - **No sideways scroll.** `html, body { overflow-x: hidden; max-width: 100vw }`, `box-sizing:
   border-box` throughout, `min-width: 0` on the flexing field. The only things off the right edge are
   the category chips, which live in their own horizontal scroller by design.
-- **Keyboard.** The Add sheet does not react to the keyboard at all. It is one fixed page: its height
-  is pinned in pixels to `window.innerHeight` when it opens and the page behind it is scroll-locked,
+- **Keyboard.** The Add sheet does not react to the keyboard at all. It is one fixed full-screen page
+  (`inset: 0`, `100dvh`) and the page behind it is scroll-locked while it is open,
   so there is no `visualViewport` reading, no `--vvh`, no scroll-into-view and no layout change —
   the keyboard simply covers the lower half, which is acceptable because the Smart Entry field is at
   the top. `focus()` is always called with `{ preventScroll: true }` so Safari never pans the page to
@@ -401,8 +443,8 @@ Two details that are easy to get wrong, so they are pinned:
 - a tiny inline script in `<head>` sets `data-theme` **before** the first paint, so a dark phone
   never flashes a white page (it also seeds `theme-color` and the iOS status bar style);
 - the theme switch keeps `<meta name="theme-color">` (#F2F2F7 / #000000), the status bar style
-  (default / black-translucent) and `color-scheme` (so native inputs and the date picker follow)
-  in step with the palette.
+  (default / black-translucent — see *Home Screen* below) and `color-scheme` (so native inputs and
+  the date picker follow) in step with the palette.
 
 Checked in a real browser at 375×667, 375×812 and 390×844 across 17 states in each theme — Home,
 Transactions, Insights (week + month), Settings, the Add sheet (keypad, chips, Details, Smart Entry,
@@ -589,6 +631,11 @@ Safari. Both write the same rows.
   in Settings remains the way to check what a phone actually loaded; if its stamp is older than the
   server, the shortcut needs deleting and re-adding. The cost is re-downloading a ~150KB page every
   launch, which is the right trade for an app whose only asset is that page.
+- **The iOS status bar can only be reasoned about, not tested, from here.** `black-translucent` is
+  shipped and the theme swap is decided before the first paint, but whether iOS re-reads that meta on
+  a relaunch (rather than only at install) cannot be checked without a device. If it does not, a light
+  theme would show white glyphs over the near-white bar; the fallback would be to keep `default` in
+  both themes (`theme-color` still matches the bar, so the top looks continuous either way).
 - **Not yet run on a physical iPhone.** Everything is verified in a desktop browser sized to the
   phone, so these remain open: WebKit's own Web Animations timing against the built-in keypad, whether
   iOS really leaves the page alone now that it is scroll-locked and nothing calls `focus()` with a
@@ -641,9 +688,17 @@ declaration, which areas may scroll, Save gating, keypad visibility) — plus he
 and screenshots at 375×667 and 390×844 in both themes. Those probes report the computed font size of
 every focusable control, the computed `touch-action` per element, any element crossing the viewport
 edge, the Smart Entry card geometry, and a simulated keyboard (a faked `visualViewport` shrinking to
-43% of the screen) to prove that **nothing moves**: the sheet keeps its pinned pixel height, the
+43% of the screen) to prove that **nothing moves**: the sheet keeps its size and position, the
 amount and keypad stay at the same coordinates, the keypad stays on screen, the page does not scroll
 and the layout does not overflow sideways.
+The same probe runs with the notch insets simulated (47px/59px top, 34px bottom, set through the
+`--sat`/`--sab` variables) at 375×667, 390×844 and 430×932: it checks that the nav bar's background
+reaches y=0 while its content starts below `--sat`, that the tab bar reaches the bottom edge while
+its last row clears `--sab`, that the Add sheet is a full-screen page (`top=0`, height = the viewport,
+`position: fixed`, `padding-top` = the status bar inset) whose Cancel button and last key row both
+clear the insets, that the month wheel sits between them, that nothing reachable is clipped or
+scrolled, and that the sheet's container-query shrink (44px keys at 375×667, 56px at the two taller
+sizes) is what makes that fit possible.
 Animation is measured over CDP in a real Chrome on real timers, at an exact 375×667 / 390×844 device
 viewport: ten open/close pairs (10/10 open, 10/10 close, nothing stuck, the sheet back at
 `translateY(667px)`, no running animations left, no thrown errors), ten tab switches (the ring's dash
