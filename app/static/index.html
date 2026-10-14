@@ -588,38 +588,18 @@
     transition: transform var(--dur-page) var(--ease-ios);
   }
   .add-row.is-open .add-row-chev { transform: rotate(90deg); }   /* chevron points down when open */
-  /* Smart Entry is one card: 48px header row, 12px, then the input row inside the same grey card
-     with 14px of padding. While it is open the row inside goes transparent and hands its own padding
-     to the card, so header and field read as a single block instead of stacked pills. */
-  .add-row-block { border-radius: 16px; }
-  .add-row-block:has(.add-row.is-open) { padding: 14px; background: var(--card-2); }
-  .add-row-block:has(.add-row.is-open) > .add-row { background: transparent; padding: 0; }
-  /* input flexes, button keeps its own width: at 375px the field is ~250px and nothing overflows. */
-  .smart-entry {
-    display: grid; grid-template-rows: 0fr; overflow: hidden;
-    transition: grid-template-rows var(--dur-page) var(--ease-ios);
+  /* Smart Entry: one always-visible card at the top of the sheet — sparkle + label, then the field
+     and a fixed-width Add button. Nothing about it opens or closes, so nothing about the sheet moves
+     when the keyboard appears. */
+  .smart-card {
+    flex: none; padding: 14px; border-radius: 16px; background: var(--card-2); margin: 0 0 12px;
   }
-  .smart-entry.is-open { grid-template-rows: 1fr; }
-  .smart-entry > * {
-    min-height: 0; visibility: hidden;
-    transition: visibility 0s linear var(--dur-page);
-  }
-  .smart-entry.is-open > * { visibility: visible; transition-delay: 0s; }
-  .smart-entry-row { display: flex; gap: 10px; }
-  .smart-entry-row > * { margin-top: 12px; }
-  .smart-entry .add-field { flex: 1; min-width: 0; }
-  .smart-entry .btn-primary {
+  .smart-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .smart-card-row { display: flex; gap: 10px; }
+  .smart-card-row .add-field { flex: 1; min-width: 0; }
+  .smart-card-row .btn-primary {
     flex: 0 0 auto; width: auto; min-width: 64px; min-height: 38px; padding: 0 18px; font-size: 16px;
   }
-  /* While the iOS keyboard is up the sheet has to fit — and be able to scroll — inside the part of the
-     screen the keyboard left over, or the focused field and the Add button beside it sit under the
-     keyboard with nothing able to bring them into view. --vvh and the attribute are both set by
-     revealFocusedField() from visualViewport; without a keyboard neither exists, so the sheet behaves
-     exactly as before and still does not scroll at the two target sizes. */
-  html[data-keyboard] #screen-add {
-    max-height: var(--vvh); overflow-y: auto; -webkit-overflow-scrolling: touch;
-  }
-  #screen-add { scroll-padding-bottom: 12px; }
   .add-hint { flex: none; margin: 8px 2px 0; font-size: 12px; line-height: 1.35; color: var(--muted); }
   /* The keys are the sheet's own footer: no scroll, no sticky needed. */
   .keypad {
@@ -667,22 +647,17 @@
   .result-meta { font-size: 13px; color: var(--muted); margin-top: 4px; }
 
   /* ---------- sheet ---------- */
-  /* Overlays stay in the DOM and move on a transition driven by .open — a transform transition plays
-     every time, where an animation hung off a display change is the thing iOS only plays once. Closed,
-     they are invisible and untouchable: opacity 0, visibility hidden (flipped after the fade, so the
-     exit is seen) and pointer-events off. openOverlay() adds .open two frames after mount; the drag
-     handler writes an inline transform, which the transition below picks up. */
+  /* Overlays stay in the DOM and are hidden by state, not by display: closed is opacity 0, visibility
+     hidden and no pointer events. The movement is done by the Web Animations API (see openOverlay),
+     so there is deliberately no transition here — a transition and an animation on the same property
+     fight, and the visibility delay would hold the closed sheet on screen after the animation ends. */
   .overlay {
     position: fixed; inset: 0; z-index: 20; display: flex; align-items: flex-end; justify-content: center;
     padding: 12px 12px calc(12px + env(safe-area-inset-bottom)); background: var(--scrim);
     opacity: 0; visibility: hidden; pointer-events: none;
-    transition: opacity var(--dur-sheet) var(--ease-ios), visibility 0s linear var(--dur-sheet);
   }
-  .overlay.open {
-    opacity: 1; visibility: visible; pointer-events: auto;
-    transition: opacity var(--dur-sheet) var(--ease-ios), visibility 0s linear 0s;
-  }
-  .overlay > .sheet { transform: translateY(var(--move-sheet)); transition: transform var(--dur-sheet) var(--ease-ios); }
+  .overlay.open { opacity: 1; visibility: visible; pointer-events: auto; }
+  .overlay > .sheet { transform: translateY(var(--move-sheet)); }
   .overlay.open > .sheet { transform: translateY(0); }
   .sheet {
     width: 100%; max-width: 640px; padding: 20px;
@@ -907,42 +882,6 @@
     transition-delay: calc(var(--i, 0) * 60ms);
   }
   .donut.is-drawn .donut-seg { stroke-dashoffset: 0; }
-  /* A row that was just saved: a tinted overlay that fades out, so nothing but opacity moves. */
-  @keyframes highlight-out { from { opacity: 1; } to { opacity: 0; } }
-  .txn { position: relative; }
-  .txn.is-new::after {
-    content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
-    background: var(--accent-soft);
-    animation: highlight-out 800ms var(--ease-ios) both;
-  }
-  /* Smart Entry "text mode": the keyboard is up, so the sheet shows only what is being typed into —
-     header, the Smart Entry card and the mode pill — and is sized to the visual viewport so nothing
-     sits behind the keyboard. The normal layout returns the moment the card closes. */
-  html[data-text-mode] #addTypeToggle,
-  html[data-text-mode] #addAmount,
-  html[data-text-mode] .add-pill-date,
-  html[data-text-mode] #addDetailsPill,
-  html[data-text-mode] #addDetails,
-  html[data-text-mode] .chip-scroll,
-  html[data-text-mode] #scanBtn,
-  html[data-text-mode] #scanHint,
-  html[data-text-mode] #addKeypad { display: none; }
-  /* The keyboard does not shrink the layout viewport on iOS, so the sheet must be anchored to the
-     part of the screen that is actually visible: with the overlay sized to --vvh (the visual
-     viewport), align-items: flex-end parks the sheet on top of the keyboard instead of behind it.
-     Capping the height alone is not enough — the sheet stays pinned to the bottom of the layout
-     viewport and the field ends up under the keys. */
-  html[data-text-mode] #addOverlay {
-    inset: 0 0 auto 0; height: var(--vvh, 100dvh);
-  }
-  html[data-text-mode] #addSheet {
-    height: auto; max-height: calc(var(--vvh, 100dvh) - 10px);
-  }
-  html[data-text-mode] #screen-add { max-height: none; overflow: visible; }
-  /* 12px between the header, the card and the row below it. */
-  html[data-text-mode] .add-rows { margin-top: 12px; }
-  html[data-text-mode] .add-pills { margin: 12px 0 0; }
-
   .field, .chip, .btn-primary, .btn-danger, .pill { max-width: 100%; }
 </style>
 </head>
@@ -1016,6 +955,21 @@
       </div>
 
       <section id="screen-add">
+        <!-- Smart Entry: always visible, directly under the header, so the keyboard only ever covers
+             the lower half of a sheet that never resizes. -->
+        <div class="smart-card" id="smartEntry">
+          <div class="smart-card-head">
+            <span class="add-row-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4.2l1.7 4.6 4.6 1.7-4.6 1.7L12 16.8l-1.7-4.6-4.6-1.7 4.6-1.7L12 4.2Z"/><path d="M18.4 15.6l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2Z"/></svg>
+            </span>
+            <span class="add-row-label">Smart Entry</span>
+          </div>
+          <div class="smart-card-row">
+            <input class="add-field add-text" id="textInput" type="text" placeholder="makan tengah hari 12 ringgit"
+                   autocapitalize="sentences" enterkeyhint="done">
+            <button class="btn-primary" id="textBtn" type="button">Add</button>
+          </div>
+        </div>
         <div class="segmented" id="addTypeToggle" role="group" aria-label="Type">
           <button class="seg-btn is-active" type="button" data-add-type="expense">Expense</button>
           <button class="seg-btn" type="button" data-add-type="income">Income</button>
@@ -1047,23 +1001,8 @@
 
         <div class="chip-scroll" id="addChips" role="group" aria-label="Category"></div>
 
-        <!-- Smart Entry and Scan Receipt: two full-width rows under the chips, icon left, chevron
-             right. Smart Entry opens a text field inside its own row; the keys step aside for it. -->
+        <!-- Scan Receipt is the one row left under the chips: Smart Entry is a fixed card at the top. -->
         <div class="add-rows">
-          <div class="add-row-block">
-            <button class="add-row" id="smartRow" type="button" aria-expanded="false" aria-controls="smartEntry">
-              <span class="add-row-icon" id="smartIcon"></span>
-              <span class="add-row-label">Smart Entry</span>
-              <svg class="add-row-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
-            </button>
-            <div class="smart-entry" id="smartEntry">
-              <div class="smart-entry-row">
-                <input class="add-field add-text" id="textInput" type="text" placeholder="makan tengah hari 12 ringgit"
-                       autocapitalize="sentences" enterkeyhint="done">
-                <button class="btn-primary" id="textBtn" type="button">Add</button>
-              </div>
-            </div>
-          </div>
           <button class="add-row" id="scanBtn" type="button" aria-busy="false">
             <span class="add-row-icon" id="scanIcon"></span>
             <span class="add-row-label" id="scanLabel">Scan Receipt</span>
@@ -1432,47 +1371,101 @@
     element.classList.add(className);
   }
 
-  // Overlays live in the DOM permanently and animate with a transition on .open (see the .overlay
-  // rules). A transform transition is what iOS plays every time; animating off a display change is
-  // what it plays once. The class is added two frames after mount so the closed state has painted.
+  // Sheets move through the Web Animations API. A CSS transition on a class is what iOS plays only
+  // once; an animation object is created fresh every time, and cancelling the previous one first is
+  // what makes rapid open/close land on the right state. The class is still the *state* (.open sets
+  // visibility, pointers and the resting transform); WAAPI only supplies the movement.
+  var EASE_IOS = "cubic-bezier(0.32, 0.72, 0, 1)";
+  var pageScrollLocked = null;      // the styles we replaced, so unlock puts them back exactly
+
+  // The Add sheet is a fixed page: while it is open the document behind it must not scroll or pan, or
+  // iOS moves the whole page to "help" with a focused input.
+  function lockPageScroll(on) {
+    var root = document.documentElement;
+    if (on) {
+      if (!pageScrollLocked) {
+        pageScrollLocked = { html: root.style.overflow, body: document.body.style.overflow };
+      }
+      root.style.overflow = "hidden";
+      document.body.style.overflow = "hidden";
+    } else {
+      unlockPageScroll();
+    }
+  }
+
+  function unlockPageScroll() {
+    if (!pageScrollLocked) return;
+    document.documentElement.style.overflow = pageScrollLocked.html;
+    document.body.style.overflow = pageScrollLocked.body;
+    pageScrollLocked = null;
+  }
+
+  function reducedMotion() {
+    return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  }
+
+  function sheetParts(element) {
+    return { scrim: element, sheet: element.querySelector(".sheet") };
+  }
+
+  function cancelOverlayMotion(element) {
+    (element.runningAnimations || []).forEach(function (animation) {
+      try { animation.cancel(); } catch (error) { /* already finished */ }
+    });
+    element.runningAnimations = [];
+  }
+
   function openOverlay(element) {
     if (!element) return;
     clearTimeout(element.closeTimer);
-    requestAnimationFrame(function () {
-      requestAnimationFrame(function () {
-        element.classList.add("open");
-        element.setAttribute("aria-hidden", "false");
-      });
-    });
+    element.closeToken = (element.closeToken || 0) + 1;   // a close still in flight becomes a no-op
+    cancelOverlayMotion(element);
+    var parts = sheetParts(element);
+    var duration = motionMs("--dur-sheet");
+    var options = { duration: duration, easing: EASE_IOS, fill: "both" };
+    element.classList.add("open");
+    element.setAttribute("aria-hidden", "false");
+    element.runningAnimations = [parts.scrim.animate([{ opacity: 0 }, { opacity: 1 }], options)];
+    // Reduce motion: opacity only, and the sheet simply sits in its open position (class state).
+    if (!reducedMotion() && parts.sheet) {
+      element.runningAnimations.push(parts.sheet.animate(
+        [{ transform: "translateY(100%)" }, { transform: "translateY(0)" }], options));
+    }
   }
 
-  // Closing waits for the transition to finish, with a fallback so it can never hang: the overlay's
-  // own opacity always transitions (even under reduce motion, where the sheet does not move), and the
-  // fallback covers anything that misses the event. A second close restarts this one wait.
+  // Close: animate out, wait for the animation (or a 500ms fallback) and only then hide. Cancelling
+  // whatever was running first means a fast tap cannot leave two animations fighting over the sheet.
   function closeOverlay(element, after) {
-    if (!element || !element.classList.contains("open")) { if (after) after(); return; }
-    element.classList.remove("open");
-    element.setAttribute("aria-hidden", "true");
+    if (!element || !element.classList.contains("open")) { if (after) after(); return Promise.resolve(); }
+    cancelOverlayMotion(element);
+    var parts = sheetParts(element);
+    var options = { duration: motionMs("--dur-sheet"), easing: EASE_IOS, fill: "both" };
+    var token = element.closeToken || 0;
+    var done = false;
     var finish = function () {
-      if (element.closeDone === finish) return;      // transitionend and the timer race; first wins
-      element.closeDone = null;
+      if (done) return;
+      done = true;
+      if (element.closeToken !== token) return;      // reopened meanwhile: leave it open
+
       clearTimeout(element.closeTimer);
-      element.removeEventListener("transitionend", onEnd);
+      element.classList.remove("open");          // the closed state takes over before the fill drops
+      element.setAttribute("aria-hidden", "true");
+      cancelOverlayMotion(element);
       if (after) after();
     };
-    var onEnd = function (event) {
-      if (event.target === element && event.propertyName === "opacity") finish();
-    };
-    element.closeDone = finish;
-    element.addEventListener("transitionend", onEnd);
-    clearTimeout(element.closeTimer);
-    element.closeTimer = setTimeout(finish, Math.min(motionMs("--dur-sheet") + 120, 400));
-  }
-
-  // Smart Entry asks the sheet for its compact layout while it is open (see html[data-text-mode]).
-  function setTextMode(on) {
-    if (on) document.documentElement.setAttribute("data-text-mode", "true");
-    else document.documentElement.removeAttribute("data-text-mode");
+    element.runningAnimations = [parts.scrim.animate([{ opacity: 1 }, { opacity: 0 }], options)];
+    if (!reducedMotion() && parts.sheet) {
+      element.runningAnimations.push(parts.sheet.animate(
+        [{ transform: "translateY(0)" }, { transform: "translateY(100%)" }], options));
+    }
+    element.closeTimer = setTimeout(finish, 500);                  // can never stick
+    var last = element.runningAnimations[element.runningAnimations.length - 1];
+    last.finished.then(finish, finish);
+    return new Promise(function (resolve) {
+      var settled = function () { finish(); resolve(); };
+      last.finished.then(settled, settled);
+      setTimeout(settled, 520);
+    });
   }
 
   var slideFrom = 1;              // +1: newer month slides in from the right, -1: older from the left
@@ -2151,6 +2144,9 @@
   }
 
   // A new row can belong to a month the screen is not showing: follow it there, else refresh in place.
+  // Every save path — keypad Save, Smart Entry, Scan Receipt — ends here. The flash waits for the
+  // sheet to finish closing and for the lists to come back, then animates the row itself: a class
+  // would be wiped by the next render, and a flash behind a closing sheet is a flash nobody sees.
   function afterAdd(transaction, savedMessage) {
     var month = String(transaction.txn_date || "").slice(0, 7); // "2026-05"
     if (month && month !== state.month) {
@@ -2159,24 +2155,41 @@
     } else {
       toast(savedMessage);
     }
-    // The flash has to wait for the lists to come back: marking a row *before* the re-render means the
-    // fresh HTML paints over it, and a slow request would drop it altogether.
-    Promise.all([loadHome(), loadTransactions()]).then(function () { flashRow(transaction.id); });
+    var closed = addSheetClosing || Promise.resolve();
+    Promise.all([loadHome(), loadTransactions(), closed]).then(function () {
+      flashRow(transaction.id);
+    });
     if (state.screen === "insights") loadInsights();
   }
 
-  // Light up the row that was just saved, wherever it is on screen (Home and the list can both hold it).
+  // Light blue, held for 600ms of its 1800ms, then faded — in every list that holds the row (the
+  // Home list and the Transactions tab both render it).
+  var FLASH_MS = 1800;
+  var FLASH_HOLD_MS = 600;
+
   function flashRow(id) {
     if (!id) return;
     var rows = document.querySelectorAll(".txn");
+    var tint = cssColour("--accent-soft");
+    var clear = fadeToClear(tint);
     for (var i = 0; i < rows.length; i++) {
-      if (rows[i].dataset && rows[i].dataset.id === String(id)) {
-        replay(rows[i], "is-new");
-        (function (row) {
-          setTimeout(function () { row.classList.remove("is-new"); }, 1000);
-        })(rows[i]);
-      }
+      if (!rows[i].dataset || rows[i].dataset.id !== String(id)) continue;
+      // Timing stays linear so the offsets mean what they say; the curve lives on the fade itself,
+      // or the ease would compress the hold and start fading immediately.
+      rows[i].animate([
+        { backgroundColor: tint, offset: 0, easing: "linear" },
+        { backgroundColor: tint, offset: FLASH_HOLD_MS / FLASH_MS, easing: EASE_IOS },
+        { backgroundColor: clear, offset: 1 }
+      ], { duration: FLASH_MS });
     }
+  }
+
+  // The same colour with no alpha, so the fade stays the same hue instead of drifting through grey.
+  function fadeToClear(colour) {
+    var parts = String(colour).match(/rgba?\(([^)]+)\)/);
+    if (!parts) return "transparent";
+    var channels = parts[1].split(",").slice(0, 3).join(",");
+    return "rgba(" + channels + ", 0)";
   }
 
   /* ---------- add sheet: keypad, category chips, manual save ---------- */
@@ -2185,15 +2198,13 @@
   var BACKSPACE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" ' +
     'stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5h9.2v13H9.5L3.8 12l5.7-6.5Z"/>' +
     '<path d="M12.6 9.8l4 4.4M16.6 9.8l-4 4.4"/></svg>';
-  var SPARKLE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" ' +
-    'stroke-linecap="round" stroke-linejoin="round"><path d="M12 4.2l1.7 4.6 4.6 1.7-4.6 1.7L12 16.8l-1.7-4.6' +
-    '-4.6-1.7 4.6-1.7L12 4.2Z"/><path d="M18.4 15.6l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2Z"/></svg>';
 
   var addAmount = "";        // what the keypad has typed: digits and at most one "."
   var addCategory = null;    // null until a chip is tapped; tapping it again clears it
   var addType = "expense";
   var addMode = "personal";
   var addSaving = false;     // one save at a time, however fast Save is tapped
+  var addSheetClosing = null; // the sheet's close promise, so a save can wait for it
 
   function addToday() {
     return localIso(new Date());
@@ -2292,53 +2303,12 @@
     $("addModePill").classList.toggle("is-on", addMode === "business");
   }
 
-  // The keys are for the amount: a focused text field means the real keyboard is up.
-  function paintKeypad() {
-    var active = document.activeElement;
-    var typing = !!(active && active.classList && active.classList.contains("add-text"));
-    $("addKeypad").hidden = typing;
-  }
-
-  // The keyboard lives *outside* the layout viewport on iOS: the sheet is pinned to 100dvh, so the
-  // page cannot scroll a focused field into view by itself and Safari has nothing to move. So read the
-  // real remaining room from visualViewport, let the sheet scroll while the keyboard is up (the
-  // html[data-keyboard] rule), and shift the field into the visible strip by hand. Scroll only — the
-  // layout viewport and its scale are never touched, which is what keeps the page from zooming.
-  function revealFocusedField() {
-    var viewport = window.visualViewport;
-    if (!viewport) return;                       // older Safari: nothing to measure, leave it alone
-    var keyboardUp = window.innerHeight - viewport.height > 120;
-    if (keyboardUp) {
-      document.documentElement.setAttribute("data-keyboard", "true");
-      // --vvh caps the sheet to what the keyboard left over, so the layout reflows into the visible
-      // strip first and only scrolls when even that is not enough (short screen, Details open).
-      document.documentElement.style.setProperty("--vvh", viewport.height + "px");
-    } else {
-      document.documentElement.removeAttribute("data-keyboard");
-      document.documentElement.style.removeProperty("--vvh");
-      return;
-    }
-
-    var field = document.activeElement;
-    if (!field || !field.matches || !field.matches("input, textarea, select")) return;
-
-    var box = field.getBoundingClientRect();
-    var hidden = box.bottom - viewport.offsetTop + 12 - viewport.height;   // 12px of breathing room
-    if (hidden <= 0) return;
-
-    var scroller = null;                         // nearest ancestor that can actually scroll
-    for (var node = field.parentElement; node && node !== document.body; node = node.parentElement) {
-      var style = window.getComputedStyle(node);
-      if ((style.overflowY === "auto" || style.overflowY === "scroll") &&
-          node.scrollHeight > node.clientHeight) { scroller = node; break; }
-    }
-    if (scroller) scroller.scrollTop += hidden;
-    else window.scrollBy(0, hidden);
-  }
-
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener("resize", revealFocusedField);
-    window.visualViewport.addEventListener("scroll", revealFocusedField);
+  // Nothing about the Add sheet reacts to the keyboard any more: it is a fixed page, so the keys stay
+  // where they are and the keyboard simply covers the lower part of it. focus() is called with
+  // preventScroll so iOS never pans the page to "help".
+  function focusWithoutScroll(field) {
+    if (!field || !field.focus) return;
+    try { field.focus({ preventScroll: true }); } catch (error) { field.focus(); }
   }
 
   // Details holds Merchant and Note: collapsed until the pill is tapped.
@@ -2347,18 +2317,7 @@
     $("addDetails").classList.toggle("is-open", open);
     $("addDetailsPill").setAttribute("aria-expanded", open ? "true" : "false");
     $("addDetailsPill").classList.toggle("is-on", open);
-    if (open && $("addMerchant").focus) $("addMerchant").focus();
-    paintKeypad();
-  }
-
-  function toggleSmartEntry() {
-    var open = !$("smartEntry").classList.contains("is-open");   // about to open?
-    $("smartEntry").classList.toggle("is-open", open);
-    $("smartRow").setAttribute("aria-expanded", open ? "true" : "false");
-    $("smartRow").classList.toggle("is-open", open);
-    setTextMode(open);
-    if (open && $("textInput").focus) $("textInput").focus();
-    paintKeypad();
+    if (open) focusWithoutScroll($("addMerchant"));
   }
 
   async function saveAdd() {
@@ -2404,11 +2363,6 @@
   }
 
   // A save changes what every tab must show: reload all three, not just the one on screen.
-  function refreshAllScreens() {
-    loadHome();
-    loadTransactions();
-    if (state.screen === "insights") loadInsights();
-  }
 
   /* ---------- transaction sheet ---------- */
 
@@ -2807,7 +2761,6 @@
       (opts.note ? '<text class="donut-note" x="80" y="110" text-anchor="middle">' +
         escapeHtml(opts.note) + "</text>" : "") + "</svg>";
   }
-
   // Share of the month, so the bar and the percentage beside it always agree.
   function insightCategoryList(entries, total) {
     return entries.map(function (entry) {
@@ -3053,17 +3006,11 @@
     $("addMerchant").value = "";
     $("addNote").value = "";
     $("textInput").value = "";
-    $("smartEntry").classList.remove("is-open");
-    setTextMode(false);               // the compact layout belongs to the open card only
-    $("smartRow").setAttribute("aria-expanded", "false");
     $("addDetails").classList.remove("is-open");   // Merchant and Note start collapsed
     $("addDetailsPill").setAttribute("aria-expanded", "false");
     $("addDetailsPill").classList.remove("is-on");
     $("scanHint").hidden = true;      // the privacy note only appears with Scan Receipt
-    $("addKeypad").hidden = false;
     $("keypadGrid").innerHTML = keypadHtml();
-    paintKeypad();                    // unless a text field is already focused, in which case hide it
-    $("smartIcon").innerHTML = SPARKLE_ICON;
     setScanBusy(false);
     hideAddNotice();
     setAddMode(state.mode);           // starts on the mode of the tab behind it
@@ -3074,14 +3021,20 @@
     $("screen-add").hidden = false;
     $("addSheet").style.transform = "";
     $("addSheet").scrollTop = 0;
+    // One fixed page: the height is captured here, in px, and never follows a keyboard-driven resize.
+    $("addSheet").style.height = window.innerHeight + "px";
+    lockPageScroll(true);
     openOverlay($("addOverlay"));
   }
 
   function closeAddSheet() {
-    setTextMode(false);               // normal layout again, and after a successful add
-    closeOverlay($("addOverlay"));
+    var closing = closeOverlay($("addOverlay"));   // a promise: resolves when the sheet is gone
+    addSheetClosing = closing;
     $("addSheet").style.transform = "";
     if ($("textInput").blur) $("textInput").blur();
+    unlockPageScroll();                            // before anything can throw, not after
+    closing.then(function () { $("addSheet").style.height = ""; });
+    return closing;
   }
 
   function reloadScreen() {
@@ -3128,7 +3081,7 @@
 
     handle.addEventListener("pointerdown", function (event) {
       startY = event.clientY;
-      sheet.style.transition = "none";
+      cancelOverlayMotion($(sheetId).parentElement);   // the finger takes over from the animation
       if (handle.setPointerCapture) {
         try { handle.setPointerCapture(event.pointerId); } catch (error) { /* synthetic event */ }
       }
@@ -3145,7 +3098,6 @@
         onDismiss();                 // the close animation carries it down from where the finger let go
         return;
       }
-      sheet.style.transition = "transform var(--dur-press) var(--ease-ios)";
       sheet.style.transform = "";
     }
     handle.addEventListener("pointerup", release);
@@ -3229,7 +3181,6 @@
     $("textInput").addEventListener("keydown", function (event) {
       if (event.key === "Enter") { event.preventDefault(); submitText(); }
     });
-    $("smartRow").addEventListener("click", toggleSmartEntry);
     $("addModePill").addEventListener("click", function () {
       setAddMode(addMode === "personal" ? "business" : "personal");
     });
@@ -3257,8 +3208,6 @@
     $("saveAddBtn").addEventListener("click", saveAdd);
     // The keys are for the amount: any focused text field (merchant, note, date, smart entry) means
     // the real keyboard is up, so the keypad steps aside. Re-derived from state, never remembered.
-    $("addSheet").addEventListener("focusin", paintKeypad);
-    $("addSheet").addEventListener("focusout", paintKeypad);
     $("keySave").addEventListener("click", submitKey);
     $("keyCancel").addEventListener("click", function () { closeKeyDialog(null); });
     $("keyInput").addEventListener("keydown", function (event) {

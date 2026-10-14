@@ -25,6 +25,55 @@ SETTINGS, ADD NEW TRANSACTION). **All five screens are built and in use.**
 
 Completed since the last handoff (all verified, see §3):
 
+- **Three iPhone-only defects, all three traced to a real cause in the code and fixed with no backend
+  change.**
+  1. **`+` sheet animated only once.** The sheet moved on a CSS **transition** driven by `.open`; iOS
+     played it once and then ignored it. Sheets now move on the **Web Animations API**:
+     `openOverlay()` animates the sheet `translateY(100%) → 0` and the scrim `opacity 0 → 1`
+     (350ms, `--ease-ios`, `fill: both`), `closeOverlay()` animates back and applies the closed state
+     only when the animation reports `finished`, with a **500ms fallback timer** so a close can never
+     stick. Every open **cancels** what is still running and bumps a close token, so ten fast
+     open/close pairs land on the right state (the token is what stopped a late close from re-closing a
+     sheet that had been reopened). Reduce Motion keeps opacity-only fades and no movement. The
+     `.overlay`/`.sheet` CSS now carries **no transition at all** — it is state (`opacity`,
+     `visibility`, `pointer-events`, resting transform), and dragging the handle cancels the animation
+     before the finger takes the transform.
+  2. **Save highlight never seen.** It ran *before* the sheet had closed, and it was a class
+     (`is-new` + a `::after` overlay) that the next render could wipe. `afterAdd()` now waits for
+     `Promise.all([loadHome(), loadTransactions(), closed])` — the sheet's close promise included — and
+     `flashRow(id)` animates the row's own `background-color` on the Web Animations API: `--accent-soft`
+     held for 600ms of an 1800ms timeline, then eased to the same hue at zero alpha. It matches by
+     `data-id` in every list that holds the row (Home *Recent Transactions* and the Transactions tab).
+     All three save paths (keypad Save, Smart Entry, Scan Receipt) funnel through `afterAdd`, so all
+     three flash.
+  3. **The Add sheet moved when the keyboard opened.** Text mode (`html[data-text-mode]`), the
+     `visualViewport`/`--vvh` measuring and `revealFocusedField()`'s scroll-into-view are **all
+     removed**. The sheet is now one fixed page: height pinned in px to `window.innerHeight` when it
+     opens, the page scroll-locked (`html`/`body` `overflow: hidden`, restored on close), and nothing
+     in it measures or follows the keyboard. Smart Entry is no longer an expandable row — it is a
+     compact card directly under the header (sparkle + label, then a 16px text field and a fixed-width
+     blue `Add`), and the keypad no longer hides when a text field takes focus. `focus()` is called
+     with `{ preventScroll: true }`; `scrollIntoView` / `visualViewport` / `--vvh` / `data-keyboard`
+     appear nowhere in the page.
+- Earlier in the same session: **iPhone animations reported broken: five separate causes, all found in
+  the code.**
+  1. *"only plays the first render"* — the 900ms freshness gate (`bumpContentMotion`/`markFresh`)
+     deliberately suppressed every replay, so a tab switch, a month change or a refresh animated
+     nothing after the first paint. Replaced by one explicit `replay(el, className)` helper
+     (remove class → force reflow → add it) called by every entrance, and the gate is gone.
+  2. *"sheets only slide once"* — see the Web Animations fix above; the intermediate step was a CSS
+     transition on `.open`, which replaced the original CSS animation hung off a `display` flip.
+  3. *"no press spring"* — iOS Safari only applies `:active` to a `<button>` when the document has
+     a touch listener, and the page had none. One empty passive `touchstart` in `wire()` fixes it.
+  4. *"the save flash never shows"* — the flash was decided *before* `refreshAllScreens()`, so a
+     slow reply (or any later re-render) painted over it; now the Web Animations highlight above.
+  5. *"standalone shows none at all"* — **not reproducible from here**: there is no service worker and
+     no external CSS/JS (the page is the only asset). `GET /` now sends **`Cache-Control: no-store`**,
+     so no copy of the document can come from cache; the **Build** row in Settings still shows the
+     stamp the phone actually loaded.
+  Also fixed while in there: two layout-property animations (`transition: height` on the day
+  chart, `width` on the category bars), `backdrop-filter` on the moving toast, and the keyboard
+  layout (superseded by the fixed page above).
 - **Add sheet save path + one-screen layout.** "Save does nothing" traced to a *stale server process*:
   the listener on `:8000` predated the route, answering `405` (while `GET /transactions` and
   `POST /transactions/text` answered `401`, proving the routes existed). Client code was already
@@ -44,7 +93,7 @@ Completed since the last handoff (all verified, see §3):
   **no `Cache-Control` at all** (Safari heuristic-cached it), the links had no version query (iOS keys
   its cached icon on the URL), and `GET /` was heuristically cacheable too, so the shortcut could be
   built from old markup. Icons now send `public, max-age=600` (never `immutable`), every icon href
-  carries `?v=2`, and `GET /` sends `no-cache`.
+  carries `?v=2`, and `GET /` sends `no-store`.
 - **iPhone animations reported broken: five separate causes, all found in the code.**
   1. *"only plays the first render"* — the 900ms freshness gate (`bumpContentMotion`/`markFresh`)
      deliberately suppressed every replay, so a tab switch, a month change or a refresh animated
@@ -84,7 +133,8 @@ Completed since the last handoff (all verified, see §3):
 Files touched (the last three tasks: `app/static/index.html` and the docs only — no backend, no API,
 no test file):
 `app/static/index.html` (HTML + CSS + vanilla JS, no build step, served by the API at
-`GET /`), `app/main.py` (one `_icon()` helper + four public icon routes, and `no-cache` on `GET /`),
+`GET /`), `app/main.py` (one `_icon()` helper + four public icon routes, and **`Cache-Control:
+  no-store` on `GET /`** — the one backend line this session, plus its two test assertions),
 `app/static/logo.png` and the three `app/static/apple-touch-icon*.png` files, `tests/test_static.py`,
 `README.md`, and this `Handoff.md`.
 
@@ -184,6 +234,47 @@ Decisions worth knowing:
 
 ## 3. Validation (all executed this session)
 
+**This session — the three iPhone fixes (all re-run after the final edit):**
+
+- `./.venv/bin/python -m pytest -q` → **83 passed** (the `no-store` assertions included).
+- `node /tmp/duits-ui-check.js` → **UI CHECK OK: 613 assertions** / **UI INTERACTION OK: 755
+  assertions passed in total**. Pins updated for this change: the WAAPI open/close (keyframes, cancel,
+  the 500ms fallback, the close token), the fixed-page sheet (`style.height = window.innerHeight`,
+  `lockPageScroll`, no `visualViewport`/`--vvh`/`data-keyboard`/`text-mode` anywhere in the page), the
+  card markup and sheet order, the flash (`FLASH_MS = 1800`, `FLASH_HOLD_MS = 600`, `rows[i].animate`,
+  `Promise.all([loadHome(), loadTransactions(), closed])`), and the removals (`is-new`,
+  `highlight-out`, `paintKeypad`, `revealFocusedField`, `toggleSmartEntry`, `setTextMode`,
+  `refreshAllScreens`, `.txn { position: relative }`). The sandbox gained an `Element.animate` stub and
+  a `document.body`.
+- **Real timers over CDP** (`/tmp/cdp-motion.py`, exact device viewport), 375×667 and 390×844:
+  - **Sheets**: 10× `+`/close → `opened=10/10 closed=10/10 stuck=0`, settled `open=false opacity=0
+    visibility=hidden pointers=none` and `runningAnimations=0`; `app errors: none` (the interim run
+    that showed `opened=5/10` exposed a real bug — a late close re-closing a reopened sheet — which is
+    what the close token in `openOverlay` fixes).
+  - **Keyboard**: with `visualViewport.height` faked to 43% of the screen and the Smart Entry input
+    focused → `sheetH=667/667 sheetTop=0 amountTop=218 keypadTop=432 keypadVisible=true`, and the
+    deltas against the unfocused state are **`sheetH=0 sheetTop=0 amountTop=0 keypadTop=0 scrollY=0`** —
+    nothing moves; `focused=true`, `zoomed=false`, horizontal `overflow=0`. Identical at 390×844
+    (`sheetH=844/844`). Typing keeps the text and the pinned height.
+  - **Flash**: manual Save → at +255ms `sheetOpen=true background=rgba(0,0,0,0)` (nothing yet), at
+    +508ms `sheetOpen=false` with `rgba(10,132,255,0.18)` in **both** `#txnList` and `#txnGroups`;
+    the animation is `dur=1800` and still holds `0.176` at `t=617`, then falls to `0.043` at `t=883` —
+    a real 600ms hold, then the fade. Smart Entry save behaves the same. Scan Receipt reaches the same
+    `afterAdd()` (line-verified; the camera itself cannot be driven from here).
+  - **Reduce motion** (`--reduced-motion`): `matchMedia(...).matches=true`, `move-sheet=0%`, sheet
+    `transform=matrix(1,0,0,1,0,0)` while the scrim still fades (`opacity 0.72` mid-flight), sheets
+    still settle closed, ring already drawn with `transitionDuration=0s`, bars not animated,
+    `openOverlays=0 overflow=0`.
+- **Geometry at both sizes** (375×667 and 390×844): `sheetH = innerHeight`, `amountFont=56px`,
+  `keyH=48/56px`, `keypadBottom = innerHeight`, `clipped=[]`, `contentOverflow=false`,
+  `sheetScroll=false`, `overflow=0`, `saveDisabled=true`; Details open adds no clipping.
+- **Live server** after `./ctl.sh restart`: `GET /` → 200, 151,632 B, `cache-control: no-store`,
+  `content-type: text/html`, `nosniff` and `Referrer-Policy` intact; the served page contains the
+  `smart-card` markup and **no** `data-text-mode` / `smartRow` / `is-new` / `paintKeypad` references.
+- The page's inline script re-parses (`node --check`).
+
+**Previous session (unchanged):**
+
 - `pytest -q` → **83 passed** (0.31s) — the 75 original tests plus 8 in `tests/test_static.py`
   (four icon URLs public + `image/png` + `max-age=600` + byte-identical to disk; not in the schema;
   `GET /` `no-cache` with an ETag; each file alpha-free and square at 180/180/152/120; and every icon
@@ -278,6 +369,19 @@ Decisions worth knowing:
 
 ## 4. Unresolved issues / risks
 
+- **Still never run on a real iPhone.** Everything above was executed in desktop Chromium sized to
+  the phone, so these stay unverified: whether WebKit's Web Animations implementation looks as smooth
+  as Chromium's, whether iOS really leaves the page alone now that it is scroll-locked and nothing
+  calls `focus()`/`scrollIntoView` (the faked `visualViewport` proves the code *asks* for nothing, not
+  what iOS does), the real keyboard against the fixed 667px page, the iOS **Reduce Motion** switch
+  (the media query was emulated), and iOS `:active` springs. The **Build** row (`motion N`) is the
+  fingerprint to check on the phone; `http://192.168.1.12:8000/` after deleting and re-adding the
+  shortcut.
+- **The keypad is now covered while typing.** By design (the sheet never moves, the keyboard overlays
+  the lower half and the amount can still be entered by tapping keys with no keyboard focused), but
+  this is a real product trade: with Smart Entry focused, the keypad below is unreachable until the
+  keyboard is dismissed. Worth a look on the device.
+
 - **Whether iOS really plays the sheet transition every time cannot be confirmed here** — that it
   does so in Chromium is measured (`opened=10/10`), and the fix removes the known-unreliable
   mechanism (an animation tied to a `display` flip) rather than tuning it.
@@ -338,10 +442,11 @@ Decisions worth knowing:
 
 ## 6. Instructions for the orchestrator — settle these before more UI work
 
-- **`/` is `no-cache`; should it be `no-store`?** `no-cache` revalidates but Starlette's
-  `FileResponse` never answers `If-None-Match` with 304, so a load re-downloads all 150 KB anyway —
-  `no-store` would additionally make a stale standalone copy impossible. One line in `main.py`, left
-  alone because the task said no backend changes.
+- **`/` was `no-cache`; should it be `no-store`? — SETTLED: it is `no-store` now.** `no-cache`
+  revalidates, but Starlette's `FileResponse` never answers `If-None-Match` with 304, so a load
+  re-downloaded all 150 KB anyway; `no-store` additionally makes a stale standalone copy impossible.
+  `tests/test_static.py::test_the_page_is_never_stored` asserts the header, and
+  `tests/test_production.py` asserts it in the hardening test.
 - **The Build row** (`motion N`) is a diagnostic, not a product feature: keep bumping it by hand, or
   drop it once the standalone cache question is settled?
 - **Text mode hides the keypad while the card is open**, per the brief, so the amount cannot be
