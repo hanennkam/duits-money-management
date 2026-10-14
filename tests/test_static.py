@@ -55,6 +55,48 @@ def test_the_page_is_never_stored(client: TestClient) -> None:
     assert "max-age" not in home.headers["Cache-Control"]
 
 
+def test_the_sheet_tap_guards_are_target_based(client: TestClient) -> None:
+    """A tap must be dismissed only when it IS the scrim, never by re-querying a detached node.
+
+    Tapping a category chip redraws the chips row, and tapping Edit or Delete replaces the sheet's body,
+    which detaches the element the click's target points at. A guard written as
+    `event.target.closest(".sheet")` then finds no ancestor on that detached node, decides the tap was
+    outside, and closes the sheet — which is what broke the chips and the edit/delete buttons on the
+    phone. The guard must ask whether the target is the scrim layer (or the overlay itself).
+    """
+    page = client.get("/").text
+    assert "function isOutsideTap(event, overlay)" in page
+    assert 'return event.target === overlay || (!!scrim && event.target === scrim);' in page
+    assert '!event.target.closest(".sheet")' not in page, "the detached-node guard is back"
+    assert page.count("isOutsideTap(event, $(") == 3, "all three overlays must use the guard"
+
+
+def test_the_drag_waits_for_the_threshold_before_capturing(client: TestClient) -> None:
+    """setPointerCapture on pointerdown moves the tap's click event to the sheet.
+
+    A capture taken on pointerdown makes the sheet the target of the pointerup, so the synthesised click
+    lands on the sheet instead of the button that was tapped, and the button's handler never runs. It
+    must be taken only once the drag is real — after the >8px mostly-vertical threshold — and the drag
+    must only be able to start on an allowed surface.
+    """
+    page = client.get("/").text
+    body = page[page.index("function attachSheetDrag"):page.index("function openRowFrom")]
+    threshold = body.index("dy < DRAG_START_PX")
+    capture = body.index("sheet.setPointerCapture(event.pointerId)")
+    assert threshold < capture, "capture must come after the drag is claimed"
+    # the function itself must consult both lists
+    assert body.index("closest(DRAG_SURFACES)") < body.index("closest(DRAG_BLOCKERS)")
+    # the allow list is a short list of surfaces...
+    surfaces = page[page.index("var DRAG_SURFACES"):page.index("var DRAG_BLOCKERS")]
+    for surface in (".sheet-grab", ".sheet-head", ".add-amount", ".sheet-title", ".sheet"):
+        assert surface in surfaces, surface + " must be a drag surface"
+    # ...and the deny list still removes everything with a gesture of its own
+    blockers = page[page.index("var DRAG_BLOCKERS"):page.index("var DRAG_START_PX")]
+    for blocked in (".cat-chip", ".key", ".chip-scroll", ".add-rows", ".smart-card", "button",
+                    "input"):
+        assert blocked in blockers, blocked + " must stay blocked"
+
+
 @pytest.mark.parametrize(
     "url, filename, size", [(url, name, size) for url, (name, size) in sorted(ICONS.items())]
 )

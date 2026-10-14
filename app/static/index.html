@@ -1600,6 +1600,20 @@
   // The scrim is a child layer, not the overlay itself: animating the overlay's opacity would apply a
   // group opacity to everything inside it, the sheet included, and that is what made a closing sheet
   // translucent with the page showing through its text.
+  // Is this click a tap on the dim, rather than on the sheet?
+  //
+  // It must NOT be answered by asking the tree where event.target is now. A sheet's own handlers
+  // re-render their content (tapping a category chip redraws the whole chips row; tapping Edit or
+  // Delete replaces the sheet's body), which detaches the node the event's target points at — and a
+  // detached node has no ancestors, so `event.target.closest(".sheet")` returns null and the tap looks
+  // like it landed outside. That closed the Add sheet on every chip tap and swallowed Edit and Delete:
+  // the sheet shut before the next step could happen. The only elements that mean "outside" are the
+  // scrim layer and the overlay itself, and neither can be detached by a sheet handler.
+  function isOutsideTap(event, overlay) {
+    var scrim = overlay.querySelector(".scrim");
+    return event.target === overlay || (!!scrim && event.target === scrim);
+  }
+
   function sheetParts(element) {
     return { scrim: element.querySelector(".scrim"), sheet: element.querySelector(".sheet") };
   }
@@ -3313,9 +3327,15 @@
   // over something with its own gesture: keys, inputs, buttons, the chips scroller, the two action
   // rows, the Details panel. One selector, so the exclusions are a single list to read, and `.no-drag`
   // is the escape hatch for anything added later.
+  // A drag may only begin on one of these: the handle, the header, the amount, the edit sheet's title
+  // and amounts, or the sheet's own empty space. The deny list below then removes anything interactive
+  // that can sit inside one of them (the header's buttons, above all), so the allow list can stay short
+  // and any element added later is NOT draggable by default.
+  var DRAG_SURFACES = ".sheet-grab, .sheet-head, .add-amount, .sheet-title, .sheet-sub, .sheet-amount, " +
+    ".result-merchant, .result-amount, .result-meta, .sheet";
   var DRAG_BLOCKERS = "button, a, label, input, select, textarea, .no-drag, .key, .keypad, " +
     ".chip-scroll, .cat-chip, .add-rows, .smart-card, .add-pills, .add-details, .sheet-actions, " +
-    ".wheel, .wheel-cols";
+    ".kv, .item-row, .form-row, .receipt-img, .wheel, .wheel-cols";
   var DRAG_START_PX = 8;          // movement before the drag is claimed at all (a tap may wobble)
   var DRAG_CLOSE_PX = 120;        // dragged this far down and it closes
   var DRAG_CLOSE_VELOCITY = 0.5;  // px/ms: a quick flick closes from much less than that
@@ -3341,13 +3361,17 @@
       if (drag) return;                                   // one pointer owns the gesture
       if (event.isPrimary === false) return;               // a second finger never steals it
       if (handleOnly && !(handle && handle.contains(event.target))) return;
-      if (!handleOnly && event.target.closest && event.target.closest(DRAG_BLOCKERS)) return;
+      if (!handleOnly) {
+        // Both halves: it must be an allowed surface, and not something interactive sitting on one.
+        if (!event.target.closest || !event.target.closest(DRAG_SURFACES)) return;
+        if (event.target.closest(DRAG_BLOCKERS)) return;
+      }
       epoch += 1;
+      // No setPointerCapture here. Capturing on pointerdown would make the sheet the target of the
+      // pointerup, which moves the synthesised click to the sheet and away from the button that was
+      // tapped. It is taken when the drag is actually claimed, which is after the threshold below.
       drag = { id: event.pointerId, fromX: event.clientX, fromY: event.clientY,
                lastY: event.clientY, lastAt: event.timeStamp, velocity: 0, offset: 0, moving: false };
-      if (sheet.setPointerCapture) {
-        try { sheet.setPointerCapture(event.pointerId); } catch (error) { /* synthetic event */ }
-      }
     }
 
     function onMove(event) {
@@ -3360,6 +3384,11 @@
         drag.moving = true;
         markMoving(sheet, true);
         cancelOverlayMotion(overlay);        // the finger takes over from the open/close animation
+        if (sheet.setPointerCapture) {
+          // Now the gesture is ours, so capture is safe: taps have already been ruled out by >8px of
+          // mostly-vertical movement, and nothing that follows needs a click event.
+          try { sheet.setPointerCapture(event.pointerId); } catch (error) { /* synthetic event */ }
+        }
         var active = document.activeElement;
         if (active && active.blur && active !== document.body) active.blur();   // keyboard goes with it
       }
@@ -3454,12 +3483,12 @@
     $("monthCancel").addEventListener("click", closeMonthSheet);
     $("monthDone").addEventListener("click", applyMonthWheel);
     $("monthOverlay").addEventListener("click", function (event) {
-      if (!event.target.closest || !event.target.closest(".sheet")) closeMonthSheet(); // outside the sheet
+      if (isOutsideTap(event, $("monthOverlay"))) closeMonthSheet();
     });
     $("addBtn").addEventListener("click", openAddSheet);   // the raised "+" in the tab bar
     $("closeAddBtn").addEventListener("click", closeAddSheet);
     $("addOverlay").addEventListener("click", function (event) {
-      if (!event.target.closest || !event.target.closest(".sheet")) closeAddSheet(); // outside the sheet
+      if (isOutsideTap(event, $("addOverlay"))) closeAddSheet();
     });
     attachSheetDrag("addSheet", "addOverlay", closeAddSheet, false);
     attachSheetDrag("txnSheet", "txnOverlay", closeSheet, false);
@@ -3486,7 +3515,7 @@
     });
     $("txnSheet").addEventListener("click", handleSheetClick);
     $("txnOverlay").addEventListener("click", function (event) {
-      if (!event.target.closest || !event.target.closest(".sheet")) closeSheet(); // outside the sheet
+      if (isOutsideTap(event, $("txnOverlay"))) closeSheet();
     });
     $("refreshBtn").addEventListener("click", function () {
       if (state.screen === "settings") { showScreen("home"); return; }

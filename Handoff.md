@@ -25,6 +25,26 @@ SETTINGS, ADD NEW TRANSACTION). **All five screens are built and in use.**
 
 Completed since the last handoff (all verified, see §3):
 
+- **The real cause of both phone symptoms: an outside-tap guard that re-queried a detached node.**
+  `!event.target.closest(".sheet")` was used to decide whether a click landed on the scrim. A sheet's own
+  handlers re-render their content — tapping a category chip redraws the whole chips row, tapping Edit or
+  Delete replaces the sheet's body — which **detaches the node the click's target points at**, and a
+  detached node has no ancestors, so `closest(".sheet")` returned null, the guard read "outside" and the
+  sheet closed mid-tap. That is symptom 1 (chip taps dismiss the sheet) and symptom 2 (Edit re-rendered
+  the form and the sheet shut before Save/Delete could be pressed).
+  - Fixed with `isOutsideTap(event, overlay)`: a tap is outside only when `event.target` **is** the scrim
+    layer or the overlay itself. Wired into all three overlays.
+  - Found with real touch, not synthetic clicks: `element.click()` never exercises capture or target
+    resolution, which is why the earlier probes passed while the phone failed. New runner
+    `/tmp/cdp-touch.py` drives `Input.dispatchTouchEvent` (with `Emulation.setTouchEmulationEnabled`) and
+    logs every pointer/touch/click target with its in-sheet flag.
+- **Drag hardening from the same brief.** `setPointerCapture` moved from pointerdown to the moment the
+  drag is actually claimed (after the >8px mostly-vertical threshold) — capturing on pointerdown makes
+  the sheet the target of the pointerup and moves the synthesised click away from the tapped button. The
+  drag now needs to hit an **allow list** (`DRAG_SURFACES`: handle, header, amount, the edit sheet's
+  title/amounts, the sheet's own empty space) *and* miss the deny list (`DRAG_BLOCKERS`, extended with
+  `.kv`, `.item-row`, `.form-row`, `.receipt-img`), so a new element is not draggable by default.
+
 - **A closing sheet went see-through. Root cause: the scrim *was* the overlay.** `sheetParts()`
   returned `{ scrim: element }`, so `openOverlay`/`closeOverlay` animated `opacity` on the overlay
   itself — and an opacity on an ancestor is a *group* opacity, so it faded the `.sheet` inside it.
@@ -361,7 +381,37 @@ Decisions worth knowing:
 
 ## 3. Validation (all executed this session)
 
-**This session — the closing sheet must stay opaque (all re-run after the final edit):**
+**This session — chip taps and edit/delete on the phone (all re-run after the final edit):**
+
+- `./.venv/bin/python -m pytest -q` → **85 passed** (two new tests pin the fix on the served page:
+  `test_the_sheet_tap_guards_are_target_based` — the helper exists, the guard is the target comparison,
+  the detached-node form is gone, all three overlays use it — and
+  `test_the_drag_waits_for_the_threshold_before_capturing` — the `dy < DRAG_START_PX` check comes before
+  the `sheet.setPointerCapture(event.pointerId)` call, the allow list is consulted before the deny list,
+  and both lists carry their required entries).
+- `node /tmp/duits-ui-check.js` → **755 assertions** / **897 in total** (+22: the `isOutsideTap` shape,
+  the absence of the old guard, all three call sites, a *behavioural* test that drives the page's real
+  overlay click handler with a detached-looking target (sheet stays open) and with the scrim (closes),
+  then Edit → form, the overlay guard on a detached Edit target, Save → one `PATCH`, Delete → confirm
+  step → one `DELETE`, both closing the sheet; the fake nodes now record their handlers so tests can
+  invoke them). The two concurrent async IIFEs share the `calls` array, so the older delete/PATCH
+  assertions are now scoped to their own rows.
+- **Real touch over CDP** (`/tmp/cdp-touch.py`, `Input.dispatchTouchEvent` + touch emulation, logging
+  every pointer/touch/click target), 375×667 and 390×844, before and after:
+  - **before the fix** the log showed the chip receiving its own click (`target=.cat-chip inSheet=true`)
+    *and* `addOpen=false` immediately after — the reproduced symptom;
+  - **after**: ten chip taps → `selections=10 closes=0`; a tap after scrolling the row
+    (`scrollLeft=120`) still selects with the sheet open; a 6px drift on a keypad key → no close, the key
+    registers (`amount=RM 1`); a 160px swipe from the amount closes, from the chips row does not;
+  - Edit → `txnSheet=id="saveBtn"`; Save → one `PATCH /transactions/r1`, sheet closed; Delete →
+    `id="confirmDeleteBtn"` appears, confirm → `DELETE`, `toast: Deleted.`, and the Transactions tab
+    re-renders with 10 rows; ten Add cycles + ten edit cycles → **"all overlays hidden+inert"**;
+  - the probe also confirmed the earlier fixes still hold there: the scrim tap zone resolves to the scrim
+    layer, the sheet is opaque through a drag, and the keypad's bottom is the viewport's bottom.
+- Regressions re-run: drag surfaces (header/amount/empty space close, a slow drag springs back, a flick
+  closes), the scrim tap, the sheet-opacity frame check, and ten button cycles `10/10` with `scrim=0`.
+
+**Previous session — the closing sheet must stay opaque (all re-run after the final edit):**
 
 - `./.venv/bin/python -m pytest -q` → **83 passed**; `node /tmp/duits-ui-check.js` → **733 assertions**
   / **875 in total** (13 new: no `opacity` on `.overlay` or `.overlay.open`, the `.overlay .scrim` state
@@ -649,6 +699,16 @@ Decisions worth knowing:
   with and without the mark (`barHeightMoved=false`), `barOverflow=no`, refresh button still 34px.
 
 ## 4. Unresolved issues / risks
+
+- **The tap fix is verified with emulated touch, not a finger.** The CDP touch probe runs Chrome's own
+  pointer → click pipeline (capture, target resolution, scroll arbitration), which is what reproduced the
+  detached-target bug and proves it is gone — but WebKit is a different engine: its capture semantics, its
+  tap heuristics, its scroll arbitration on the chips row and its text-selection behaviour on a quick tap
+  are unverified until the two original symptom taps (a chip, then Edit → Save, then Delete → confirm) are
+  repeated on the phone.
+- **`isOutsideTap` depends on the scrim layer existing.** It falls back to the overlay itself when the
+  scrim is missing, which is correct but means a future markup change that removes `.scrim` silently
+  narrows the "outside" area to taps that land on the overlay box itself.
 
 - **Opaqueness is proven by computed style, not by sampling pixels.** The probe asserts that nothing in
   the sheet's ancestor chain animates opacity, that the scrim is a separate layer, and that the closed

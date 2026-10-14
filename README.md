@@ -372,6 +372,13 @@ The Add sheet and the edit sheet are native-style bottom sheets, not full-screen
   28px corners, its own padding-bottom for the home indicator) but keeps a content-sized height capped
   at the gap, and it may scroll internally — a list of corrections is not a keypad. The **month wheel
   keeps its own height and its own scrim**.
+- **A tap outside is judged by the target, never by where the tree says it is.** `isOutsideTap(event,
+  overlay)` closes the sheet only when `event.target` IS the scrim layer or the overlay itself. The
+  obvious-looking `event.target.closest(".sheet")` cannot be used: a sheet's own handlers re-render
+  their content (a category chip redraws the chips row; Edit and Delete replace the sheet's body), which
+  detaches the node the click's target points at — and a detached node has no ancestors, so the guard
+  read "outside" and closed the sheet mid-tap. That is what made a chip tap dismiss the Add sheet and
+  what swallowed the edit and delete buttons on the phone.
 - **The scrim is a layer, not the overlay**: `<div class="scrim">` as the first child of every
   overlay, painted under the sheet, `--scrim-sheet: rgba(0, 0, 0, .35)` for these two sheets (the modal
   scrim stays deeper darker). It is the only opacity animation in an overlay — which is what keeps the
@@ -430,9 +437,21 @@ grabber with a thumb is the one gesture a phone should not require. One implemen
   `.add-rows` (Scan Receipt), `.smart-card` (Smart Entry), `.add-pills`, `.add-details`,
   `.sheet-actions`, the wheel — and `.no-drag` is the escape hatch for anything added later. The
   header, the amount, the grabber and empty space are all fair game.
+- **It can only start on four kinds of surface**, because the allow list is a list and not an
+  afterthought: `DRAG_SURFACES = ".sheet-grab, .sheet-head, .add-amount, .sheet-title, .sheet-sub,
+  .sheet-amount, .result-merchant, .result-amount, .result-meta, .sheet"` — the handle, the header, the
+  amount, the edit sheet's title and amounts, and the sheet's own empty space. A second check then
+  removes anything interactive sitting on one of those (the header's buttons, above all) via
+  `DRAG_BLOCKERS`: buttons, links, labels, inputs, selects, textareas, `.key`, `.keypad`,
+  `.chip-scroll`, `.cat-chip`, `.add-rows`, `.smart-card`, `.add-pills`, `.add-details`,
+  `.sheet-actions`, `.kv`, `.item-row`, `.form-row`, `.receipt-img`, the wheel, and anything marked
+  `.no-drag`. An element added later is therefore *not* draggable by default.
 - **It is claimed only once it is a downward drag**: more than 8px of movement
   (`DRAG_START_PX`) and more vertical than horizontal (`|dy| > |dx|`). An upward or sideways movement
-  does nothing at all, so a tap with a wobble and a scroll never fight the sheet.
+  does nothing at all, so a tap with a wobble and a scroll never fight the sheet. `setPointerCapture`
+  is taken **here**, when the gesture is genuinely ours — never on pointerdown, because capturing then
+  makes the sheet the target of the pointerup and moves the synthesised click onto the sheet, away
+  from the button that was tapped.
 - At that moment the finger takes over: any running open/close animation is **cancelled**
   (`cancelOverlayMotion`), a focused input is **blurred** so the keyboard closes with the drag, the
   sheet follows `translateY(dy)` with no animation (it never fades), and the scrim layer's opacity
@@ -748,6 +767,10 @@ Safari. Both write the same rows.
 - **The page-behind scale is untested on hardware.** Scaling `.app` also scales the two frosted bars
   (`backdrop-filter: blur(20px)`), which is the one thing on this page that a scaled compositing layer
   can make janky on a phone. It is one line (`PAGE_BEHIND`) to drop if it stutters.
+- **Real touch is emulated, not a finger.** The CDP touch probe runs Chrome's own pointer/click
+  pipeline, which is what caught the detached-target bug, but it is still not iOS: WebKit's capture
+  semantics, its 300ms-ish tap heuristics, its scroll arbitration on the chips row and its text-selection
+  behaviour on a quick tap are all unverified until the two symptom taps are repeated on the phone.
 - **The gesture's arbitration against iOS's own is reasoned, not tested.** The probes drive synthetic
   pointer events, so they prove the app's state machine (thresholds, velocity, cancel, spring, the
   exclusions) and nothing about how a real finger is arbitrated: whether iOS delivers `pointercancel`
@@ -854,6 +877,21 @@ amount still closes it with `translateY(180px)` mid-flight (and the page stays s
 gone), the keypad still types, and the edit sheet reports the same anchor, radius and `54px`
 bottom padding (20 + the home-indicator inset) while the month wheel keeps its own 333px height and
 its own scrim. Under `--reduced-motion` the geometry is identical and `pageBehind=none`.
+
+Taps are also driven as **real touch** (`/tmp/cdp-touch.py`: CDP `Input.dispatchTouchEvent` with
+`Emulation.setTouchEmulationEnabled`, so the browser runs its own pointer -> click pipeline, capture and
+target resolution), because synthetic `element.click()` bypasses exactly the layer where a tap bug
+lives. That is what found the regression behind the two phone symptoms: tapping a category chip redraws
+the chips row, detaching the node the click's target points at, and the overlay's outside-tap guard —
+written as `event.target.closest(".sheet")` — then read that detached node as "outside" and closed the
+sheet. The same mechanism meant Edit and Delete replaced the sheet's body, detached themselves, and had
+the sheet shut before the next step could run. The probe now reports, at 375×667 and 390×844: ten chip
+taps -> `selections=10 closes=0`; a chip tap after scrolling the row (`scrollLeft=120`) still selects,
+sheet open; a 6px drift on a keypad key -> no close, the key registers; a 160px swipe from the amount
+closes, from the chips row does not; Edit opens the form, Save sends a `PATCH /transactions/<id>` and
+closes, Delete asks first (`confirmDeleteBtn` appears) then sends the `DELETE`, `toast: Deleted.`, and
+the Transactions tab re-renders with the row gone; ten Add cycles and ten edit cycles leave
+"all overlays hidden+inert".
 
 The swipe-to-dismiss gesture is exercised with synthetic pointer sequences (`pointerdown` → moves →
 `pointerup`/`pointercancel`) in the same harness: a 200px drag from the header, from the amount and
