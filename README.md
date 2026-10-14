@@ -254,10 +254,9 @@ Settings keeps the large title alone.
     in their own colours. Nothing is selected by default and tapping the selected chip again clears it.
     **Personal/Business** starts on the mode of the tab behind the sheet.
   - The **keypad** is pinned to the bottom: 24px-radius container, 3 columns, 48px keys (56px from
-    780px of screen height up). Focusing any text field (merchant, note, date, smart entry) hides it,
-    because the real keyboard is up. That visibility is re-derived from `document.activeElement` by one
-    `paintKeypad()` rather than remembered by focus events, so closing a panel cannot leave the keys
-    stranded.
+    780px of screen height up, 44px in a short box). Focusing a text field does not move or hide it —
+    the real keyboard simply covers the lower half of the sheet, which is the whole point of the sheet
+    never resizing.
 
   **Save** posts the typed row to `POST /transactions`, so no Claude call is involved. The sheet
   closes on success with a toast, and the new row appears without a manual reload: Home (summary +
@@ -265,8 +264,8 @@ Settings keeps the large title alone.
   month also moves the shared month pill. Every failure is visible twice over — a red toast with the
   reason plus a card floating directly above the keys (never below the fold, which is how a stale
   server's `405` once looked like a dead Save button). A `409` leaves the sheet open and shows
-  "Already recorded" with the existing transaction, so nothing typed is lost. Drag the handle down
-  (or tap outside, or Cancel) to dismiss.
+  "Already recorded" with the existing transaction, so nothing typed is lost. Swipe down from almost
+  anywhere — the header, the amount, any empty space (or tap outside, or Cancel) — to dismiss.
 - **Settings** — iOS inset groups: *Appearance* holds the System/Light/Dark segmented control,
   *Security* holds one tappable row (blue key icon, "API key",
   live "Saved on this device" / "Not set" value) that opens the change-key sheet, and *About*
@@ -340,8 +339,10 @@ Safari's own gestures are kept out of the way, because each one breaks the sheet
   viewport meta, but the font size is the real fix (iOS has ignored `maximum-scale` for pinch since
   iOS 10 — so pinch-zoom still works, as it should).
 - **No double-tap zoom.** `touch-action: manipulation` on `html`, `body`, `button` (every tappable
-  thing here is one, keys and chips and tabs included) and the date `<label>`; the drag handle keeps
-  `touch-action: none`. Keys are `-webkit-tap-highlight-color`-free and `user-select: none`, while
+  thing here is one, keys and chips and tabs included) and the date `<label>`. The Add sheet is
+  `touch-action: none` so a swipe anywhere on it is a dismiss rather than a pan, with the two scrollers
+  handed back their own gestures (`pan-x` on the chips, `pan-y` on the expanded Details row). The edit
+  sheet still scrolls, so only its head and amounts are locked. Keys are `-webkit-tap-highlight-color`-free and `user-select: none`, while
   inputs keep selection so a typed line stays correctable.
 - **No sideways scroll.** `html, body { overflow-x: hidden; max-width: 100vw }`, `box-sizing:
   border-box` throughout, `min-width: 0` on the flexing field. The only things off the right edge are
@@ -353,6 +354,38 @@ Safari's own gestures are kept out of the way, because each one breaks the sheet
   the top. `focus()` is always called with `{ preventScroll: true }` so Safari never pans the page to
   "help", and nothing in the sheet can zoom: every focusable control is at least 16px and the viewport
   meta pins `maximum-scale=1`.
+
+### Swipe to dismiss
+
+The Add sheet and the edit sheet close by swiping down from almost anywhere, because reaching for the
+grabber with a thumb is the one gesture a phone should not require. One implementation,
+`attachSheetDrag(sheetId, overlayId, onDismiss, handleOnly)`, in `app/static/index.html`:
+
+- **pointerdown / move / up on the sheet**, with `setPointerCapture` so the sheet keeps the gesture
+  even when the finger leaves it. A second finger never steals it (`isPrimary`).
+- **A drag only starts where nothing else has a gesture.** `DRAG_BLOCKERS` is one selector — buttons,
+  links, labels, inputs, selects, textareas, `.key`, `.keypad`, `.chip-scroll`, `.cat-chip`,
+  `.add-rows` (Scan Receipt), `.smart-card` (Smart Entry), `.add-pills`, `.add-details`,
+  `.sheet-actions`, the wheel — and `.no-drag` is the escape hatch for anything added later. The
+  header, the amount, the grabber and empty space are all fair game.
+- **It is claimed only once it is a downward drag**: more than 8px of movement
+  (`DRAG_START_PX`) and more vertical than horizontal (`|dy| > |dx|`). An upward or sideways movement
+  does nothing at all, so a tap with a wobble and a scroll never fight the sheet.
+- At that moment the finger takes over: any running open/close animation is **cancelled**
+  (`cancelOverlayMotion`), a focused input is **blurred** so the keyboard closes with the drag, the
+  sheet follows `translateY(dy)` with no animation, and the scrim's opacity thins with the distance
+  (never below 0.3, so the screen behind stays readable).
+- **On release** it closes if the sheet is more than `DRAG_CLOSE_PX` (120px) down *or* the last
+  movement was faster than `DRAG_CLOSE_VELOCITY` (0.5 px/ms — a quick flick counts from much less than
+  120px), continuing from the finger's exact offset through the same Web Animations close
+  (`closeOverlay(element, after, fromOffset)`). Otherwise it springs back to 0 over 250ms.
+- **It can never stick.** `pointercancel` clears the inline transform and scrim opacity, the spring's
+  cleanup is token-guarded so a new press invalidates a settling one, the close drops every inline
+  style on the way out, and the close keeps its own timer fallback.
+- **Reduce Motion**: no spring animation (the sheet snaps home), and the close keeps its
+  opacity-only fade. The gesture itself behaves identically.
+- **The month wheel keeps its grabber-only drag** (`handleOnly: true`): its columns scroll vertically,
+  so a drag on its body would fight them.
 
 ### Motion
 
@@ -376,8 +409,8 @@ palette: `--ease-ios: cubic-bezier(0.32, 0.72, 0, 1)`, with `--dur-sheet: 350ms`
   flight cannot re-close a sheet that has been reopened. The class is only *state* (`opacity: 0;
   visibility: hidden; pointer-events: none` when closed — never `display: none`), and there is
   deliberately **no CSS transition on the overlay at all**, which is exactly what iOS played once and
-  then ignored. Dragging the handle past 80px cancels the animation, hands the transform to the
-  finger, and releases into the same exit.
+  then ignored. A downward drag cancels whatever animation is running, hands the transform to the
+  finger and releases into the same exit (see *Swipe to dismiss* below).
 - **Presses**: one shared rule — `button:not(.tab):not(.tab-add), .add-pill` scale to
   `var(--press-scale)` (0.96) and dim to 0.7 while held, springing back on release. The tab bar and
   the raised `+` are excluded on purpose; the date pill's hit target is the invisible native input
@@ -631,6 +664,13 @@ Safari. Both write the same rows.
   in Settings remains the way to check what a phone actually loaded; if its stamp is older than the
   server, the shortcut needs deleting and re-adding. The cost is re-downloading a ~150KB page every
   launch, which is the right trade for an app whose only asset is that page.
+- **The gesture's arbitration against iOS's own is reasoned, not tested.** The probes drive synthetic
+  pointer events, so they prove the app's state machine (thresholds, velocity, cancel, spring, the
+  exclusions) and nothing about how a real finger is arbitrated: whether iOS delivers `pointercancel`
+  instead of `pointermove` when a drag begins over a `touch-action: pan-y` region of the edit sheet,
+  whether a real finger on the chips row still scrolls while the sheet listens for pointers, and how
+  the scrim looks mid-drag. Locking the whole Add sheet with `touch-action: none` is what makes that
+  one reliable; the edit sheet keeps scrolling, so its header is the drag-locked part.
 - **The iOS status bar can only be reasoned about, not tested, from here.** `black-translucent` is
   shipped and the theme swap is decided before the first paint, but whether iOS re-reads that meta on
   a relaunch (rather than only at install) cannot be checked without a device. If it does not, a light
@@ -691,7 +731,20 @@ edge, the Smart Entry card geometry, and a simulated keyboard (a faked `visualVi
 43% of the screen) to prove that **nothing moves**: the sheet keeps its size and position, the
 amount and keypad stay at the same coordinates, the keypad stays on screen, the page does not scroll
 and the layout does not overflow sideways.
-The same probe runs with the notch insets simulated (47px/59px top, 34px bottom, set through the
+The swipe-to-dismiss gesture is exercised with synthetic pointer sequences (`pointerdown` → moves →
+`pointerup`/`pointercancel`) in the same harness: a 200px drag from the header, from the amount and
+from the sheet's own empty space all follow the finger (`translateY(200px)` mid-drag, scrim at 0.745)
+and close; a slow 60px drag springs back to 0 with the overlay still open; a 70px flick closes
+(velocity, not distance); upward and sideways drags move nothing; a 6px wobble on a keypad key, in the
+chips row, on the Smart Entry card, on Scan Receipt and on Save leaves the sheet open (and the key
+still types `RM 5`); a drag with the Smart Entry field focused blurs it and closes; `pointercancel`
+midships leaves the sheet at rest and open; ten drag-close cycles end `10/10` closed with nothing
+stuck and no inline styles left; the edit sheet closes from its title; the month wheel stays open when
+its columns are swiped and closes from its grabber; and 60ms into the open animation a drag cancels
+it and takes over. Under `--reduced-motion` the same script closes on a long drag, settles on a short
+one with **zero** spring animations, and still takes the transform from a running animation.
+
+The safe-area probe runs with the notch insets simulated (47px/59px top, 34px bottom, set through the
 `--sat`/`--sab` variables) at 375×667, 390×844 and 430×932: it checks that the nav bar's background
 reaches y=0 while its content starts below `--sat`, that the tab bar reaches the bottom edge while
 its last row clears `--sab`, that the Add sheet is a full-screen page (`top=0`, height = the viewport,

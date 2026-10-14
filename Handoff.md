@@ -25,6 +25,28 @@ SETTINGS, ADD NEW TRANSACTION). **All five screens are built and in use.**
 
 Completed since the last handoff (all verified, see §3):
 
+- **Swipe down to dismiss, from almost anywhere on the Add and edit sheets.** The old drag was bound to
+  the grabber only and used an 80px threshold; it is replaced by one `attachSheetDrag(sheetId,
+  overlayId, onDismiss, handleOnly)`:
+  - pointerdown/move/up **on the sheet** with `setPointerCapture`, `isPrimary` guard;
+  - a drag starts only where nothing else has a gesture — `DRAG_BLOCKERS` (buttons, links, labels,
+    inputs, selects, textareas, `.key`, `.keypad`, `.chip-scroll`, `.cat-chip`, `.add-rows`,
+    `.smart-card`, `.add-pills`, `.add-details`, `.sheet-actions`, the wheel) plus a `.no-drag` escape
+    hatch — and only after 8px of *downward, mostly vertical* movement (`|dy| > |dx|`);
+  - at that point the running open/close animation is cancelled, a focused input is blurred (the
+    keyboard leaves with the drag), the sheet follows `translateY(dy)` with no animation and the scrim
+    thins with the distance (floored at 0.3);
+  - release closes on `dy > 120` **or** `velocity > 0.5 px/ms`, continuing from the finger's offset via
+    `closeOverlay(element, after, fromOffset)` — the close animation now accepts a start offset, and
+    drops every inline style when it lands. Otherwise a 250ms spring back to 0.
+  - `pointercancel` clears the inline styles, the spring cleanup is epoch-guarded (a new press
+    invalidates a settling one) and the close keeps its timer fallback, so nothing can stick.
+  - Reduce Motion: no spring, closing unchanged (opacity-only). The month wheel keeps `handleOnly:
+    true` (its columns scroll vertically); the edit sheet drags from its head/amount surfaces because
+    its body still has to scroll.
+  - CSS: `#addSheet { touch-action: none }` with `pan-x` handed back to the chip scroller and `pan-y`
+    to the expanded Details row; the edit sheet locks only its head and amounts.
+
 - **Full screen on the Home Screen, and the Add sheet's head no longer under the status bar.**
   - **The Add sheet is a full-screen page now**: `position: fixed; inset: 0; height: 100dvh` (a
     `100%` fallback) with `padding-top: max(var(--sat), 8px)` and no JS height at all. The old
@@ -271,7 +293,36 @@ Decisions worth knowing:
 
 ## 3. Validation (all executed this session)
 
-**This session — full screen + the Add sheet's safe area (all re-run after the final edit):**
+**This session — swipe to dismiss (all re-run after the final edit):**
+
+- `./.venv/bin/python -m pytest -q` → **83 passed**; `node /tmp/duits-ui-check.js` → **670 assertions**
+  / **812 in total** (36 new pins: the four drag constants, `setPointerCapture` on the sheet, the
+  vertical-only gate, the velocity line, the blur, the cancel-before-takeover, the reduce-motion
+  spring guard, the two-axis release rule, `pointercancel`, the three `attachSheetDrag` wirings with
+  the wheel's `handleOnly`, the `fromOffset` close keyframes, the inline-style cleanups and the
+  `touch-action` rules; the stale `wireSheetDrag` / 80px / `window.innerHeight` pins were replaced).
+- **Synthetic pointer probes over CDP** (`/tmp/cdp-js-drag{1,2a,2b,3}.js`), 375×667 and 390×844:
+  - 200px drags from the **header**, the **amount** and the sheet's **own empty space** all follow the
+    finger (`midDrag transform=translateY(200px)`, `scrimOpacity=0.745`) and close, with
+    `inline="" running=0` afterwards;
+  - slow 60px → springs back (2 spring animations), stays open; 70px flick → closes on velocity;
+  - upward 200px and sideways 200px → the sheet never moves, stays open;
+  - 6px wobbles on a keypad key, in the chips row (`touch-action: pan-x`), on the Smart Entry card, on
+    Scan Receipt and on Save → all stay open, and the key still types `RM 5`;
+  - drag with the Smart Entry field focused → `focusedBefore=true focusedAfter=false`, closes;
+  - `pointercancel` mid-drag → stays open, sheet at rest, no inline leftovers;
+  - ten drag-close cycles → `closed=10/10 stuck=0`, settled `visibility=hidden pointers=none
+    inline=""` and the sheet back at `translateY(667px)`;
+  - edit sheet closes from its `.sheet-title`; month wheel stays open on a column swipe and closes from
+    its grabber; `final: openOverlays=0 overflow=0`;
+  - 60ms into the open animation a drag cancels it (`midDragRunning=0`) and takes the transform.
+- **Reduce motion** (`--reduced-motion`): the same script closes on a long drag, settles on a short one
+  with **zero** spring animations, and still takes over from a running animation.
+- **Regressions re-checked**: the ten open/close button cycles are still `10/10` with nothing stuck and
+  no thrown errors; the keyboard focus test still shows `moved? sheetH=0 sheetTop=0 amountTop=0
+  keypadTop=0 scrollY=0`.
+
+**Previous session — full screen + the Add sheet's safe area (all re-run after the final edit):**
 
 - `./.venv/bin/python -m pytest -q` → **83 passed**; `node /tmp/duits-ui-check.js` → **634 assertions**
   / **776 in total** (21 new pins: `viewport-fit=cover`, the `black-translucent` meta, the four
@@ -437,6 +488,15 @@ Decisions worth knowing:
   with and without the mark (`barHeightMoved=false`), `barOverflow=no`, refresh button still 34px.
 
 ## 4. Unresolved issues / risks
+
+- **The swipe's arbitration against iOS's own gesture handling is reasoned, not tested.** The probes
+  drive synthetic pointer events, so they prove the state machine (thresholds, velocity, cancel,
+  spring, exclusions) and nothing about a real finger. Open on a device: whether iOS sends
+  `pointercancel` instead of `pointermove` when a drag starts over the edit sheet's
+  `touch-action: pan-y` regions (the Add sheet locks the whole surface, so it is unaffected), whether
+  the chips row still scrolls horizontally while the sheet is listening for pointers, and how the
+  scrim reads mid-drag. Also unverified: the `.add-details` panel and the pills row are excluded from
+  dragging on purpose — confirm on the device that this does not feel like a dead zone.
 
 - **The iOS status bar style is the one judgement call to confirm on a device.** The page ships
   `black-translucent` and swaps to `default` for the light theme (white glyphs over a near-white bar

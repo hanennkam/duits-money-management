@@ -527,6 +527,17 @@
     container-type: size;
   }
   #addSheet .sheet-grab { margin: -2px 0 0; padding: 4px 0 8px; }
+  /* Swipe-to-dismiss. A pointer may claim the gesture anywhere on the sheet except over something that
+     has its own: the chips row pans sideways, the expanded Details row can scroll, and everywhere else
+     in this sheet has nothing to pan (it is overflow: hidden and the page behind it is locked), so the
+     whole surface is drag-locked and the exclusions above hand their gestures back. */
+  #addSheet { touch-action: none; }
+  #addSheet .chip-scroll { touch-action: pan-x; }
+  #addSheet .add-details > * { touch-action: pan-y; }
+  /* The edit sheet can scroll (a receipt or a long note), so only its head and amounts are locked:
+     dragging from them always starts the dismiss instead of scrolling the sheet. */
+  #txnSheet .sheet-title, #txnSheet .sheet-sub, #txnSheet .sheet-amount,
+  #txnSheet .result-merchant, #txnSheet .result-amount, #txnSheet .result-meta { touch-action: none; }
   /* min-height: 0 keeps this column shrinkable. No bottom padding: the keypad is always the sheet's
      last row now, so there is no case where content meets the sheet edge. */
   #screen-add { display: flex; flex-direction: column; flex: 1; min-height: 0; }
@@ -1489,6 +1500,7 @@
     if (!element) return;
     clearTimeout(element.closeTimer);
     element.closeToken = (element.closeToken || 0) + 1;   // a close still in flight becomes a no-op
+    element.style.opacity = "";
     cancelOverlayMotion(element);
     var parts = sheetParts(element);
     var duration = motionMs("--dur-sheet");
@@ -1505,7 +1517,9 @@
 
   // Close: animate out, wait for the animation (or a 500ms fallback) and only then hide. Cancelling
   // whatever was running first means a fast tap cannot leave two animations fighting over the sheet.
-  function closeOverlay(element, after) {
+  // fromOffset is the drag hand-off: the close animation starts at the offset the finger let go at, so
+  // the sheet continues downwards instead of jumping back to 0 first. 0 (or nothing) is the plain close.
+  function closeOverlay(element, after, fromOffset) {
     if (!element || !element.classList.contains("open")) { if (after) after(); return Promise.resolve(); }
     cancelOverlayMotion(element);
     var parts = sheetParts(element);
@@ -1520,13 +1534,18 @@
       clearTimeout(element.closeTimer);
       element.classList.remove("open");          // the closed state takes over before the fill drops
       element.setAttribute("aria-hidden", "true");
+      element.style.opacity = "";                // whatever a drag left behind cannot outlive the close
+      if (parts.sheet) parts.sheet.style.transform = "";
       cancelOverlayMotion(element);
       if (after) after();
     };
-    element.runningAnimations = [parts.scrim.animate([{ opacity: 1 }, { opacity: 0 }], options)];
+    var from = Number(fromOffset) > 0 ? Number(fromOffset) : 0;
+    // The scrim may already be thinned by the drag; the fade continues from where it is.
+    var scrimFrom = from ? (Number(window.getComputedStyle(element).opacity) || 1) : 1;
+    element.runningAnimations = [parts.scrim.animate([{ opacity: scrimFrom }, { opacity: 0 }], options)];
     if (!reducedMotion() && parts.sheet) {
       element.runningAnimations.push(parts.sheet.animate(
-        [{ transform: "translateY(0)" }, { transform: "translateY(100%)" }], options));
+        [{ transform: "translateY(" + from + "px)" }, { transform: "translateY(100%)" }], options));
     }
     element.closeTimer = setTimeout(finish, 500);                  // can never stick
     var last = element.runningAnimations[element.runningAnimations.length - 1];
@@ -2458,9 +2477,9 @@
     return state.rows.filter(function (row) { return row.id === id; })[0] || null;
   }
 
-  function closeSheet() {
+  function closeSheet(fromOffset) {
     // Emptied only once the slide-out has finished, or the sheet would leave the screen blank.
-    closeOverlay($("txnOverlay"), function () { $("txnSheet").innerHTML = ""; });
+    closeOverlay($("txnOverlay"), function () { $("txnSheet").innerHTML = ""; }, fromOffset);
     sheetRow = null;
   }
 
@@ -3111,8 +3130,8 @@
     openOverlay($("addOverlay"));
   }
 
-  function closeAddSheet() {
-    var closing = closeOverlay($("addOverlay"));   // a promise: resolves when the sheet is gone
+  function closeAddSheet(fromOffset) {
+    var closing = closeOverlay($("addOverlay"), null, fromOffset);   // a promise: resolves when gone
     addSheetClosing = closing;
     $("addSheet").style.transform = "";
     if ($("textInput").blur) $("textInput").blur();
@@ -3157,34 +3176,115 @@
 
   // Drag the grab handle down to dismiss; the sheet body still scrolls normally.
   // Drag a sheet by its grab handle; past 80px the caller's dismiss runs (same code for both sheets).
-  function wireSheetDrag(sheetId, grabId, onDismiss) {
-    var sheet = $(sheetId);
-    var handle = $(grabId);
-    var startY = null;
+  /* ---------- swipe down to dismiss ---------- */
 
-    handle.addEventListener("pointerdown", function (event) {
-      startY = event.clientY;
-      cancelOverlayMotion($(sheetId).parentElement);   // the finger takes over from the animation
-      if (handle.setPointerCapture) {
-        try { handle.setPointerCapture(event.pointerId); } catch (error) { /* synthetic event */ }
+  // A finger may claim the gesture on the handle, the header, the amount or any empty space — never
+  // over something with its own gesture: keys, inputs, buttons, the chips scroller, the two action
+  // rows, the Details panel. One selector, so the exclusions are a single list to read, and `.no-drag`
+  // is the escape hatch for anything added later.
+  var DRAG_BLOCKERS = "button, a, label, input, select, textarea, .no-drag, .key, .keypad, " +
+    ".chip-scroll, .cat-chip, .add-rows, .smart-card, .add-pills, .add-details, .sheet-actions, " +
+    ".wheel, .wheel-cols";
+  var DRAG_START_PX = 8;          // movement before the drag is claimed at all (a tap may wobble)
+  var DRAG_CLOSE_PX = 120;        // dragged this far down and it closes
+  var DRAG_CLOSE_VELOCITY = 0.5;  // px/ms: a quick flick closes from much less than that
+  var DRAG_SPRING_MS = 250;       // the snap back to 0 when the finger gives up
+
+  // handleOnly keeps the month wheel as it was: its body scrolls vertically, so only its grabber
+  // moves the sheet. Everything else (velocity, spring, cancellation) is shared.
+  function attachSheetDrag(sheetId, overlayId, onDismiss, handleOnly) {
+    var sheet = $(sheetId);
+    var overlay = $(overlayId);
+    if (!sheet || !overlay) return;
+    var handle = handleOnly ? sheet.querySelector(".sheet-grab") : null;
+    var drag = null;
+    var epoch = 0;              // a new press invalidates any spring still settling from the last one
+
+    function clearInline() {
+      sheet.style.transform = "";
+      overlay.style.opacity = "";
+    }
+
+    function onDown(event) {
+      if (drag) return;                                   // one pointer owns the gesture
+      if (event.isPrimary === false) return;               // a second finger never steals it
+      if (handleOnly && !(handle && handle.contains(event.target))) return;
+      if (!handleOnly && event.target.closest && event.target.closest(DRAG_BLOCKERS)) return;
+      epoch += 1;
+      drag = { id: event.pointerId, fromX: event.clientX, fromY: event.clientY,
+               lastY: event.clientY, lastAt: event.timeStamp, velocity: 0, offset: 0, moving: false };
+      if (sheet.setPointerCapture) {
+        try { sheet.setPointerCapture(event.pointerId); } catch (error) { /* synthetic event */ }
       }
-    });
-    handle.addEventListener("pointermove", function (event) {
-      if (startY === null) return;
-      sheet.style.transform = "translateY(" + Math.max(0, event.clientY - startY) + "px)";
-    });
-    function release(event) {
-      if (startY === null) return;
-      var offset = Math.max(0, event.clientY - startY);
-      startY = null;
-      if (offset > 80) {
-        onDismiss();                 // the close animation carries it down from where the finger let go
+    }
+
+    function onMove(event) {
+      if (!drag || event.pointerId !== drag.id) return;
+      var dy = event.clientY - drag.fromY;
+      var dx = event.clientX - drag.fromX;
+      if (!drag.moving) {
+        if (dy <= 0 || Math.abs(dy) <= Math.abs(dx)) return;   // up, or mostly sideways: not ours
+        if (dy < DRAG_START_PX) return;                        // not yet a drag, just a tap
+        drag.moving = true;
+        cancelOverlayMotion(overlay);        // the finger takes over from the open/close animation
+        var active = document.activeElement;
+        if (active && active.blur && active !== document.body) active.blur();   // keyboard goes with it
+      }
+      drag.offset = dy;
+      var dt = event.timeStamp - drag.lastAt;
+      if (dt > 0) drag.velocity = (event.clientY - drag.lastY) / dt;
+      drag.lastY = event.clientY;
+      drag.lastAt = event.timeStamp;
+      sheet.style.transform = "translateY(" + dy + "px)";
+      // The scrim thins out with the distance so the screen behind shows through, but never to nothing.
+      var span = window.innerHeight || 667;
+      overlay.style.opacity = String(Math.max(0.3, 1 - (dy / span) * 0.85));
+    }
+
+    function springBack(from) {
+      if (reducedMotion()) { clearInline(); return; }        // no spring: just be home again
+      var mine = epoch;
+      var animations = [sheet.animate(
+        [{ transform: "translateY(" + from + "px)" }, { transform: "translateY(0)" }],
+        { duration: DRAG_SPRING_MS, easing: EASE_IOS, fill: "both" })];
+      animations.push(overlay.animate(
+        [{ opacity: Number(window.getComputedStyle(overlay).opacity) || 1 }, { opacity: 1 }],
+        { duration: DRAG_SPRING_MS, easing: EASE_IOS, fill: "both" }));
+      overlay.runningAnimations = animations;                // so a close can still cancel it
+      var settle = function () {
+        if (epoch !== mine) return;                          // a new drag already owns the transform
+        animations.forEach(function (animation) {
+          try { animation.cancel(); } catch (error) { /* already finished */ }
+        });
+        if (overlay.runningAnimations === animations) overlay.runningAnimations = [];
+        clearInline();
+      };
+      animations[0].finished.then(settle, settle);
+      setTimeout(settle, DRAG_SPRING_MS + 60);                // belt and braces, as with the close
+    }
+
+    function onUp(event) {
+      if (!drag || event.pointerId !== drag.id) return;
+      var state = drag;
+      drag = null;
+      if (!state.moving) { clearInline(); return; }           // a tap that wobbled: nothing happened
+      if (state.offset > DRAG_CLOSE_PX || state.velocity > DRAG_CLOSE_VELOCITY) {
+        onDismiss(state.offset);      // the WAAPI close carries it down from where the finger let go
         return;
       }
-      sheet.style.transform = "";
+      springBack(state.offset);
     }
-    handle.addEventListener("pointerup", release);
-    handle.addEventListener("pointercancel", release);
+
+    function onCancel(event) {
+      if (!drag || event.pointerId !== drag.id) return;
+      drag = null;
+      clearInline();                  // a cancelled pointer must never leave the sheet off-centre
+    }
+
+    sheet.addEventListener("pointerdown", onDown);
+    sheet.addEventListener("pointermove", onMove);
+    sheet.addEventListener("pointerup", onUp);
+    sheet.addEventListener("pointercancel", onCancel);
   }
 
   function openRowFrom(event) {
@@ -3227,8 +3327,11 @@
     $("addOverlay").addEventListener("click", function (event) {
       if (event.target === this) closeAddSheet(); // tapping outside dismisses
     });
-    wireSheetDrag("addSheet", "addGrab", closeAddSheet);
-    wireSheetDrag("wheelSheet", "monthGrab", closeMonthSheet);   // drag down = cancel, no changes
+    attachSheetDrag("addSheet", "addOverlay", closeAddSheet, false);
+    attachSheetDrag("txnSheet", "txnOverlay", closeSheet, false);
+    // The month wheel scrolls vertically, so it keeps the grabber-only drag: dragging its body would
+    // fight the columns.
+    attachSheetDrag("wheelSheet", "monthOverlay", closeMonthSheet, true);
     $("reviewChip").addEventListener("click", function () {
       state.reviewOnly = !state.reviewOnly;
       renderTransactions(state.rows);
