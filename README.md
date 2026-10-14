@@ -1,11 +1,11 @@
 # Duits — personal expense tracker (Phase 1)
 
-Backend that takes a **receipt photo** or a **short text note**, extracts the transaction with
-Claude (vision), and stores it in Supabase. Designed to be called from Apple Shortcuts on an
-iPhone, so the whole API is a static `X-API-Key` away.
+Backend that takes a **receipt photo**, a **short text note**, or a **hand-typed row**, extracts the
+transaction with Claude (vision), and stores it in Supabase. Designed for Apple Shortcuts on an
+iPhone, and shipped with its own iPhone-first web UI — the whole API is a static `X-API-Key` away.
 
-Scope is deliberately small: 4 protected endpoints + health. No auth/users, no frontend, no
-dashboard, no CSV/PDF import, no voice, no sync, no Docker.
+9 protected endpoints, plus `/health` and the UI page at `GET /`. No auth/users, no dashboard, no
+CSV/PDF import, no voice, no sync.
 
 ## Files
 
@@ -18,9 +18,14 @@ app/
   db.py            # Supabase client, dedupe_hash, query/insert helpers
   models.py        # Pydantic v2 models + row/JSON shaping
   static/index.html  # the whole mobile UI: HTML + CSS + vanilla JS, served at GET /
+  static/logo.png    # the app icon: 180x180, opaque white, served at /logo.png + /apple-touch-icon.png
 schema.sql         # transactions table, indexes, receipts bucket
-tests/             # pytest: dedupe, models, auth, extractor, endpoints, production
+tests/             # pytest: dedupe, models, auth, extractor, endpoints, production, static (78 tests)
 .env.example
+ctl.sh             # start / stop / status / restart, and whether the listener is stale
+design/            # the Stitch screens the UI was rebuilt from (screen.png + code.html + DESIGN.md)
+Handoff.md         # handoff notes for the next session
+README.md
 requirements.txt   # production runtime deps (what the Dockerfile installs)
 requirements-dev.txt  # `-r requirements.txt` plus pytest + httpx, for local tests
 Dockerfile         # production image: non-root user, no secrets baked in
@@ -72,8 +77,6 @@ uvicorn app.main:app --reload
 - `./ctl.sh status` reports whether the listener is *stale* (started before the newest source
   edit) and `./ctl.sh restart` replaces it. That matters: a server started before a new endpoint
   existed answers `405` for it, and the browser cannot tell the difference between that and a bug.
-
-All endpoints except `/health` require the header `X-API-Key: <API_KEY>`.
 
 ## Deploy (container host)
 
@@ -131,6 +134,15 @@ One page, no build step, no frameworks: `app/static/index.html` (HTML + CSS + va
 a single file), served by the API itself at `GET /`. The page is public; every call it makes
 still sends `X-API-Key`.
 
+All five screens rebuilt from `design/` are built and in use — Home, Transactions, Insights, Settings
+and the Add sheet — light and dark. The sticky top bar carries the app icon as a 24px rounded
+(`<img class="brand-mark">`, hairline edge so its white tile stays defined on the dark bar) ahead of
+the `Duits` wordmark; it measures shorter than the refresh button, so the bar's own height is
+unchanged. Layout is verified in a real browser at **375×667** and
+**390×844** (nothing scrolls, nothing clipped, keypad pinned) and in both themes; a per-text-node
+audit finds no leftover light boxes and no text below 3.6:1 contrast in dark mode. What is *not* yet
+exercised is a physical iPhone — see [Known gaps](#known-gaps).
+
 - On your Mac: <http://127.0.0.1:8000/>
 - On your iPhone, bind the server to the network and use your Mac's LAN IP:
 
@@ -143,14 +155,14 @@ Five slots in the tab bar — Home, Transactions, the raised blue `+`, Insights,
 `+` opens the Add sheet (the only way to add now: scanning a receipt or typing a line of text).
 
 All three data tabs share one header, rendered by a single `screenHeaderHtml()` into a
-`[data-screen-header]` slot, so the three cannot drift apart: row 1 is the large title with a white
+`[data-screen-header]` slot, so the three cannot drift apart: row 1 is the large title with an
 `Oct 2026 ⌄` pill on the right (44px tall, `touch-action: manipulation`, nothing overlapping it),
 row 2 the full-width Personal/Business toggle. Tapping the pill runs our own bottom sheet — no
 `<input type="month">`, no `showPicker()`: WebKit has no month control, and there `showPicker()`
 returns without throwing, so a native-first pill is silently dead on iOS. The sheet is an iOS-style
 wheel: `Cancel` left, `Select Month` centre, blue bold `Done` right, a drag handle, and two snapping
 columns (Month, Year) of 44px rows — five visible — behind a rounded grey band, the centred row 20px
-black and the ones above and below faded, with gradient fades at the edges. It opens scrolled to the
+and opaque, the ones above and below faded, with gradient fades at the edges. It opens scrolled to the
 current selection; months in the future are not reachable (December of the current year springs back
 to this month, and `Done` clamps), and the year column runs from the earliest year seen in loaded
 rows — or two years back — up to the current year. Cancel, a tap outside, or a drag down closes it
@@ -196,8 +208,9 @@ Settings keeps the large title alone.
   it is hidden rather than faked. A week *is* real: it is stitched from the whole months it
   touches (one request per month, filtered to the seven days in the browser).
 - **Add** (a full-height sheet opened by the raised `+`) — the Stitch "New Transaction" sheet, three ways
-  in, all ending in the same row on the list. It fills one screen and never scrolls: `height: 100dvh`
-  minus the safe areas (a plain `100vh` first as a fallback), `overflow: hidden`, and one flex column
+  in, all ending in the same row on the list. It fills one screen and does not scroll at either
+  target size: `height: 100dvh` minus the safe areas (a plain `100vh` first as a fallback),
+  `overflow: hidden`, and one flex column
   whose only flexible slot is the amount itself — so the slack on a tall phone collects around the
   number, and collapses when a panel opens or the keys step aside.
   `max-height` is forced to `none` on the id, because the base `.sheet` rule (88dvh + its own scroll)
@@ -256,8 +269,10 @@ Settings keeps the large title alone.
 
 The API key is asked for on first load and kept in `localStorage` under `apiKey`; it is never
 in the HTML or in this repo. A `401` clears it and re-prompts. Add to Home Screen works like an
-app (PWA meta tags + a PNG touch icon drawn on the fly); there is no service worker, so nothing
-is cached offline.
+app: PWA meta tags plus `<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">`
+and `<link rel="icon" type="image/png" href="/logo.png">`, both served from the same file with no
+API key — `app/static/logo.png`, 180×180 and fully opaque (iOS paints a transparent icon's padding
+black). There is no service worker, so nothing is cached offline.
 
 ### Dark mode
 
@@ -284,12 +299,16 @@ Two details that are easy to get wrong, so they are pinned:
   (default / black-translucent) and `color-scheme` (so native inputs and the date picker follow)
   in step with the palette.
 
-Verified in a real browser at 375×812 and 390×844: Home, Transactions, Insights (week + month),
-Settings, the Add sheet (keypad, chips, Details, Smart Entry, warn/error toast, error card), the
-edit sheet, the month wheel, empty states and the key dialog have no light boxes left in dark and
-no unreadable text (lowest contrast 3.6:1, measured per text node against its real background).
+Checked in a real browser at 375×667, 375×812 and 390×844 across 17 states in each theme — Home,
+Transactions, Insights (week + month), Settings, the Add sheet (keypad, chips, Details, Smart Entry,
+warn/error toast, error card), the edit sheet, the month wheel, empty states and the key dialog: no
+light boxes survive in dark and no text falls below 3.6:1 against its real background. The checker is
+calibrated — two deliberately invisible samples are flagged every run — so a clean pass means
+something.
 
+## API
 
+All of these except `/health` need the header `X-API-Key: <API_KEY>`.
 
 | Method | Path | Body | Returns |
 | --- | --- | --- | --- |
@@ -417,6 +436,10 @@ Response of `/transactions/scan` (abridged):
 
 ## Apple Shortcuts (iPhone)
 
+Optional now that the web UI exists — the UI covers the same ground on the phone, so a Shortcut is
+for the cases where you want one tap from the Lock Screen, the share sheet or a photo without opening
+Safari. Both write the same rows.
+
 1. **Take Photo** / **Select Photo** → **Get Contents of URL**
    - URL: `https://<your-host>/transactions/scan`, Method `POST`
    - Headers: `X-API-Key` = your key
@@ -453,6 +476,24 @@ Response of `/transactions/scan` (abridged):
   Claude or Supabase Storage failure.
 - **Upload limit**: 10 MB, enforced by reading at most limit + 1 bytes.
 
+## Known gaps
+
+- **Not yet run on a physical iPhone.** Everything is verified in a desktop browser sized to the
+  phone, so these remain open: the real keyboard against the built-in keypad, the native date picker
+  raised from inside the sheet, actual `env(safe-area-inset-*)` values, and a receipt scan end to end
+  (camera → HEIC → upload).
+- **No `Year` segment in Insights** — the API has no range query (see the Insights bullet above); it
+  needs a `?from=&to=` endpoint before a year can be honest.
+- **`.env.example` does not list `CLAUDE_FALLBACK_MODEL`**, although `config.py` defaults it to
+  `claude-sonnet-5-5` and `extractor.py` uses it — a deployment copied from the example silently gets
+  the default. The env table under *Deploy* is the complete list.
+- **Below 660px of viewport height** the Add sheet's content column may scroll (it is the last resort
+  that keeps anything from painting over the pinned keys). Both target sizes are well clear of it, but
+  an SE-class screen with Details open cannot show every row at once.
+- **Home's ring has three cosmetic ceilings**: a slice under ~2% draws as the minimum round dot; the
+  legend folds the tail into a grey `Others`, so a month holding both a real `other` category and a
+  grouped tail shows `Other` *and* `Others`; and a 6-figure month total fills the hole.
+
 ## Tests
 
 ```bash
@@ -460,10 +501,21 @@ pip install -r requirements-dev.txt   # requirements.txt alone is production-onl
 pytest
 ```
 
-75 tests, no network and no API key needed — Claude is monkeypatched at `extractor._call` and
+78 tests, no network and no API key needed — Claude is monkeypatched at `extractor._call` and
 the Supabase helpers at `app.db.*`: dedupe policy (receipts with a merchant dedupe; text notes
 and merchant-less receipts do not, and two text entries of the same amount on the same day both
 insert), hand-typed rows (`source = "manual"`, note kept in `raw_extraction.note`, empty category
 stored as null, defaults for a bare amount, and the `409` guard), month bounds, model
 validation/defaults/JSON shape, the auth dependency, and
-extraction parsing/retry plus the image payload.
+extraction parsing/retry plus the image payload, and the app icon (served under both names with no
+key, absent from the schema, and a PNG with no alpha channel at 180×180).
+
+### UI checks
+
+The pytest suite above covers the API only; the UI has no committed test suite yet. It is checked
+with a scratch Node harness that evals the page's `<script>` and asserts 634 things about the
+markup, the CSS and the behaviour (theme plumbing and palette, Add-sheet order, the shrink ladder,
+the icon links and the removal of the runtime canvas icon,
+that only the Details block may scroll, Save gating, keypad visibility) — plus headless-Chrome probes
+and screenshots at 375×667 and 390×844 in both themes. That harness lives outside the repo today;
+moving it in (e.g. `tools/`) is the first item in `Handoff.md`.

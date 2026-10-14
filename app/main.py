@@ -124,6 +124,24 @@ async def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
 
 
+# The app icon is one file, served under both names browsers ask for: iOS looks for
+# /apple-touch-icon.png when saving to the Home Screen, everything else for /logo.png.
+# Public like the page itself; the middleware still adds nosniff and Referrer-Policy.
+ICON = STATIC_DIR / "logo.png"
+
+
+@app.get("/logo.png", include_in_schema=False)
+async def logo() -> FileResponse:
+    """The app icon, opaque and 180x180 so iOS never draws its transparency as black."""
+    return FileResponse(ICON, media_type="image/png")
+
+
+@app.get("/apple-touch-icon.png", include_in_schema=False)
+async def apple_touch_icon() -> FileResponse:
+    """Same icon under the name iOS asks for when the page is added to the Home Screen."""
+    return FileResponse(ICON, media_type="image/png")
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
     """Liveness probe. No auth, so Shortcuts can check the tunnel quickly."""

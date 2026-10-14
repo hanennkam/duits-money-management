@@ -36,12 +36,16 @@ Completed since the last handoff (all verified, see §3):
   applied live with no reload; System follows the phone and reacts to `prefers-color-scheme` changes.
 - **Add sheet reordered** to: header → Expense/Income → amount → pills → Details → chips →
   **Smart Entry row → Scan Receipt row** → keypad. The old side-by-side button row is gone.
+- **Real app icon.** The canvas-drawn touch icon is gone; `app/static/logo.png` (the saved 3D frosted
+  wallet) is now the one icon file, served publicly at `/logo.png` **and** `/apple-touch-icon.png`.
+  Linked from `<head>` with `apple-touch-icon`/`icon`, and shown as a 24px rounded mark beside the
+  `Duits` wordmark in the sticky top bar.
 
 ## 2. Changes
 
-Files touched: `app/static/index.html` (2951 lines — HTML + CSS + vanilla JS, no build step, served by
-the API at `GET /`), `README.md` (Web UI section documents the Add sheet order, the shrink ladder and the
-dark palette), and this `Handoff.md`.
+Files touched: `app/static/index.html` (HTML + CSS + vanilla JS, no build step, served by the API at
+`GET /`), `app/main.py` (two public icon routes), `app/static/logo.png` (re-processed, see decisions),
+`tests/test_static.py` (new, 3 tests), `README.md`, and this `Handoff.md`.
 
 Decisions worth knowing:
 
@@ -60,14 +64,26 @@ Decisions worth knowing:
   may scroll. Smart Entry expands a text field *inside its row*; any focused text field hides the keypad,
   re-derived from `document.activeElement` by one `paintKeypad()` rather than remembered from focus
   events. The Scan privacy hint appears only after tapping Scan Receipt.
-- **No logic changed by the last two tasks** — every element id (`#smartRow`, `#smartEntry`, `#scanBtn`,
+- **Icon**: the file the user saved had **no white background** — 1254×1254 RGBA with `alpha=0` at all
+  four corners, which iOS paints black on the Home Screen. It was composited onto solid `#FFFFFF` and
+  downscaled to **180×180** (the size iOS asks for) in place: 575,869 bytes → 10,045. It is still
+  square and leaves the artwork's own padding, so iOS's rounded mask has clean white to work with.
+  `logo.png` serves both URLs (`ICON = STATIC_DIR / "logo.png"`, `FileResponse(..., media_type="image/png")`,
+  `include_in_schema=False`) rather than shipping two files; both are public like `GET /`, and the existing
+  middleware keeps adding `nosniff` + `Referrer-Policy`. The old data-URI SVG favicon and the
+  `buildAppIcon()` canvas (which had been drawing "RM" on a blue squircle from `--accent`) are deleted —
+  `getContext` remains only in the receipt downscaler.
+- **Brand mark**: `.brand-mark` is 24px/radius 6px with a `.5px` hairline (`--line`) so its white tile
+  stays defined on the dark bar. Measured: the bar is 52px with *and* without the mark (the refresh
+  button is 34px, the mark shorter), no overflow at 375 or 390 — nothing downstream can shift.
+- **No logic changed by the last three tasks** — every element id (`#smartRow`, `#smartEntry`, `#scanBtn`,
   `#scanHint`, `#addDetails`, `#addAmount`, …) was preserved, so the existing handlers, the `addSaving`
   re-entry guard and the "Save disabled until amount > 0" rule are untouched.
 
 ## 3. Validation (all executed this session)
 
-- `pytest -q` → **75 passed** (0.24s).
-- `/tmp/duits-ui-check.js` (Node harness that evals the extracted `<script>`) → **622 assertions pass**,
+- `pytest -q` → **78 passed** (0.25s) — the 75 existing tests plus the 3 new icon tests.
+- `/tmp/duits-ui-check.js` (Node harness that evals the extracted `<script>`) → **634 assertions pass**,
   including: no colour literal anywhere in the stylesheet or script outside the two palette blocks and the
   two hue constants; the pre-paint script's position and `try/catch`; the exact dark palette values; the
   Add sheet order; 12/8/8px gaps and 48px rows; only `.add-details` may `overflow-y: auto`; the 44px key
@@ -81,12 +97,21 @@ Decisions worth knowing:
   error card, key dialog): dark → **0 light boxes, 0 low-contrast text (worst 3.6:1)**; light → only the
   pre-existing `#8E8E93`-on-page-background 2.9:1 items. The detector is calibrated: two deliberately
   invisible samples are always flagged (worst 1.1:1) — before that check it silently reported `NaN` as a
-  pass.
-- Served app: `GET /` → 200 with the current page; `uvicorn` running; LAN IP **192.168.1.12**
-  (phone URL `http://192.168.1.12:8000/`; hard-refresh once if Safari cached the old page).
+  pass. Re-run after the top-bar/icon change (Home, both themes): dark → 0 light boxes, 0 low-contrast
+  (worst 4.7:1); light → only the same pre-existing items; calibration still flags 2.
+- Served app (after `./ctl.sh restart`, so the new routes are live): `GET /logo.png` and
+  `GET /apple-touch-icon.png` → **200, `image/png`, 10,045 bytes, identical, no `X-API-Key`**, with
+  `X-Content-Type-Options: nosniff` + `Referrer-Policy: no-referrer` and no `Cache-Control: no-store`;
+  `GET /` → 200 (134,181 bytes) carrying both `<link>` tags. `uvicorn` running; LAN IP **192.168.1.12**
+  (phone URL `http://192.168.1.12:8000/`; hard-refresh once if Safari cached the old page or icon).
+- In-browser brand check (375×667 and 390×844): `mark=24x24 radius=6px loaded=180x180`, bar height 52px
+  with and without the mark (`barHeightMoved=false`), `barOverflow=no`, refresh button still 34px.
 
 ## 4. Unresolved issues / risks
 
+- **`app/static/logo.png` was rewritten in place** (opaque white + 180×180). If the 1254×1254 master is
+  only on the developer's machine, the high-resolution original no longer exists in the repo — keep a
+  master elsewhere if it will be re-exported.
 - **Never tested on the real iPhone** (no device access from the sandbox): iOS keyboard vs the built-in
   keypad, the native date picker inside the sheet, real `env(safe-area-inset-*)`, the camera path, HEIC.
 - **The verification harness lives in `/tmp`** (`duits-ui-check.js`, `build-preview.py`, `mkfit3.py`,
@@ -119,6 +144,8 @@ Decisions worth knowing:
 
 ## 6. Instructions for the orchestrator — settle these before more UI work
 
+- **Icon master**: was overwriting `logo.png` with the flattened 180×180 acceptable, or should the repo
+  keep the original (e.g. `logo-master.png`) alongside the processed icon? It is one file today by design.
 - **Is the ≤660px content-column scroll acceptable?** It is the only way to avoid painting over the pinned
   keys on very short screens, but it contradicts a literal "never scroll".
 - **Keep the chevron on Scan Receipt?** It was requested explicitly, but that row opens a file/camera

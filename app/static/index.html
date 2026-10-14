@@ -26,8 +26,8 @@
   if (status) status.setAttribute("content", dark ? "black-translucent" : "default");
 })();
 </script>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='15' fill='%23007aff'/%3E%3Ctext x='32' y='43' font-family='-apple-system,system-ui,sans-serif' font-size='30' font-weight='700' fill='%23072012' text-anchor='middle'%3ERM%3C/text%3E%3C/svg%3E">
-<link rel="apple-touch-icon" id="appleIcon" sizes="180x180">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="/logo.png">
 <style>
   /* Every colour in this file is a variable: the light values live here, the dark palette below
      overrides them, and [data-theme] on <html> (set before first paint) picks which applies. */
@@ -151,7 +151,13 @@
     backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
     border-bottom: .5px solid var(--hairline);
   }
-  .topbar h1 { font-size: 17px; font-weight: 600; letter-spacing: -.01em; margin: 0; }
+  .topbar h1 {
+    font-size: 17px; font-weight: 600; letter-spacing: -.01em; margin: 0;
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  /* The app icon as a brand mark. 24px is shorter than the 34px refresh button, so the bar's own
+     height cannot move. Half-pixel hairline because the icon's tile is white in both themes. */
+  .brand-mark { width: 24px; height: 24px; border-radius: 6px; border: .5px solid var(--line); display: block; }
   .icon-btn {
     width: 34px; height: 34px; padding: 0; border: 0; border-radius: 50%;
     background: var(--card-2); color: var(--text-2);
@@ -764,7 +770,7 @@
 
 <div class="app">
   <header class="topbar">
-    <h1>Duits</h1>
+    <h1><img class="brand-mark" src="/logo.png" alt="" width="24" height="24">Duits</h1>
     <button class="icon-btn" id="refreshBtn" type="button" aria-label="Refresh">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.6"/><path d="M20 5.5V11h-5.5"/></svg>
     </button>
@@ -2756,33 +2762,6 @@
     renderTransactionsPage(state.rows);
   }
 
-  // iOS needs a real PNG for Add to Home Screen, so draw one instead of shipping a file.
-  function buildAppIcon() {
-    var canvas = document.createElement("canvas");
-    canvas.width = 180;
-    canvas.height = 180;
-    var ctx = canvas.getContext("2d");
-    ctx.fillStyle = cssColour("--accent");   // the app icon follows the accent, so no literal here
-    ctx.beginPath();
-    ctx.moveTo(40, 0);
-    ctx.lineTo(140, 0);
-    ctx.quadraticCurveTo(180, 0, 180, 40);
-    ctx.lineTo(180, 140);
-    ctx.quadraticCurveTo(180, 180, 140, 180);
-    ctx.lineTo(40, 180);
-    ctx.quadraticCurveTo(0, 180, 0, 140);
-    ctx.lineTo(0, 40);
-    ctx.quadraticCurveTo(0, 0, 40, 0);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = cssColour("--on-accent");
-    ctx.font = "700 74px -apple-system, system-ui, sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("RM", 90, 96);
-    $("appleIcon").href = canvas.toDataURL("image/png");
-  }
-
   // Drag the grab handle down to dismiss; the sheet body still scrolls normally.
   // Drag a sheet by its grab handle; past 80px the caller's dismiss runs (same code for both sheets).
   function wireSheetDrag(sheetId, grabId, onDismiss) {
@@ -2929,7 +2908,6 @@
   }
 
   async function start() {
-    buildAppIcon();
     renderScreenHeaders(); // before wire(), so the shared pills exist to bind and paint
     wire();
     setMode("personal");
