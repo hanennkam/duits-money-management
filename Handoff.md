@@ -45,10 +45,16 @@ Completed since the last handoff (all verified, see §3):
   its cached icon on the URL), and `GET /` was heuristically cacheable too, so the shortcut could be
   built from old markup. Icons now send `public, max-age=600` (never `immutable`), every icon href
   carries `?v=2`, and `GET /` sends `no-cache`.
+- **iOS zoom + Smart Entry row.** The "field and Add button cut off on the right" was not a layout bug:
+  the Smart Entry input was **15px**, and iOS zooms the whole page in when a focused control is under
+  16px, which is what pushed the right-hand edge off screen. Measured first: `overflow=0` on every
+  screen and the input's right edge at 345 of 375. Fixed by a 16px floor on every focusable control, a
+  `touch-action: manipulation` / no-text-select pass, and turning Smart Entry into one card.
 
 ## 2. Changes
 
-Files touched: `app/static/index.html` (HTML + CSS + vanilla JS, no build step, served by the API at
+Files touched (this task: `app/static/index.html` and the docs only — no backend, no API):
+`app/static/index.html` (HTML + CSS + vanilla JS, no build step, served by the API at
 `GET /`), `app/main.py` (one `_icon()` helper + four public icon routes, and `no-cache` on `GET /`),
 `app/static/logo.png` and the three `app/static/apple-touch-icon*.png` files, `tests/test_static.py`,
 `README.md`, and this `Handoff.md`.
@@ -63,13 +69,18 @@ Decisions worth knowing:
   literal.
 - **Add sheet**: fills the screen (`100dvh` minus safe areas, `overflow: hidden`, `max-height: none`
   forced on `#addSheet` because the later `.sheet` rule would otherwise win) and never scrolls at the two
-  target sizes. The **amount is the only flexible row** (`flex: 1`, centred, `min-height: 1.4em` —
-  `overflow: hidden` alone lets a flex item collapse and hide the number). When height runs short the
-  layout gives way in a fixed order: amount font (`clamp(40px, 8.8vh, 56px)`) → key height (48 → 44px
-  below 620px) → and only below 660px may the content column scroll. Only the expanded **Details** block
-  may scroll. Smart Entry expands a text field *inside its row*; any focused text field hides the keypad,
-  re-derived from `document.activeElement` by one `paintKeypad()` rather than remembered from focus
-  events. The Scan privacy hint appears only after tapping Scan Receipt.
+  target sizes **except in the named states below**. The **amount is the only flexible row** (`flex: 1`,
+  centred, `min-height: 1.4em` — `overflow: hidden` alone lets a flex item collapse and hide the number).
+  When height runs short the layout gives way in a fixed order: amount font
+  (`clamp(40px, 8.8vh, 56px)`) → key height (48 → 44px below 620px) → and only below 660px may the
+  content column scroll. Four things may scroll, each for a reason: the expanded **Details** block, that
+  sub-660px escape, the keyboard state (`html[data-keyboard]`, capped to `--vvh`), and the Smart Entry
+  card open while the keyboard is dismissed (32px taller than the old row, so at 375×667 the column
+  scrolls instead of hiding Scan Receipt behind the keys). Smart Entry is **one card** — 48px header row,
+  12px, then field + fixed-width `Add` (10px gap, field `flex: 1; min-width: 0`), the card carrying 14px
+  of padding while the row inside goes transparent. Both action rows sit 12px apart. Any focused text
+  field hides the keypad, re-derived from `document.activeElement` by one `paintKeypad()` rather than
+  remembered from focus events. The Scan privacy hint appears only after tapping Scan Receipt.
 - **Icon**: the file the user saved had **no white background** — 1254×1254 RGBA with `alpha=0` at all
   four corners, which iOS paints black on the Home Screen. It was composited onto solid `#FFFFFF` and
   downscaled to **180×180** (the size iOS asks for) in place: 575,869 bytes → 10,045. `logo.png` is now
@@ -87,7 +98,20 @@ Decisions worth knowing:
 - **Brand mark**: `.brand-mark` is 24px/radius 6px with a `.5px` hairline (`--line`) so its white tile
   stays defined on the dark bar. Measured: the bar is 52px with *and* without the mark (the refresh
   button is 34px, the mark shorter), no overflow at 375 or 390 — nothing downstream can shift.
-- **No logic changed by the last three tasks** — every element id (`#smartRow`, `#smartEntry`, `#scanBtn`,
+- **iOS touch/zoom rules**: a **16px floor on every control a finger can focus** (`.add-field`,
+  `.search-field input`, and the invisible `font-size: 16px` date input — `.field` inherits the 17px
+  body), `maximum-scale=1` in the viewport meta (belt, not braces: iOS has ignored it for pinch since
+  iOS 10, so pinch still works), `touch-action: manipulation` on `html`/`body`/`button`/the date
+  `<label>` (the drag handle keeps `none`), `user-select: none` + `-webkit-touch-callout: none` on keys
+  and buttons only, and `html, body { overflow-x: hidden; max-width: 100vw }`. No transform is used to
+  shrink anything.
+- **Keyboard reveal**: `revealFocusedField()` is the one new bit of behaviour. It hangs off
+  `window.visualViewport` (`resize` + `scroll`), treats `innerHeight - viewport.height > 120` as "the
+  keyboard is up", sets `html[data-keyboard]` + `--vvh` so the sheet caps itself to the visible strip,
+  and then scrolls the focused field the remaining pixels into view (`scroller.scrollTop += hidden`, or
+  `window.scrollBy`). Scroll only — no zoom, no transform. Both are torn down when the keyboard closes.
+  `paintKeypad()`, `toggleSmartEntry()` and every handler/id are unchanged.
+- **No logic changed by the last four tasks** — every element id (`#smartRow`, `#smartEntry`, `#scanBtn`,
   `#scanHint`, `#addDetails`, `#addAmount`, …) was preserved, so the existing handlers, the `addSaving`
   re-entry guard and the "Save disabled until amount > 0" rule are untouched.
 
@@ -97,22 +121,38 @@ Decisions worth knowing:
   (four icon URLs public + `image/png` + `max-age=600` + byte-identical to disk; not in the schema;
   `GET /` `no-cache` with an ETag; each file alpha-free and square at 180/180/152/120; and every icon
   link in the page versioned and really served).
-- `/tmp/duits-ui-check.js` (Node harness that evals the extracted `<script>`) → **647 assertions pass**,
+- `/tmp/duits-ui-check.js` (Node harness that evals the extracted `<script>`) → **671 assertions pass**,
   including: no colour literal anywhere in the stylesheet or script outside the two palette blocks and the
   two hue constants; the pre-paint script's position and `try/catch`; the exact dark palette values; the
-  Add sheet order; 12/8/8px gaps and 48px rows; only `.add-details` may `overflow-y: auto`; the 44px key
-  step; threshold derivations (amount still 56px at 667, keys still 48px at 667).
+  Add sheet order; 12/8/12px gaps and 48px rows; the four states that may scroll (`.add-details`, the
+  sub-660px escape, `html[data-keyboard]`, `html:has(.add-row.is-open)`); the 44px key step; threshold
+  derivations (amount still 56px at 667, keys still 48px at 667); the 16px floor on every focusable
+  control; `touch-action: manipulation`; and that `revealFocusedField()` scrolls and never zooms.
 - Real-browser fit probe (iframe = exact viewport) at **375×667** and **390×844**, five states each:
-  `orderOk=true`, `contentScroll=false`, `sheetScroll=false`, clipped elements `[]`, amount 56px, gaps
-  12/8/8, rows 48/48, keys 48/48 (667) and 56/56 (844), keypad bottom == sheet bottom, Save disabled at
-  RM 0.00 and enabled at RM 12.50.
+  `orderOk=true`, `sheetScroll=false`, clipped elements `[]`, amount 56px, gaps 12/8/12, rows 48/48, keys
+  48/48 (667) and 56/56 (844), keypad bottom == sheet bottom, Save disabled at RM 0.00 and enabled at
+  RM 12.50. Nothing is clipped in any state; the one state with overflow is the Smart Entry card open
+  with the keyboard dismissed at 667, and there the column scrolls (`contentClips=false`).
+- Touch probe at 375×667 (screens + sheet states): `overflow=0` and nothing crossing the viewport edge
+  except the category chips, which scroll horizontally by design. Computed control fonts: `addDate 16,
+  addMerchant 16, addNote 16, textInput 16, txnSearch 16, keyInput 17` (the only sub-16 is the hidden
+  file input, which cannot be focused). Computed `touch-action=manipulation` on `html`, `body`, `.key`,
+  `.cat-chip`, `.tab`, `.add-row`, `.icon-btn`; `user-select: none` on keys and rows, `auto` on inputs.
+  Smart Entry card: `padTop 14 padX 14 radius 16 bg --card-2`, header→field 12, field|button 10,
+  card→Scan 12, field 239px + button 66px inside a 359px-wide card.
+- Simulated keyboard (real browser, `visualViewport.height` faked to 380 with `innerHeight` left at 667,
+  as iOS does): `attr=true`, `--vvh=380px`, sheet capped 602→380, `overflowY=auto`, `scrollTop` moved 23px,
+  focused field bottom 368 ≤ 380 (visible), Add button right edge 345 ≤ 375 (visible). Closing it removes
+  the attribute and `--vvh` and restores the sheet to 602px with `overflowY=visible`.
 - Both-theme screen audit (17 states each: Home, Transactions, Insights week/month, Settings, Add sheet
   keypad/chips/Details/Smart Entry/warn toast/error card, edit sheet, month wheel, three empty states,
   error card, key dialog): dark → **0 light boxes, 0 low-contrast text (worst 3.6:1)**; light → only the
   pre-existing `#8E8E93`-on-page-background 2.9:1 items. The detector is calibrated: two deliberately
   invisible samples are always flagged (worst 1.1:1) — before that check it silently reported `NaN` as a
   pass. Re-run after the top-bar/icon change (Home, both themes): dark → 0 light boxes, 0 low-contrast
-  (worst 4.7:1); light → only the same pre-existing items; calibration still flags 2.
+  (worst 4.7:1); light → only the same pre-existing items; calibration still flags 2. Re-run again
+  after the Smart Entry card change (all 17 states): dark → 0/0 in every Add-sheet state (worst 3.6:1),
+  light → the same six pre-existing 2.9:1 `#8E8E93` items, no new ones.
 - Served app (after `./ctl.sh restart`, so the new routes are live): all four icons → **200, `image/png`,
   `public, max-age=600`, no `X-API-Key`**, with `nosniff` + `Referrer-Policy` (`/logo.png` 10,045 b,
   `apple-touch-icon.png` 10,045 b, `-152x152` 8,117 b, `-120x120` 5,355 b; the `?v=2` form serves the same
@@ -133,6 +173,10 @@ Decisions worth knowing:
   master elsewhere if it will be re-exported.
 - **Never tested on the real iPhone** (no device access from the sandbox): iOS keyboard vs the built-in
   keypad, the native date picker inside the sheet, real `env(safe-area-inset-*)`, the camera path, HEIC.
+  From this task specifically: whether Safari really stops zooming on a focused field now that every
+  control is 16px, whether it honours `maximum-scale=1`, whether a double tap on the keypad does
+  anything, and how `revealFocusedField()` behaves against a real keyboard — its geometry could only
+  be simulated by faking `visualViewport.height` (380px) while leaving `innerHeight` at 667.
 - **The verification harness lives in `/tmp`** (`duits-ui-check.js`, `build-preview.py`, `mkfit3.py`,
   `mk*.py`, all screenshots) — **not in the repo**, lost on reboot.
 - **Insights `Year` is blocked on the API**: `/transactions/summary` accepts only `month`
@@ -143,7 +187,10 @@ Decisions worth knowing:
   gets the default.
 - **Add-sheet shortcut below the targets**: a 320×568-class screen with Details open cannot fit two 48px
   rows + chips + 44px keys + a legible number, so below 660px the content column may scroll. Both target
-  sizes are clear of it, but it is a conscious deviation from a literal "never scroll".
+  sizes are clear of it, but it is a conscious deviation from a literal "never scroll". New in this
+  task: at 375×667 the same column scrolls when the Smart Entry card is open while the keyboard is
+  dismissed (keypad back on screen) — the card is 32px taller than the row it replaced, and scrolling
+  beats hiding Scan Receipt behind the keys.
 - Cosmetic ceilings accepted on Home's donut: a slice under ~2% renders as the minimum round dot; the
   legend folds the tail into a grey `Others`, so a month with both a real `other` category and a grouped
   tail shows `Other` *and* `Others`; a 6-figure total would touch the ring (hole sized for ~10 chars).
@@ -152,8 +199,10 @@ Decisions worth knowing:
 
 1. Move the UI harness and probes into the repo (e.g. `tools/ui-check.js`, `tools/preview.py`) so the
    regression suite survives, and document how to run them in the README.
-2. iPhone pass on `http://192.168.1.12:8000/`: keyboard vs keypad collapse, chips momentum, the date picker
-   inside the sheet, safe areas, one receipt scan end to end.
+2. iPhone pass on `http://192.168.1.12:8000/` (hard refresh once): no zoom when the Smart Entry field is
+   tapped and nothing shifting sideways, no double-tap zoom on the keypad, the Add button reachable on
+   the real keyboard, then keyboard vs keypad collapse, chips momentum, the date picker inside the sheet,
+   safe areas, one receipt scan end to end.
 3. Add `CLAUDE_FALLBACK_MODEL` to `.env.example` (one line, matching `config.py`).
 4. API work to unlock the deferred UI: a summary/list range endpoint (`?from=&to=`) → Insights `Year`,
    true cross-month range totals, Home-vs-ring count alignment for ranges.
@@ -162,6 +211,14 @@ Decisions worth knowing:
 6. Optional polish: donut slice minimum, `Others`/`Other` collision, ring hole sizing for 6-figure totals.
 
 ## 6. Instructions for the orchestrator — settle these before more UI work
+
+- **`:has()` is now load-bearing for two rules** (`html:has(.add-row.is-open) #screen-add` and the Smart
+  Entry card). It needs Safari 15.4+ / iOS 15.4+; on anything older the field still works, it just does
+  not get the shared card or the scroll escape. Is iOS 15.4 an acceptable floor, or should the card get
+  a class toggled from JS instead?
+- **Is a 16px floor on `.add-field` the right call visually?** It is what stops the focus zoom; the
+  alternative is `maximum-scale=1`, which iOS may ignore, and which would also block the user's own
+  pinch-zoom.
 
 - **Icon master**: was overwriting `logo.png` with the flattened 180×180 acceptable, or should the repo
   keep the original (e.g. `logo-master.png`) alongside the processed icon? It is one file today by design.

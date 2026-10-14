@@ -222,10 +222,12 @@ Settings keeps the large title alone.
     amount is greater than zero, and while a request is in flight it is disabled and reads `Saving…`, so
     a double tap cannot post twice.
   - Under the header: *Smart Entry* and *Scan Receipt* as two full-width rows stacked under the chips
-    (48px tall, 16px radius, the theme's light grey, icon left, grey chevron right, 8px apart). *Smart
-    Entry* (sparkle) expands a text field **inside its own row** — the row's chevron turns down and the
-    keypad steps aside for the real keyboard — and posts to `POST /transactions/text`, letting Claude
-    fill whatever it can. *Scan Receipt* (camera) opens the camera roll/camera
+    (48px tall, 16px radius, the theme's light grey, icon left, grey chevron right, 12px apart). *Smart
+    Entry* (sparkle) opens **one card**: the 48px header row, 12px, then the field and a fixed-width
+    `Add` button (10px apart, the field flexing with `min-width: 0`) — the card carries 14px of padding
+    and the row inside goes transparent, so header and field read as one block. The chevron turns down
+    and the keypad steps aside for the real keyboard; it posts to `POST /transactions/text`, letting
+    Claude fill whatever it can. *Scan Receipt* (camera) opens the camera roll/camera
     (`<input type="file" capture>`, no `getUserMedia`, so it works over plain HTTP)
     and is the only thing that reveals the privacy hint, which appears under the row once tapped: the
     photo is downscaled to 1600 px on the long edge and re-encoded as JPEG at quality 0.85 in the
@@ -238,8 +240,11 @@ Settings keeps the large title alone.
   - When height runs short the layout gives way in a fixed order, never by scrolling: first the amount
     font (`clamp(40px, 8.8vh, 56px)`, so it only starts shrinking below ~636px of height and stops at
     40px), then the key height (48px → 44px below 620px). As a last resort, below 660px, the content
-    column itself may scroll so nothing ever paints over the pinned keys. Both target sizes are clear
-    of all three: at 375×667 and 390×844 the number is 56px, the keys 48/56px and nothing scrolls.
+    column itself may scroll so nothing ever paints over the pinned keys. One further state scrolls by
+    design: the Smart Entry card is 32px taller than the row it replaced, so if the keyboard is
+    dismissed while the card stays open (keypad back on screen) the column scrolls at 375×667 rather
+    than hiding the Scan Receipt row behind the keys. Everywhere else the two target sizes are clear:
+    at 375×667 and 390×844 the number is 56px, the keys 48/56px and nothing else scrolls.
   - One row of three small pills: the **date** (`Today` / `Yesterday` / `12 Oct`, an
     invisible native `<input type="date">` over the pill opens the real picker, and nothing past today is
     accepted), **Personal/Business** (tap to toggle) and **Details**.
@@ -278,6 +283,31 @@ paints an icon's transparency black and applies its own rounded mask — and `GE
 `no-cache`, so a shortcut can never be built from stale HTML. **When the icon art changes, bump the
 `?v=` in `app/static/index.html`**, or the phone keeps showing the old tile. There is no service
 worker, so nothing is cached offline.
+
+### iOS touch behaviour
+
+Safari's own gestures are kept out of the way, because each one breaks the sheet:
+
+- **No focus zoom.** Every control a finger can focus is at least **16px** — `.add-field` (Smart Entry,
+  Merchant, Note), the Search field, and the invisible `<input type="date">` over the date pill (it is
+  `opacity: 0` but still focusable). `.field`, used by the API-key and edit sheets, is `font: inherit`
+  from the 17px body. A focused control under 16px makes iOS zoom the whole page in, which is what was
+  cutting the Smart Entry field and its `Add` button off on the right. `maximum-scale=1` is also in the
+  viewport meta, but the font size is the real fix (iOS has ignored `maximum-scale` for pinch since
+  iOS 10 — so pinch-zoom still works, as it should).
+- **No double-tap zoom.** `touch-action: manipulation` on `html`, `body`, `button` (every tappable
+  thing here is one, keys and chips and tabs included) and the date `<label>`; the drag handle keeps
+  `touch-action: none`. Keys are `-webkit-tap-highlight-color`-free and `user-select: none`, while
+  inputs keep selection so a typed line stays correctable.
+- **No sideways scroll.** `html, body { overflow-x: hidden; max-width: 100vw }`, `box-sizing:
+  border-box` throughout, `min-width: 0` on the flexing field. The only things off the right edge are
+  the category chips, which live in their own horizontal scroller by design.
+- **Keyboard.** iOS puts the keyboard outside the layout viewport, and the sheet is pinned to `100dvh`,
+  so the page has nothing to scroll and Safari cannot reveal the focused field by itself.
+  `revealFocusedField()` reads `visualViewport`: while the keyboard is up it caps the column to the
+  visible strip (`--vvh`) and scrolls the field the remaining few pixels into view — scroll only, never
+  a transform or a zoom. Both listeners (`resize`, `scroll`) and the attribute are torn down again when
+  the keyboard closes, so the sheet behaves exactly as before with no keyboard.
 
 ### Dark mode
 
@@ -484,8 +514,10 @@ Safari. Both write the same rows.
 ## Known gaps
 
 - **Not yet run on a physical iPhone.** Everything is verified in a desktop browser sized to the
-  phone, so these remain open: the real keyboard against the built-in keypad, the native date picker
-  raised from inside the sheet, actual `env(safe-area-inset-*)` values, and a receipt scan end to end
+  phone, so these remain open: the real keyboard against the built-in keypad and against
+  `revealFocusedField()` (the keyboard can only be simulated there — `visualViewport` is faked),
+  whether iOS honours `maximum-scale=1`, a double tap on the keypad, the native date picker raised
+  from inside the sheet, actual `env(safe-area-inset-*)` values, and a receipt scan end to end
   (camera → HEIC → upload).
 - **No `Year` segment in Insights** — the API has no range query (see the Insights bullet above); it
   needs a `?from=&to=` endpoint before a year can be honest.
@@ -494,7 +526,9 @@ Safari. Both write the same rows.
   the default. The env table under *Deploy* is the complete list.
 - **Below 660px of viewport height** the Add sheet's content column may scroll (it is the last resort
   that keeps anything from painting over the pinned keys). Both target sizes are well clear of it, but
-  an SE-class screen with Details open cannot show every row at once.
+  an SE-class screen with Details open cannot show every row at once. Same story at 375×667 in one
+  state: the Smart Entry card open while the keyboard is dismissed (keypad back on screen) is 32px
+  taller than the row it replaced, so the column scrolls rather than hiding Scan Receipt.
 - **Home's ring has three cosmetic ceilings**: a slice under ~2% draws as the minimum round dot; the
   legend folds the tail into a grey `Others`, so a month holding both a real `other` category and a
   grouped tail shows `Other` *and* `Others`; and a 6-figure month total fills the hole.
@@ -519,9 +553,14 @@ the square size its slot expects).
 ### UI checks
 
 The pytest suite above covers the API only; the UI has no committed test suite yet. It is checked
-with a scratch Node harness that evals the page's `<script>` and asserts 647 things about the
+with a scratch Node harness that evals the page's `<script>` and asserts 671 things about the
 markup, the CSS and the behaviour (theme plumbing and palette, Add-sheet order, the shrink ladder,
-the icon links and the removal of the runtime canvas icon,
-that only the Details block may scroll, Save gating, keypad visibility) — plus headless-Chrome probes
-and screenshots at 375×667 and 390×844 in both themes. That harness lives outside the repo today;
+the icon links and the removal of the runtime canvas icon, the iOS touch rules — a 16px floor on
+controls, `touch-action: manipulation`, the keyboard reveal — which areas may scroll, Save gating,
+keypad visibility) — plus headless-Chrome probes
+and screenshots at 375×667 and 390×844 in both themes. Those probes report the computed font size of
+every focusable control, the computed `touch-action` per element, any element crossing the viewport
+edge, the Smart Entry card geometry, and a simulated keyboard (a faked `visualViewport` shrinking to
+380px) to prove the field is scrolled into view — and that closing it restores the layout exactly.
+That harness lives outside the repo today;
 moving it in (e.g. `tools/`) is the first item in `Handoff.md`.

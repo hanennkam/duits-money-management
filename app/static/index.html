@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
 <meta name="theme-color" id="themeColorMeta" content="#f2f2f7">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -136,7 +136,13 @@
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   [hidden] { display: none !important; }
-  html, body { margin: 0; padding: 0; }
+  /* Nothing may push the page sideways, and no tap may double-tap-zoom. Every tappable thing here is
+     a <button> except the date pill, which is a <label> wrapping the invisible date input. */
+  html, body { margin: 0; padding: 0; overflow-x: hidden; max-width: 100vw; }
+  html, body, button, .add-pill { touch-action: manipulation; }
+  /* Keys and buttons: no text selection and no long-press callout. Inputs keep both, so a typed
+     transaction can still be selected and corrected. */
+  button, .key { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
   body {
     background: var(--bg);
     color: var(--text);
@@ -471,8 +477,9 @@
   }
   .add-pill:active { opacity: .65; }
   .add-pill.is-on { background: var(--accent-soft); color: var(--accent); }
-  /* The real picker sits invisibly over the pill, so a tap opens the native date sheet. */
-  .add-date-input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; border: 0; }
+  /* The real picker sits invisibly over the pill, so a tap opens the native date sheet. 16px because
+     iOS zooms the whole page in when a focused control is smaller, and this one is focusable. */
+  .add-date-input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; border: 0; font-size: 16px; }
   /* Merchant + Note open between the pills and the chips. If the sheet runs out of room this is the
      one area allowed to scroll, so nothing else is ever cut off. */
   .add-details {
@@ -483,7 +490,7 @@
   .add-field {
     flex: 1; min-width: 0; min-height: 38px; padding: 0 12px;
     border: .5px solid var(--line); border-radius: 12px;
-    background: var(--field); color: var(--text); font: inherit; font-size: 15px;
+    background: var(--field); color: var(--text); font: inherit; font-size: 16px;
   }
   .add-field::placeholder { color: var(--placeholder); }
   .add-field:focus { outline: none; border-color: var(--accent); }
@@ -504,7 +511,8 @@
   .cat-dot, .legend-dot { background: var(--cat); }
   .cat-fill { background: var(--cat); }
   .txn-icon, .cat-icon, .highlight-icon { color: var(--cat); }
-  .add-rows { flex: none; display: flex; flex-direction: column; gap: 8px; margin: 8px 0 0; }
+  /* 12px above (after the chips) and 12px between the two rows: Smart Entry card, then Scan Receipt. */
+  .add-rows { flex: none; display: flex; flex-direction: column; row-gap: 12px; margin: 8px 0 0; }
   /* One full-width row per action: icon left, label, chevron right. Light grey, 48px, 16px radius. */
   .add-row {
     width: 100%; min-height: 48px; padding: 0 14px; border: 0; border-radius: 16px;
@@ -523,8 +531,34 @@
     transition: transform .15s ease;
   }
   .add-row.is-open .add-row-chev { transform: rotate(90deg); }   /* chevron points down when open */
-  .smart-entry { flex: none; display: flex; gap: 8px; margin: 0 0 8px; }
-  .smart-entry .btn-primary { flex: none; width: auto; min-height: 38px; padding: 0 18px; font-size: 15px; }
+  /* Smart Entry is one card: 48px header row, 12px, then the input row inside the same grey card
+     with 14px of padding. While it is open the row inside goes transparent and hands its own padding
+     to the card, so header and field read as a single block instead of stacked pills. */
+  .add-row-block { border-radius: 16px; }
+  .add-row-block:has(.add-row.is-open) { padding: 14px; background: var(--card-2); }
+  .add-row-block:has(.add-row.is-open) > .add-row { background: transparent; padding: 0; }
+  /* input flexes, button keeps its own width: at 375px the field is ~250px and nothing overflows. */
+  .smart-entry { flex: none; display: flex; gap: 10px; margin: 12px 0 0; }
+  .smart-entry .add-field { flex: 1; min-width: 0; }
+  .smart-entry .btn-primary {
+    flex: 0 0 auto; width: auto; min-width: 64px; min-height: 38px; padding: 0 18px; font-size: 16px;
+  }
+  /* While the iOS keyboard is up the sheet has to fit — and be able to scroll — inside the part of the
+     screen the keyboard left over, or the focused field and the Add button beside it sit under the
+     keyboard with nothing able to bring them into view. --vvh and the attribute are both set by
+     revealFocusedField() from visualViewport; without a keyboard neither exists, so the sheet behaves
+     exactly as before and still does not scroll at the two target sizes. */
+  html[data-keyboard] #screen-add {
+    max-height: var(--vvh); overflow-y: auto; -webkit-overflow-scrolling: touch;
+  }
+  #screen-add { scroll-padding-bottom: 12px; }
+  /* The card is taller than the row it replaced, so if the keyboard is dismissed while it stays open
+     (keypad back on screen) the column can run out of room at 375x667. In exactly that state the
+     column scrolls, so the Scan Receipt row stays reachable instead of hiding behind the keys.
+     Scrolling with no overflow to consume is inert, so the other states are unaffected. */
+  html:has(.add-row.is-open) #screen-add {
+    overflow-y: auto; -webkit-overflow-scrolling: touch;
+  }
   .add-hint { flex: none; margin: 8px 2px 0; font-size: 12px; line-height: 1.35; color: var(--muted); }
   /* The keys are the sheet's own footer: no scroll, no sticky needed. */
   .keypad {
@@ -644,7 +678,7 @@
   .search-field svg { width: 17px; height: 17px; flex: none; }
   .search-field input {
     flex: 1; min-width: 0; border: 0; background: none; color: var(--text);
-    font: inherit; font-size: 15px;
+    font: inherit; font-size: 16px;   /* 16px keeps iOS from zooming in when Search gets focus */
   }
   .search-field input:focus { outline: none; }
   .search-field input::-webkit-search-cancel-button { -webkit-appearance: none; display: none; }
@@ -2016,6 +2050,48 @@
     var active = document.activeElement;
     var typing = !!(active && active.classList && active.classList.contains("add-text"));
     $("addKeypad").hidden = typing;
+  }
+
+  // The keyboard lives *outside* the layout viewport on iOS: the sheet is pinned to 100dvh, so the
+  // page cannot scroll a focused field into view by itself and Safari has nothing to move. So read the
+  // real remaining room from visualViewport, let the sheet scroll while the keyboard is up (the
+  // html[data-keyboard] rule), and shift the field into the visible strip by hand. Scroll only — the
+  // layout viewport and its scale are never touched, which is what keeps the page from zooming.
+  function revealFocusedField() {
+    var viewport = window.visualViewport;
+    if (!viewport) return;                       // older Safari: nothing to measure, leave it alone
+    var keyboardUp = window.innerHeight - viewport.height > 120;
+    if (keyboardUp) {
+      document.documentElement.setAttribute("data-keyboard", "true");
+      // --vvh caps the sheet to what the keyboard left over, so the layout reflows into the visible
+      // strip first and only scrolls when even that is not enough (short screen, Details open).
+      document.documentElement.style.setProperty("--vvh", viewport.height + "px");
+    } else {
+      document.documentElement.removeAttribute("data-keyboard");
+      document.documentElement.style.removeProperty("--vvh");
+      return;
+    }
+
+    var field = document.activeElement;
+    if (!field || !field.matches || !field.matches("input, textarea, select")) return;
+
+    var box = field.getBoundingClientRect();
+    var hidden = box.bottom - viewport.offsetTop + 12 - viewport.height;   // 12px of breathing room
+    if (hidden <= 0) return;
+
+    var scroller = null;                         // nearest ancestor that can actually scroll
+    for (var node = field.parentElement; node && node !== document.body; node = node.parentElement) {
+      var style = window.getComputedStyle(node);
+      if ((style.overflowY === "auto" || style.overflowY === "scroll") &&
+          node.scrollHeight > node.clientHeight) { scroller = node; break; }
+    }
+    if (scroller) scroller.scrollTop += hidden;
+    else window.scrollBy(0, hidden);
+  }
+
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", revealFocusedField);
+    window.visualViewport.addEventListener("scroll", revealFocusedField);
   }
 
   // Details holds Merchant and Note: collapsed until the pill is tapped.
