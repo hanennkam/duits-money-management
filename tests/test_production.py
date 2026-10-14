@@ -90,7 +90,7 @@ def test_hardening_headers_are_on_every_response(client: TestClient) -> None:
     assert home.status_code == 200
     assert home.headers["X-Content-Type-Options"] == "nosniff"
     assert home.headers["Referrer-Policy"] == "no-referrer"
-    assert home.headers.get("Cache-Control") != "no-store"  # the page itself may be cached
+    assert home.headers.get("Cache-Control") == "no-store"  # the page is never cached either
 
     unauthorised = client.get("/transactions?month=2026-10")
     assert unauthorised.status_code == 401

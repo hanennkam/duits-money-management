@@ -45,6 +45,29 @@ Completed since the last handoff (all verified, see §3):
   its cached icon on the URL), and `GET /` was heuristically cacheable too, so the shortcut could be
   built from old markup. Icons now send `public, max-age=600` (never `immutable`), every icon href
   carries `?v=2`, and `GET /` sends `no-cache`.
+- **iPhone animations reported broken: five separate causes, all found in the code.**
+  1. *"only plays the first render"* — the 900ms freshness gate (`bumpContentMotion`/`markFresh`)
+     deliberately suppressed every replay, so a tab switch, a month change or a refresh animated
+     nothing after the first paint. Replaced by one explicit `replay(el, className)` helper
+     (remove class → force reflow → add it) called by every entrance, and the gate is gone.
+  2. *"sheets only slide once"* — the entrance was a CSS **animation** hung off the
+     `hidden` attribute flipping `display`. Chromium replays that; iOS WebKit is exactly where it
+     fails. Sheets are now mounted permanently and move on a **transition** driven by `.open`
+     (`openOverlay` adds it two frames after mount).
+  3. *"no press spring"* — iOS Safari only applies `:active` to a `<button>` when the document has
+     a touch listener, and the page had none. One empty passive `touchstart` in `wire()` fixes it.
+  4. *"the save flash never shows"* — the flash was decided *before* `refreshAllScreens()`, so a
+     slow reply (or any later re-render) painted over it. `flashRow(id)` now runs in the promise
+     after Home and the list have reloaded and marks the live row by `data-id`.
+  5. *"standalone shows none at all"* — **not reproducible from here, and not a code path**: there
+     is no service worker and no external CSS/JS (the page is the only asset), and `GET /` already
+     sends `no-cache`. The remaining explanation is a document cached *before* that header existed
+     (heuristic freshness) still being served to the standalone shortcut. The new **Build** row in
+     Settings shows the stamp on the phone to confirm it, and `?v=` was bumped on the icons.
+  Also fixed while in there: two layout-property animations (`transition: height` on the day
+  chart, `width` on the category bars), `backdrop-filter` on the moving toast, and the keyboard
+  layout: `align-items: flex-end` pinned the sheet to the bottom of the *layout* viewport, which
+  iOS leaves under the keyboard — capping its height was never going to help.
 - **iOS motion pass.** Every animation now runs on `transform`/`opacity` only (plus the ring's
   `stroke-dasharray`) on one curve (`cubic-bezier(0.32, 0.72, 0, 1)`) with four durations in `:root`
   (sheet 350, page 180, press 100, toast 250). Two real defects were found while doing it: the day
@@ -58,8 +81,8 @@ Completed since the last handoff (all verified, see §3):
 
 ## 2. Changes
 
-Files touched (both of the last two tasks: `app/static/index.html` and the docs only — no backend,
-no API, no test file):
+Files touched (the last three tasks: `app/static/index.html` and the docs only — no backend, no API,
+no test file):
 `app/static/index.html` (HTML + CSS + vanilla JS, no build step, served by the API at
 `GET /`), `app/main.py` (one `_icon()` helper + four public icon routes, and `no-cache` on `GET /`),
 `app/static/logo.png` and the three `app/static/apple-touch-icon*.png` files, `tests/test_static.py`,
@@ -104,6 +127,28 @@ Decisions worth knowing:
 - **Brand mark**: `.brand-mark` is 24px/radius 6px with a `.5px` hairline (`--line`) so its white tile
   stays defined on the dark bar. Measured: the bar is 52px with *and* without the mark (the refresh
   button is 34px, the mark shorter), no overflow at 375 or 390 — nothing downstream can shift.
+- **Replay, not remounting**: `replay(element, className)` removes the class, reads `offsetWidth` to
+  force a reflow, then adds it back. It is called by `showScreen` (`is-entering`), `slideScreen`
+  (`is-sliding`), every renderer (`is-fresh` on `#txnList`, `#txnGroups`, `#categoryList`,
+  `#insightDays`, `#insightCats`), the two donuts (`is-drawn`) and `flashRow` (`is-new`). No timer,
+  no freshness window, nothing to miss.
+- **Overlays**: always in the DOM, `opacity: 0; visibility: hidden; pointer-events: none` when closed
+  (`visibility` flipped after the fade), `.open` transitions the scrim's opacity and the sheet's
+  `translateY` (`--move-sheet` → 0). `openOverlay` clears any pending close timer and adds `.open`
+  after two rAFs; `closeOverlay` removes it and finishes on `transitionend` (scrim opacity, which
+  always animates even under reduce motion) with a `min(dur + 120, 400)`ms fallback; `closeDone`
+  makes the two paths race safely. The `hidden` attribute and the four old keyframes are gone.
+- **The ring**: segments are `<path>` arcs (`ringArc`/`ringArcPoint`) so the draw is a
+  `stroke-dashoffset` transition from each arc's own `--len` to 0. A circle could not do this — a dash
+  on a closed loop can only slide, never grow. Under reduce motion the offset is pinned to 0 with no
+  transition, or the ring would simply disappear.
+- **Smart Entry text mode**: `setTextMode(on)` toggles `html[data-text-mode]`, which hides
+  Expense/Income, the amount, the date and Details pills, the chips, Scan Receipt, the hint and the
+  keypad, and anchors `#addOverlay` to `--vvh` (`inset: 0 0 auto 0; height: var(--vvh, 100dvh)`). The
+  anchoring is the fix: the sheet is bottom-aligned inside the overlay, so sizing the overlay to the
+  visual viewport parks the sheet above the keyboard. Restored by `closeAddSheet` and on reopen.
+- **A Build row** in Settings (`motion N`) exists only to answer "is the phone running the current
+  page?" from the phone. Bump it with every `index.html` change.
 - **Motion**: the tokens (`--ease-ios`, `--dur-sheet/page/press/toast`, `--move-sheet/page/month/row/toast`,
   `--press-scale`) live in one `:root` block beside the palette, and `prefers-reduced-motion: reduce`
   overrides the same block (durations 150ms, every `--move-*` zero, `--press-scale: 1`) plus switches
@@ -143,7 +188,7 @@ Decisions worth knowing:
   (four icon URLs public + `image/png` + `max-age=600` + byte-identical to disk; not in the schema;
   `GET /` `no-cache` with an ETag; each file alpha-free and square at 180/180/152/120; and every icon
   link in the page versioned and really served).
-- `/tmp/duits-ui-check.js` (Node harness that evals the extracted `<script>`) → **722 assertions pass**,
+- `/tmp/duits-ui-check.js` (Node harness that evals the extracted `<script>`) → **751 assertions pass**,
   including: no colour literal anywhere in the stylesheet or script outside the two palette blocks and the
   two hue constants; the pre-paint script's position and `try/catch`; the exact dark palette values; the
   Add sheet order; 12/8/12px gaps and 48px rows; the four states that may scroll (`.add-details`, the
@@ -175,7 +220,36 @@ Decisions worth knowing:
   (worst 4.7:1); light → only the same pre-existing items; calibration still flags 2. Re-run again
   after the Smart Entry card change (all 17 states): dark → 0/0 in every Add-sheet state (worst 3.6:1),
   light → the same six pre-existing 2.9:1 `#8E8E93` items, no new ones.
-- Real-time animation measurement over CDP (real Chrome, real timers — `--virtual-time-budget`
+- **The protocol, run in a real Chrome at an exact 375×667 (and again at 390×844) on real timers**
+  (`/tmp/cdp-js-protocol.js`, `-protocol2.js`, `-geometry.js`):
+  - open/close "+" ten times: `opened=10/10 closed=10/10 stuck=0`, settled
+    `open=false opacity=0 visibility=hidden pointers=none transform=matrix(1,0,0,1,0,667)`.
+  - ten tab switches: `donuts seen=10 dressed=10`, `tabbar=none plus=none` throughout, and the ring is
+    back at `stroke-dashoffset=100.41` of `--len=128.25` 50ms after re-entry every time.
+  - month change: wheel sheet mid-slide `translateY(22.9px)` and closed 140ms after Done, new rows at
+    `opacity 0.991` / `translateY(0.03px)` / `--i:0`, `--slide=var(--move-month)`, settled identity.
+  - save end to end (the preview stub now really creates a row on POST): `flashOnRows=2 id=new-1`,
+    `::after opacity 0.64` fading, sheet closed, and after the 1s cleanup `flashOnRows=0` with the new
+    row still in the list.
+  - Smart Entry: `data-text-mode=true`, typeToggle/amount/chips/scan/keypad/date/Details hidden, mode
+    pill visible; with `visualViewport.height=380` the sheet bottom is exactly 380 and the field bottom
+    360 (visible while typing, and after typing); closing the card restores `textMode=off`, rows 48/48,
+    keys 48, full sheet height.
+  - geometry at both sizes in every state: `contentOverflow=false sheetScroll=false overflow=0`, nothing
+    clipped inside the sheet except the category chips in their own scroller, amount 56px, keys 48/56,
+    keypad flush with the sheet bottom, Save disabled at RM 0.00.
+  - `--force-prefers-reduced-motion`: `move-sheet=0% move-page=0px move-month=0px press=1`, sheet
+    transform identity while the scrim still fades (0.72 at 40ms), the page fades without moving, the
+    ring reads `strokeDashoffset=0 transitionDuration=0s` (drawn, not animated), the close still settles
+    to `open=false opacity=0 visibility=hidden pointers=none`, nothing stuck, `overflow=0`.
+  - the both-theme audit still passes: 35 dark states, 0 findings, calibration still flags 2.
+- **Instrumentation lesson (again)**: `--virtual-time-budget` freezes the animation *and transition*
+  timeline, so the older virtual-time probes now report collapsed expanders, from-state transforms and
+  an invisible ring — measurements that look like broken layout. They are only trustworthy for static
+  checks now; motion and geometry must go through CDP on real timers. The CDP runner also sets an exact
+  device viewport instead of loading a hand-written frame page: a stale frame file silently stays
+  `about:blank`, and an iframe created from `about:blank` is cross-origin (both produce empty results).
+- Real-time animation measurement over CDP (the previous task's run, kept for the numbers it caught):
   **freezes the animation timeline**, so it cannot be used for any of this): Add sheet
   `translateY(381px) @60ms → 26px @200ms → none @600ms`, scrim `0.43 → 1`, resting `height=667
   bottom=667`; exit `class='overlay is-closing' @60ms` then `hidden=true transform=none class=overlay`;
@@ -204,6 +278,12 @@ Decisions worth knowing:
 
 ## 4. Unresolved issues / risks
 
+- **Whether iOS really plays the sheet transition every time cannot be confirmed here** — that it
+  does so in Chromium is measured (`opened=10/10`), and the fix removes the known-unreliable
+  mechanism (an animation tied to a `display` flip) rather than tuning it.
+- **`visualViewport` geometry is emulated**: `--vvh` and the text-mode anchor are verified against a
+  faked `height` (380 of 667, 481 of 844) with `offsetTop: 0`. A real keyboard, a real
+  `offsetTop`, and iOS's own scrolling of the visual viewport are untested.
 - **Real-device motion is unverified beyond timing and geometry**: 60fps on an iPhone, whether the
   curve *feels* right, iOS's own Reduce Motion setting, and whether the sheet animation stays in step
   with the keyboard's own slide are all untested here (Chrome on this Mac, headless, at 375×667).
@@ -258,6 +338,14 @@ Decisions worth knowing:
 
 ## 6. Instructions for the orchestrator — settle these before more UI work
 
+- **`/` is `no-cache`; should it be `no-store`?** `no-cache` revalidates but Starlette's
+  `FileResponse` never answers `If-None-Match` with 304, so a load re-downloads all 150 KB anyway —
+  `no-store` would additionally make a stale standalone copy impossible. One line in `main.py`, left
+  alone because the task said no backend changes.
+- **The Build row** (`motion N`) is a diagnostic, not a product feature: keep bumping it by hand, or
+  drop it once the standalone cache question is settled?
+- **Text mode hides the keypad while the card is open**, per the brief, so the amount cannot be
+  tapped in while typing. If that is wrong, the keypad needs to come back for a blurred card.
 - **Is excluding the tab bar and the `+` from press feedback right?** The task said they must not
   animate during a tab switch, and that is honoured; the press scale was also left off them to stay
   literal. Say the word and they get the same 0.96 spring as every other button.

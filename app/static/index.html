@@ -169,21 +169,17 @@
       --move-toast: 0px;
       --press-scale: 1;
     }
-    .donut circle,
     .txn,
     .cat-fill,
     .day-bar { animation: none !important; }
+    /* The ring is drawn, not animated: without this its dash offset would stay at the hidden value. */
+    .donut-seg { stroke-dashoffset: 0 !important; transition: none !important; }
   }
-  @keyframes fade-in { from { opacity: 0; } }
-  @keyframes fade-out { to { opacity: 0; } }
-  @keyframes sheet-in { from { transform: translateY(var(--move-sheet)); } }
-  @keyframes sheet-out { to { transform: translateY(var(--move-sheet)); } }
   @keyframes page-in { from { opacity: 0; transform: translateY(var(--move-page)); } }
   @keyframes month-in { from { opacity: 0; transform: translateX(var(--slide, 0px)); } }
   @keyframes row-in { from { opacity: 0; transform: translateY(var(--move-row)); } }
   @keyframes grow-in { from { transform: scaleX(0); } }
   @keyframes grow-up { from { transform: scaleY(0); } }
-  @keyframes ring-in { from { stroke-dasharray: 0 var(--circ); } }
   /* One animation for the toast's whole life: in from above, hold, fade out. The percentages are the
      250ms in/out of --dur-toast against the 4500ms the JS keeps it for. */
   @keyframes toast-life {
@@ -671,17 +667,23 @@
   .result-meta { font-size: 13px; color: var(--muted); margin-top: 4px; }
 
   /* ---------- sheet ---------- */
-  /* Sliding in plays off the display change itself (hidden -> shown), so no JS waits on it, and it
-     does not fill forwards: the inline transform the drag handler writes keeps working afterwards. */
+  /* Overlays stay in the DOM and move on a transition driven by .open — a transform transition plays
+     every time, where an animation hung off a display change is the thing iOS only plays once. Closed,
+     they are invisible and untouchable: opacity 0, visibility hidden (flipped after the fade, so the
+     exit is seen) and pointer-events off. openOverlay() adds .open two frames after mount; the drag
+     handler writes an inline transform, which the transition below picks up. */
   .overlay {
     position: fixed; inset: 0; z-index: 20; display: flex; align-items: flex-end; justify-content: center;
     padding: 12px 12px calc(12px + env(safe-area-inset-bottom)); background: var(--scrim);
-    animation: fade-in var(--dur-sheet) var(--ease-ios);
+    opacity: 0; visibility: hidden; pointer-events: none;
+    transition: opacity var(--dur-sheet) var(--ease-ios), visibility 0s linear var(--dur-sheet);
   }
-  /* Closing is driven by .is-closing: closeOverlay() adds it, waits out the animation, then hides. */
-  .overlay.is-closing { animation: fade-out var(--dur-sheet) var(--ease-ios) forwards; }
-  .overlay > .sheet { animation: sheet-in var(--dur-sheet) var(--ease-ios); }
-  .overlay.is-closing > .sheet { animation: sheet-out var(--dur-sheet) var(--ease-ios) forwards; }
+  .overlay.open {
+    opacity: 1; visibility: visible; pointer-events: auto;
+    transition: opacity var(--dur-sheet) var(--ease-ios), visibility 0s linear 0s;
+  }
+  .overlay > .sheet { transform: translateY(var(--move-sheet)); transition: transform var(--dur-sheet) var(--ease-ios); }
+  .overlay.open > .sheet { transform: translateY(0); }
   .sheet {
     width: 100%; max-width: 640px; padding: 20px;
     background: var(--card); border-radius: var(--r-lg); box-shadow: var(--shadow-up);
@@ -717,7 +719,6 @@
     max-width: 420px; padding: 11px 16px; border-radius: 14px;
     background: var(--toast-bg); color: var(--toast-ink); font-size: 14px; font-weight: 500;
     box-shadow: var(--toast-shadow);
-    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
   }
   .toast.warn { background: var(--toast-warn); }
   .toast.error { background: var(--toast-error); }
@@ -883,9 +884,9 @@
   button:not(.tab):not(.tab-add):active, .add-pill:active {
     transform: scale(var(--press-scale)); opacity: .7;
   }
-  /* One fade + 6px rise per tab switch, played off the display change itself, so a re-render never
-     restarts it. No .screen contains the tab bar or the + button. */
-  .screen:not([hidden]) { animation: page-in var(--dur-page) var(--ease-ios); }
+  /* One fade + 6px rise per tab switch. showScreen() replays it every time (a display change alone
+     only plays once on iOS). No .screen contains the tab bar or the + button. */
+  .screen.is-entering { animation: page-in var(--dur-page) var(--ease-ios); }
   /* Month change: every block on the screen slides in from the side the change came from. */
   .screen.is-sliding > * { animation: month-in var(--dur-page) var(--ease-ios); }
   /* Toast: one animation for its whole life — in from above, hold, fade out. */
@@ -897,11 +898,15 @@
   .is-fresh .cat-fill { animation: grow-in 600ms var(--ease-ios) both; }
   /* The day chart keeps its height as a layout size and grows with scaleY from the baseline. */
   .is-fresh .day-bar { animation: grow-up 600ms var(--ease-ios) both; }
-  /* The ring draws itself clockwise from each segment's own start, staggering into a sweep. */
-  .is-fresh .donut circle:not(.donut-track) {
-    animation: ring-in 600ms var(--ease-ios) both;
-    animation-delay: calc(var(--i, 0) * 60ms);
+  /* The ring draws itself clockwise from each segment's own start. A dash offset transition is the
+     smooth way round a circle: the dash length never changes, only how much of it has slid into view,
+     so no per-frame JS and nothing to repaint beyond the path itself. */
+  .donut-seg {
+    stroke-dashoffset: var(--len);
+    transition: stroke-dashoffset 600ms var(--ease-ios);
+    transition-delay: calc(var(--i, 0) * 60ms);
   }
+  .donut.is-drawn .donut-seg { stroke-dashoffset: 0; }
   /* A row that was just saved: a tinted overlay that fades out, so nothing but opacity moves. */
   @keyframes highlight-out { from { opacity: 1; } to { opacity: 0; } }
   .txn { position: relative; }
@@ -910,6 +915,34 @@
     background: var(--accent-soft);
     animation: highlight-out 800ms var(--ease-ios) both;
   }
+  /* Smart Entry "text mode": the keyboard is up, so the sheet shows only what is being typed into —
+     header, the Smart Entry card and the mode pill — and is sized to the visual viewport so nothing
+     sits behind the keyboard. The normal layout returns the moment the card closes. */
+  html[data-text-mode] #addTypeToggle,
+  html[data-text-mode] #addAmount,
+  html[data-text-mode] .add-pill-date,
+  html[data-text-mode] #addDetailsPill,
+  html[data-text-mode] #addDetails,
+  html[data-text-mode] .chip-scroll,
+  html[data-text-mode] #scanBtn,
+  html[data-text-mode] #scanHint,
+  html[data-text-mode] #addKeypad { display: none; }
+  /* The keyboard does not shrink the layout viewport on iOS, so the sheet must be anchored to the
+     part of the screen that is actually visible: with the overlay sized to --vvh (the visual
+     viewport), align-items: flex-end parks the sheet on top of the keyboard instead of behind it.
+     Capping the height alone is not enough — the sheet stays pinned to the bottom of the layout
+     viewport and the field ends up under the keys. */
+  html[data-text-mode] #addOverlay {
+    inset: 0 0 auto 0; height: var(--vvh, 100dvh);
+  }
+  html[data-text-mode] #addSheet {
+    height: auto; max-height: calc(var(--vvh, 100dvh) - 10px);
+  }
+  html[data-text-mode] #screen-add { max-height: none; overflow: visible; }
+  /* 12px between the header, the card and the row below it. */
+  html[data-text-mode] .add-rows { margin-top: 12px; }
+  html[data-text-mode] .add-pills { margin: 12px 0 0; }
+
   .field, .chip, .btn-primary, .btn-danger, .pill { max-width: 100%; }
 </style>
 </head>
@@ -973,7 +1006,7 @@
 
 
   <!-- 2. Add - a full-height sheet, opened by the raised "+" in the tab bar -->
-  <div class="overlay" id="addOverlay" hidden>
+  <div class="overlay" id="addOverlay" aria-hidden="true">
     <div class="sheet add-sheet" id="addSheet">
       <div class="sheet-grab" id="addGrab" aria-hidden="true"><span></span></div>
       <div class="sheet-head has-done">
@@ -991,7 +1024,7 @@
         <div class="add-amount" id="addAmount">RM 0.00</div>
 
         <div class="add-pills">
-          <label class="add-pill" for="addDate">
+          <label class="add-pill add-pill-date" for="addDate">
             <span id="addDateLabel">Today</span>
             <input class="add-date-input" id="addDate" type="date" aria-label="Date">
           </label>
@@ -1155,6 +1188,8 @@
       <div class="list-card">
         <div class="setting-row"><span class="setting-label">App</span><span class="setting-value">Duits</span></div>
         <div class="row-divider"></div>
+        <div class="setting-row"><span class="setting-label">Build</span><span class="setting-value">motion 4</span></div>
+        <div class="row-divider"></div>
         <div class="setting-row"><span class="setting-label">Currency</span><span class="setting-value">MYR</span></div>
         <div class="row-divider"></div>
         <div class="setting-row"><span class="setting-label">Date format</span><span class="setting-value">DD/MM/YYYY</span></div>
@@ -1190,11 +1225,11 @@
   </div>
 </nav>
 
-<div class="overlay" id="txnOverlay" hidden>
+<div class="overlay" id="txnOverlay" aria-hidden="true">
   <div class="sheet" id="txnSheet"></div>
 </div>
 
-<div class="overlay" id="keyOverlay" hidden>
+<div class="overlay" id="keyOverlay" aria-hidden="true">
   <div class="sheet">
     <h2>API key</h2>
     <p class="sheet-note" id="keyHint">Paste the <code>API_KEY</code> from your <code>.env</code>. It stays in this browser.</p>
@@ -1207,7 +1242,7 @@
   </div>
 </div>
 
-<div class="overlay" id="monthOverlay" hidden>
+<div class="overlay" id="monthOverlay" aria-hidden="true">
   <div class="sheet" id="wheelSheet">
     <div class="sheet-grab" id="monthGrab" aria-hidden="true"><span></span></div>
     <div class="sheet-head has-done">
@@ -1386,55 +1421,68 @@
     return value.indexOf("ms") > -1 ? ms : ms * 1000;
   }
 
-  // Opening plays off the display change itself (see the .overlay rules). Closing has to keep the
-  // overlay on screen for the length of the exit animation, so it waits — and a second close restarts
-  // that wait rather than stacking one, so no overlay can ever be left stuck.
-  function showOverlay(element) {
+  // Restart an animation or a transition by hand: drop the class, force a reflow so the browser has a
+  // "before" state to come back from, then put it back. Every place that wants an entrance to play
+  // again calls this — a tab becoming active, a month changing, data reloading — because letting an
+  // element be re-created, or relying on a display change, only plays it the first time.
+  function replay(element, className) {
+    if (!element) return;
+    element.classList.remove(className);
+    void element.offsetWidth;
+    element.classList.add(className);
+  }
+
+  // Overlays live in the DOM permanently and animate with a transition on .open (see the .overlay
+  // rules). A transform transition is what iOS plays every time; animating off a display change is
+  // what it plays once. The class is added two frames after mount so the closed state has painted.
+  function openOverlay(element) {
     if (!element) return;
     clearTimeout(element.closeTimer);
-    element.classList.remove("is-closing");
-    element.hidden = false;
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        element.classList.add("open");
+        element.setAttribute("aria-hidden", "false");
+      });
+    });
   }
 
+  // Closing waits for the transition to finish, with a fallback so it can never hang: the overlay's
+  // own opacity always transitions (even under reduce motion, where the sheet does not move), and the
+  // fallback covers anything that misses the event. A second close restarts this one wait.
   function closeOverlay(element, after) {
-    if (!element || element.hidden) { if (after) after(); return; }
-    element.classList.add("is-closing");
-    clearTimeout(element.closeTimer);
-    element.closeTimer = setTimeout(function () {
-      element.classList.remove("is-closing");
-      element.hidden = true;
+    if (!element || !element.classList.contains("open")) { if (after) after(); return; }
+    element.classList.remove("open");
+    element.setAttribute("aria-hidden", "true");
+    var finish = function () {
+      if (element.closeDone === finish) return;      // transitionend and the timer race; first wins
+      element.closeDone = null;
+      clearTimeout(element.closeTimer);
+      element.removeEventListener("transitionend", onEnd);
       if (after) after();
-    }, motionMs("--dur-sheet"));
+    };
+    var onEnd = function (event) {
+      if (event.target === element && event.propertyName === "opacity") finish();
+    };
+    element.closeDone = finish;
+    element.addEventListener("transitionend", onEnd);
+    clearTimeout(element.closeTimer);
+    element.closeTimer = setTimeout(finish, Math.min(motionMs("--dur-sheet") + 120, 400));
   }
 
-  // Content motion is for "something appeared or changed", never for a re-render or a refresh: the
-  // things that change what a screen shows call bumpContentMotion(), and every renderer in the burst
-  // that follows draws its rows/ring/bars in.
-  var motionUntil = 0;
+  // Smart Entry asks the sheet for its compact layout while it is open (see html[data-text-mode]).
+  function setTextMode(on) {
+    if (on) document.documentElement.setAttribute("data-text-mode", "true");
+    else document.documentElement.removeAttribute("data-text-mode");
+  }
+
   var slideFrom = 1;              // +1: newer month slides in from the right, -1: older from the left
-
-  function bumpContentMotion() { motionUntil = Date.now() + 900; }
-  function contentIsFresh() { return Date.now() < motionUntil; }
-
-  // Mark a container so its rows/ring/bars animate once, then drop the mark so a re-render is silent.
-  function markFresh(node, holdMs) {
-    if (!node || !contentIsFresh() || node.classList.contains("is-fresh")) return;
-    void node.offsetWidth;                        // restart cleanly if the mark is somehow still on
-    node.classList.add("is-fresh");
-    clearTimeout(node.freshTimer);
-    node.freshTimer = setTimeout(function () { node.classList.remove("is-fresh"); }, holdMs);
-  }
 
   // Every block of the visible screen slides in from the side the month change came from.
   function slideScreen() {
-    if (!contentIsFresh()) return;
     var screen = $("screen-" + state.screen);
-    if (!screen || screen.classList.contains("is-sliding")) return;
+    if (!screen) return;
     screen.style.setProperty("--slide", slideFrom < 0 ? "calc(-1 * var(--move-month))" : "var(--move-month)");
-    screen.classList.add("is-sliding");
-    clearTimeout(screen.slideTimer);
-    screen.slideTimer = setTimeout(function () { screen.classList.remove("is-sliding"); },
-      motionMs("--dur-page") + 40);
+    replay(screen, "is-sliding");
   }
 
   function needsReview(row) {
@@ -1531,7 +1579,7 @@
   function askForKey(hint) {
     $("keyHint").textContent = hint;
     $("keyInput").value = "";
-    showOverlay($("keyOverlay"));
+    openOverlay($("keyOverlay"));
     setTimeout(function () { $("keyInput").focus(); }, 50);
     return new Promise(function (resolve) { keyResolver = resolve; });
   }
@@ -1679,7 +1727,8 @@
       '<div class="cat-split-legend">' +
       groups.map(function (group) { return legendRowHtml(group, summary.total); }).join("") +
       "</div></div>";
-    markFresh($("categoryList"), 800);
+    replay($("categoryList"), "is-fresh");
+    replay($("categoryList").querySelector(".donut"), "is-drawn");   // the ring draws itself in
     slideScreen();
   }
 
@@ -1728,9 +1777,10 @@
     var income = row.type === "income";
     var name = row.merchant || capitalise(row.category || "uncategorised");
     var colour = categoryColour(row.category);
-    // --i drives the 30ms stagger (first eight rows only); is-new lights the row that was just saved.
-    return '<button class="txn' + (row.id === highlightId ? " is-new" : "") +
-      '" type="button" style="--i:' + Math.min(index || 0, 7) + '" data-id="' + escapeHtml(row.id) + '">' +
+    // --i drives the 30ms stagger (first eight rows only). The save flash is added to the live row
+    // after the list re-renders (see flashRow), so it is never wiped by a fresh innerHTML.
+    return '<button class="txn" type="button" style="--i:' + Math.min(index || 0, 7) +
+      '" data-id="' + escapeHtml(row.id) + '">' +
       '<span class="txn-icon" style="--cat:' + colour + ";background:" + tint(colour) + '">' +
       categoryIcon(row.category) + "</span>" +
       '<span class="txn-main">' +
@@ -1773,7 +1823,7 @@
     }
     // Home is a glance at the newest few; the rest of the month is behind "See All".
     $("txnList").innerHTML = txnListHtml(visible.slice(0, HOME_LIST_ROWS));
-    markFresh($("txnList"), 700);
+    replay($("txnList"), "is-fresh");
     slideScreen();
   }
 
@@ -1822,7 +1872,7 @@
         (net > 0 ? "+" : net < 0 ? "\u2212" : "") + escapeHtml(money(net)) + "</span></div>" +
         '<div class="list-card">' + txnListHtml(group.rows) + "</div></div>";
     }).join("");
-    markFresh($("txnGroups"), 700);
+    replay($("txnGroups"), "is-fresh");
     slideScreen();
   }
 
@@ -2011,7 +2061,7 @@
   }
 
   function openMonthSheet() {
-    showOverlay($("monthOverlay"));   // shown first: the columns need layout before scrolling
+    openOverlay($("monthOverlay"));   // shown first: the columns need layout before scrolling
     buildWheel();
   }
 
@@ -2037,7 +2087,6 @@
   function setMonth(month) {
     slideFrom = month < state.month ? -1 : 1;   // older month comes in from the left, newer from the right
     state.month = month;
-    bumpContentMotion();
     paintMonth();
     reloadScreen();
   }
@@ -2103,19 +2152,31 @@
 
   // A new row can belong to a month the screen is not showing: follow it there, else refresh in place.
   function afterAdd(transaction, savedMessage) {
-    highlightId = transaction.id || null;      // the row that lights up in the list below
-    clearTimeout(highlightTimer);
-    highlightTimer = setTimeout(function () { highlightId = null; }, 1200);
-    bumpContentMotion();
     var month = String(transaction.txn_date || "").slice(0, 7); // "2026-05"
     if (month && month !== state.month) {
       setMonth(month);                 // moves Home, Transactions and Insights together
       toast("Saved to " + month.slice(5) + "/" + month.slice(0, 4));
-      refreshAllScreens();
-      return;
+    } else {
+      toast(savedMessage);
     }
-    toast(savedMessage);
-    refreshAllScreens();
+    // The flash has to wait for the lists to come back: marking a row *before* the re-render means the
+    // fresh HTML paints over it, and a slow request would drop it altogether.
+    Promise.all([loadHome(), loadTransactions()]).then(function () { flashRow(transaction.id); });
+    if (state.screen === "insights") loadInsights();
+  }
+
+  // Light up the row that was just saved, wherever it is on screen (Home and the list can both hold it).
+  function flashRow(id) {
+    if (!id) return;
+    var rows = document.querySelectorAll(".txn");
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].dataset && rows[i].dataset.id === String(id)) {
+        replay(rows[i], "is-new");
+        (function (row) {
+          setTimeout(function () { row.classList.remove("is-new"); }, 1000);
+        })(rows[i]);
+      }
+    }
   }
 
   /* ---------- add sheet: keypad, category chips, manual save ---------- */
@@ -2128,8 +2189,6 @@
     'stroke-linecap="round" stroke-linejoin="round"><path d="M12 4.2l1.7 4.6 4.6 1.7-4.6 1.7L12 16.8l-1.7-4.6' +
     '-4.6-1.7 4.6-1.7L12 4.2Z"/><path d="M18.4 15.6l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2Z"/></svg>';
 
-  var highlightId = null;    // the row to flash after a save, cleared once the flash has played
-  var highlightTimer = null;
   var addAmount = "";        // what the keypad has typed: digits and at most one "."
   var addCategory = null;    // null until a chip is tapped; tapping it again clears it
   var addType = "expense";
@@ -2297,6 +2356,7 @@
     $("smartEntry").classList.toggle("is-open", open);
     $("smartRow").setAttribute("aria-expanded", open ? "true" : "false");
     $("smartRow").classList.toggle("is-open", open);
+    setTextMode(open);
     if (open && $("textInput").focus) $("textInput").focus();
     paintKeypad();
   }
@@ -2367,7 +2427,7 @@
   function openSheet(row) {
     sheetRow = row;
     $("txnSheet").innerHTML = sheetView(row);
-    showOverlay($("txnOverlay"));
+    openOverlay($("txnOverlay"));
     loadReceipt(row);
   }
 
@@ -2492,7 +2552,6 @@
     try {
       await api("/transactions/" + encodeURIComponent(row.id), { method: "DELETE" });
       closeSheet();
-      bumpContentMotion();
       await reloadScreen();
       toast("Deleted.");
     } catch (error) {
@@ -2695,6 +2754,23 @@
   //   width: ring thickness (viewBox units)   gap: rounded space between segments
   //   radius: ring radius          cap: centre label ("Total spent" / "Total")
   //   note: optional third line, Insights only
+  // One arc of the ring, drawn as a path rather than a circle. A path is what makes the draw-on a
+  // plain stroke-dashoffset transition: the dash is exactly the arc's own length, so sliding the
+  // offset from that length to zero reveals it from its own start, clockwise.
+  function ringArcPoint(angle, radiusValue) {
+    // 3 o'clock is zero; angles grow clockwise on screen because SVG's y axis points down.
+    return (80 + radiusValue * Math.cos(angle)).toFixed(3) + " " +
+      (80 + radiusValue * Math.sin(angle)).toFixed(3);
+  }
+
+  function ringArc(startLength, length, radiusValue) {
+    var start = startLength / radiusValue;
+    // A whole turn cannot be one arc command (start and end would coincide), so stop a hair short.
+    var sweep = Math.min(length / radiusValue, Math.PI * 2 - 0.0005);
+    return "M" + ringArcPoint(start, radiusValue) + "A" + radiusValue + " " + radiusValue +
+      " 0 " + (sweep > Math.PI ? "1" : "0") + " 1 " + ringArcPoint(start + sweep, radiusValue);
+  }
+
   function donutSvg(entries, total, options) {
     var opts = options || {};
     var ring = opts.width || DONUT_WIDTH;
@@ -2706,11 +2782,12 @@
       var arc = total > 0 ? (entry.total / total) * circumference : 0;
       // A round cap paints width/2 past each end of the dash, so ask for the gap plus that back.
       var dash = gap ? Math.max(arc - gap - ring, 0.5) : arc;
-      var segment = '<circle cx="80" cy="80" r="' + radius + '" fill="none" style="--cat:' +
-        categoryColour(entry.name) + ';--i:' + index + ';stroke:var(--cat)" stroke-width="' + ring +
-        '" stroke-dasharray="' +
-        dash.toFixed(2) + " " + (circumference - dash).toFixed(2) + '" stroke-dashoffset="' +
-        (-offset).toFixed(2) + '"' + (gap ? ' stroke-linecap="round"' : "") + "></circle>";
+      // --len is the segment's own length: its dash offset starts there (hidden) and the .is-drawn
+      // transition takes it to 0, which is the draw itself. --i staggers the sweep.
+      var segment = '<path class="donut-seg" d="' + ringArc(offset, dash, radius) + '" fill="none" ' +
+        'style="--cat:' + categoryColour(entry.name) + ';--i:' + index + ';--len:' + dash.toFixed(2) +
+        ';stroke:var(--cat)" stroke-width="' + ring + '" stroke-dasharray="' + dash.toFixed(2) + '"' +
+        (gap ? ' stroke-linecap="round"' : "") + "></path>";
       offset += arc;
       return segment;
     }).join("");
@@ -2718,9 +2795,8 @@
     // than Insights' three smaller lines; both blocks stay centred in the ring.
     var capY = 72;
     var totalY = opts.note ? 93 : 100;
-    // --circ is what the draw-on animation grows the dash out from (see @keyframes ring-in).
     return '<svg class="donut' + (opts.small ? " donut-sm" : "") +
-      '" viewBox="0 0 160 160" style="--circ:' + circumference.toFixed(2) + '" role="img" ' +
+      '" viewBox="0 0 160 160" role="img" ' +
       'aria-label="Spending by category">' +
       '<circle class="donut-track" cx="80" cy="80" r="' + radius +
       '" fill="none" stroke-width="' + ring + '"></circle>' + arcs +
@@ -2890,8 +2966,8 @@
           insightCategoryList(rest, total) + "</div></div>" +
           categoryToggleHtml(CATEGORY_IDS.insights, insightCategoryToggleLabel(), state.insightCatsExpanded)
         : "");
-    markFresh($("insightDonut"), 800);
-    markFresh($("insightCats"), 800);
+    replay($("insightDonut").querySelector(".donut"), "is-drawn");
+    replay($("insightCats"), "is-fresh");
     slideScreen();
   }
 
@@ -2906,7 +2982,7 @@
     $("insightDays").innerHTML = total > 0
       ? barChartHtml(periodBuckets(plan, summary.spent))
       : '<div class="empty">No spending in this ' + periodNoun(plan) + " yet.</div>";
-    markFresh($("insightDays"), 700);
+    replay($("insightDays"), "is-fresh");
     slideScreen();
     renderInsightComparison(plan, total, previousRows);
     renderInsightCategories(plan, total, summary.byCategory, summary.count);
@@ -2922,7 +2998,6 @@
 
   function setPeriod(period) {
     state.period = period === "week" ? "week" : "month";
-    bumpContentMotion();
     Array.prototype.forEach.call(document.querySelectorAll(".seg-btn[data-period]"), function (button) {
       button.classList.toggle("is-active", button.dataset.period === state.period);
     });
@@ -2979,6 +3054,7 @@
     $("addNote").value = "";
     $("textInput").value = "";
     $("smartEntry").classList.remove("is-open");
+    setTextMode(false);               // the compact layout belongs to the open card only
     $("smartRow").setAttribute("aria-expanded", "false");
     $("addDetails").classList.remove("is-open");   // Merchant and Note start collapsed
     $("addDetailsPill").setAttribute("aria-expanded", "false");
@@ -2998,10 +3074,11 @@
     $("screen-add").hidden = false;
     $("addSheet").style.transform = "";
     $("addSheet").scrollTop = 0;
-    showOverlay($("addOverlay"));
+    openOverlay($("addOverlay"));
   }
 
   function closeAddSheet() {
+    setTextMode(false);               // normal layout again, and after a successful add
     closeOverlay($("addOverlay"));
     $("addSheet").style.transform = "";
     if ($("textInput").blur) $("textInput").blur();
@@ -3018,6 +3095,7 @@
     if (name === "add") { openAddSheet(); return; } // the "+" button opens the Add sheet
     state.screen = name;
     SCREENS.forEach(function (screen) { $("screen-" + screen).hidden = screen !== name; });
+    replay($("screen-" + name), "is-entering");    // the page fade plays on every switch, not once
     Array.prototype.forEach.call(document.querySelectorAll(".tab"), function (tab) {
       tab.classList.toggle("is-active", tab.dataset.screen === name);
     });
@@ -3028,7 +3106,6 @@
 
   function setMode(mode) {
     state.mode = mode === "business" ? "business" : "personal";
-    bumpContentMotion();
     Array.prototype.forEach.call(document.querySelectorAll(".seg-btn[data-mode]"), function (button) {
       button.classList.toggle("is-active", button.dataset.mode === state.mode);
     });
@@ -3036,7 +3113,6 @@
 
   function setFilter(filter) {
     state.filter = filter === "income" || filter === "expense" ? filter : "all";
-    bumpContentMotion();
     Array.prototype.forEach.call(document.querySelectorAll(".seg-btn[data-filter]"), function (button) {
       button.classList.toggle("is-active", button.dataset.filter === state.filter);
     });
@@ -3083,6 +3159,9 @@
   }
 
   function wire() {
+    // One empty touch listener: iOS Safari does not apply :active (and so the press spring) to a
+    // <button> unless the page has a touch handler, and this is the cheapest one. It never runs.
+    document.addEventListener("touchstart", function () {}, { passive: true });
     Array.prototype.forEach.call(document.querySelectorAll(".tab"), function (tab) {
       tab.addEventListener("click", function () { showScreen(tab.dataset.screen); });
     });
@@ -3117,7 +3196,6 @@
     wireSheetDrag("wheelSheet", "monthGrab", closeMonthSheet);   // drag down = cancel, no changes
     $("reviewChip").addEventListener("click", function () {
       state.reviewOnly = !state.reviewOnly;
-      bumpContentMotion();          // the list really did change shape
       renderTransactions(state.rows);
     });
     $("seeAllBtn").addEventListener("click", function () { showScreen("transactions"); });
@@ -3193,7 +3271,6 @@
   }
 
   async function start() {
-    bumpContentMotion();            // first paint of a screen is an appearance, so it animates
     renderScreenHeaders(); // before wire(), so the shared pills exist to bind and paint
     wire();
     setMode("personal");

@@ -48,11 +48,11 @@ def test_the_icons_are_documented_nowhere_as_api(client: TestClient) -> None:
     assert not [path for path in ICONS if path in paths]
 
 
-def test_the_page_is_revalidated_not_stored_stale(client: TestClient) -> None:
-    """A shortcut added today must not be built from HTML cached weeks ago."""
+def test_the_page_is_never_stored(client: TestClient) -> None:
+    """The page carries the icon links and all the CSS/JS inline, so a cached copy is a stale app."""
     home = client.get("/")
-    assert home.headers["Cache-Control"] == "no-cache"
-    assert "ETag" in home.headers                        # still emitted, just not turned into a 304
+    assert home.headers["Cache-Control"] == "no-store"
+    assert "max-age" not in home.headers["Cache-Control"]
 
 
 @pytest.mark.parametrize(

@@ -270,8 +270,10 @@ Settings keeps the large title alone.
 - **Settings** — iOS inset groups: *Appearance* holds the System/Light/Dark segmented control,
   *Security* holds one tappable row (blue key icon, "API key",
   live "Saved on this device" / "Not set" value) that opens the change-key sheet, and *About*
-  lists App/Currency/Date format as plain read-only rows. No version row: nothing on the page
-  carries a real version to show, so it is left out rather than hard-coded.
+  lists App, **Build**, Currency and Date format as plain read-only rows. The Build row is the one
+  way to see *on the phone* whether the Home Screen app is running the current page: bump it whenever
+  `index.html` changes, and if the shortcut shows an older stamp it is serving a cached document.
+  There is no service worker here — the page is the only asset, with its CSS and JS inline.
 
 The API key is asked for on first load and kept in `localStorage` under `apiKey`; it is never
 in the HTML or in this repo. A `401` clears it and re-prompts. Add to Home Screen works like an
@@ -316,37 +318,55 @@ animation can trigger layout on a phone. One curve, four durations, all in `:roo
 palette: `--ease-ios: cubic-bezier(0.32, 0.72, 0, 1)`, with `--dur-sheet: 350ms`, `--dur-page: 180ms`,
 `--dur-press: 100ms` and `--dur-toast: 250ms`. No animation library, no JS tweening.
 
-- **Sheets** (Add, edit, month picker, key dialog) slide up from `translateY(100%)` while the scrim
-  fades in: the entrance plays off the display change itself (`.overlay` / `.overlay > .sheet`), so
-  nothing has to be added by hand and a re-render cannot restart it. The exit runs behind
-  `.is-closing`, which `closeOverlay()` adds and then clears with the element hidden one
-  `motionMs("--dur-sheet")` later — read from CSS, so reduced motion shortens the wait too, and a
-  second close restarts that one timer rather than stacking another (no overlay can be left stuck).
-  The entrance deliberately does *not* fill forwards, or the inline transform a drag writes could not
-  win afterwards. Dragging the handle past 80px hands off to the same exit animation.
+- **`replay(element, className)`** is the one way anything restarts: remove the class, force a reflow
+  (`offsetWidth`), add it back. Every entrance calls it — a tab becoming active, a month changing,
+  every data render, the ring, the bars, the row stagger — because an animation or transition hung
+  off a `display` change only plays the first time on iOS. There is no freshness window any more:
+  the call site *is* the signal, so a refresh replays too (what the phone wanted) and nothing depends
+  on a timer that could be missed.
+- **Sheets** (Add, edit, month picker, key dialog) are mounted permanently and animate with a
+  **transition** on an `.open` class: the sheet is `translateY(100%)` when closed and 0 when open,
+  the scrim fades `opacity 0 → 1`, and `visibility` flips *after* the fade so the exit is seen.
+  Closed means `opacity: 0; visibility: hidden; pointer-events: none` — never `display: none`.
+  `openOverlay()` adds `.open` two frames after mount (so the closed state has painted), and
+  `closeOverlay()` waits for `transitionend` on the scrim's opacity with a `min(dur + 120ms, 400ms)`
+  fallback, so a close can neither hang nor race a second one. Dragging the handle past 80px hands
+  off to the same exit, from where the finger let go.
 - **Presses**: one shared rule — `button:not(.tab):not(.tab-add), .add-pill` scale to
   `var(--press-scale)` (0.96) and dim to 0.7 while held, springing back on release. The tab bar and
   the raised `+` are excluded on purpose; the date pill's hit target is the invisible native input
-  above it, so it does not scale.
+  above it, so it does not scale. iOS only applies `:active` to a `<button>` when the document has a
+  touch listener, so `wire()` adds one empty passive `touchstart` — without it the spring never
+  appears on a phone at all.
 - **Pages**: a switch fades the incoming screen in with a 6px rise. The `.screen` wrappers contain
   neither the tab bar nor `+`, so those never move.
 - **Month change**: `setMonth()` records the direction (older from the left, newer from the right) and
   marks the content fresh; the visible screen's blocks slide 20px and fade in.
 - **Toast**: one `toast-life` animation covers its whole 4.5s life — in from above, hold, fade out —
   so the fade needs no second timer.
-- **Ring, bars and rows**: the ring draws each segment from a zero-length dash to its own
-  `stroke-dasharray` (600ms, staggered 60ms per segment, clockwise); category bars grow with
-  `scaleX`, the day chart with `scaleY` (its `height` stays a layout size — the old `transition:
-  height` is gone); rows rise in with a 30ms stagger, first eight only (`--i` is capped in
-  `txnRowHtml`).
-- **Save**: the new row gets `is-new`, a tinted `::after` overlay that fades out over 800ms.
-- **Only when something changes**: `bumpContentMotion()` opens a 900ms window and every renderer in
-  that burst draws its rows/ring/bars in (`markFresh`), then drops the mark. Month, mode, filter,
-  period, a save, a delete and the first boot bump it; a plain refresh or re-render does not, so the
-  page never flickers.
+- **Ring, bars and rows**: each ring segment is a **path arc**, not a circle, precisely so the draw
+  can be a plain `stroke-dashoffset` transition (a dash you can slide into view on a closed circle
+  cannot grow — it just moves). Each arc carries its own `--len`, starts at that offset and is
+  transitioned to 0 with a 60ms per-segment stagger, so it sweeps clockwise over 600ms. Category
+  bars grow with `scaleX`, the day chart with `scaleY` (their `width`/`height` stay layout sizes — the
+  old `transition: width`/`height` are gone); rows rise in with a 30ms stagger, first eight only
+  (`--i` is capped in `txnRowHtml`).
+- **Save**: after the lists have come back, `flashRow(id)` finds the new row in the live DOM (by
+  `data-id`, in both Home and the list) and adds `is-new` — a tinted `::after` overlay that fades out
+  over 800ms. Marking a row *before* the re-render would be painted over, and a slow request would
+  drop the flash entirely.
+- **Smart Entry text mode**: while the card is open the sheet switches to
+  `html[data-text-mode]`, which keeps the header, the Smart Entry card and the Personal/Business pill
+  and hides Expense/Income, the amount, the date and Details pills, the category chips, Scan Receipt
+  and the keypad. The sheet is then anchored to the **visual** viewport — the keyboard does not shrink
+  iOS's layout viewport, so `align-items: flex-end` on an overlay sized to `--vvh` parks it above the
+  keys; capping the height alone leaves it pinned to the bottom of the *layout* viewport, which is
+  exactly what put the field behind the keyboard. Closing the card, or a successful add, restores the
+  full layout.
 - **Reduced motion**: `prefers-reduced-motion: reduce` zeroes the `--move-*` distances (fades stay, at
   150ms) and sets `--press-scale: 1`, and the three "movement with no fade-only equivalent" pieces —
-  the ring draw, the bar grows and the row stagger — are switched off entirely.
+  the ring draw, the bar grows and the row stagger — are switched off entirely (the ring is pinned to
+  `stroke-dashoffset: 0`, i.e. drawn, not left at its hidden offset).
 
 ### Dark mode
 
@@ -552,6 +572,14 @@ Safari. Both write the same rows.
 
 ## Known gaps
 
+- **A stale Home Screen app cannot be diagnosed from here.** There is no service worker and no external
+  CSS/JS — the page *is* the asset — and `GET /` sends `no-cache` (verified), so a fresh load always
+  revalidates. But a copy cached *before* that header existed (heuristic freshness) can still be served
+  to a standalone shortcut, which would explain a Home Screen app showing no animations at all while
+  Safari shows them. The **Build** row in Settings is there to prove it either way; deleting and
+  re-adding the shortcut is the fix if its stamp is old. Flipping `/` from `no-cache` to `no-store`
+  would remove the possibility entirely, at the cost of re-downloading the page every launch — a
+  one-line backend change, deliberately not made here.
 - **Not yet run on a physical iPhone.** Everything is verified in a desktop browser sized to the
   phone, so these remain open: the real keyboard against the built-in keypad and against
   `revealFocusedField()` (the keyboard can only be simulated there — `visualViewport` is faked),
@@ -594,7 +622,7 @@ the square size its slot expects).
 ### UI checks
 
 The pytest suite above covers the API only; the UI has no committed test suite yet. It is checked
-with a scratch Node harness that evals the page's `<script>` and asserts 722 things about the
+with a scratch Node harness that evals the page's `<script>` and asserts 751 things about the
 markup, the CSS and the behaviour (theme plumbing and palette, Add-sheet order, the shrink ladder,
 the icon links and the removal of the runtime canvas icon, the iOS touch rules — a 16px floor on
 controls, `touch-action: manipulation`, the keyboard reveal — the motion tokens and every animation
@@ -603,10 +631,14 @@ and screenshots at 375×667 and 390×844 in both themes. Those probes report the
 every focusable control, the computed `touch-action` per element, any element crossing the viewport
 edge, the Smart Entry card geometry, and a simulated keyboard (a faked `visualViewport` shrinking to
 380px) to prove the field is scrolled into view — and that closing it restores the layout exactly.
-Animation is measured over CDP in a real Chrome on real timers (a sheet travels 381px → 26px → rest
-with the scrim fading 0 → 1; the ring's dash grows 0 → 81.6 → 128.25 of its 402.12 circumference; a
-real mouse press scales a key to 0.96 and dims it to 0.7; ten fast open/close pairs leave no stuck
-overlay), and again with `--force-prefers-reduced-motion` to prove no movement survives. Note that
-headless `--virtual-time-budget` freezes the animation timeline, so it cannot be used for any of
-this. That harness lives outside the repo today;
+Animation is measured over CDP in a real Chrome on real timers, at an exact 375×667 / 390×844 device
+viewport: ten open/close pairs (10/10 open, 10/10 close, nothing stuck, the sheet back at
+`translateY(667px)`), ten tab switches (the ring's dash offset is back at 100+ of its 128.25 length
+50ms after re-entry every time), a month change (wheel mid-slide, rows at `opacity 0.99` and
+`--i:0`), the save path end to end with the preview stub creating a row (flash on the new row 120ms
+after Save, gone after its 1s cleanup), the text-mode keyboard state (`sheetBottom` exactly at the
+visual viewport, field visible while typing, full layout restored), and again with
+`--force-prefers-reduced-motion`. Note that headless `--virtual-time-budget` **freezes animations and
+transitions**, so every number it produces for anything animated is meaningless — the older probes
+are kept for static checks only. That harness lives outside the repo today;
 moving it in (e.g. `tools/`) is the first item in `Handoff.md`.

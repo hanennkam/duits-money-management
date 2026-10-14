@@ -122,12 +122,11 @@ async def upstream_error_handler(_request: Request, exc: extractor.UpstreamError
 async def index() -> FileResponse:
     """The mobile-first UI. Public, but every API call it makes needs X-API-Key.
 
-    ``no-cache`` means revalidate, not "do not store" — and because this is the file that carries the
-    icon links, freshness is the point: a Home Screen shortcut must never be built from HTML that a
-    browser or Render's edge cached days ago. Starlette's FileResponse emits an ETag but does not
-    answer conditional requests with 304, so a load re-sends the 134 KB page. Worth it.
+    ``no-store``: the page is never written to a cache at all. It carries the icon links and all of the
+    CSS and JS inline, so a stale copy is a page with the wrong behaviour — and a Home Screen shortcut
+    is exactly where one would survive. Freshness wins over the cost of re-sending the page.
     """
-    return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache"})
+    return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-store"})
 
 
 # The app icon: iOS probes apple-touch-icon(-120x120|-152x152).png by name, and Safari wants a plain
