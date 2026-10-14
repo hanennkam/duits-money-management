@@ -1,0 +1,7 @@
+# Never ship secrets or local/dev-only files into the image.
+.env
+.venv
+tests
+__pycache__
+.pytest_cache
+.git

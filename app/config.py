@@ -1,0 +1,89 @@
+"""Runtime settings, read from the environment (.env loaded by python-dotenv).
+
+Secrets never live in code: every value below comes from an env var.
+"""
+
+from __future__ import annotations
+
+import os
+from functools import lru_cache
+
+from dotenv import load_dotenv
+from pydantic import BaseModel, ConfigDict
+
+load_dotenv()
+
+DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-5"
+DEFAULT_CLAUDE_FALLBACK_MODEL = "claude-sonnet-5-5"
+DEFAULT_RECEIPTS_BUCKET = "receipts"
+DEFAULT_MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+class Settings(BaseModel):
+    """Validated application configuration."""
+
+    model_config = ConfigDict(frozen=True)
+
+    api_key: str
+    supabase_url: str
+    supabase_service_key: str
+    anthropic_api_key: str
+    claude_model: str = DEFAULT_CLAUDE_MODEL
+    claude_fallback_model: str = DEFAULT_CLAUDE_FALLBACK_MODEL
+    receipts_bucket: str = DEFAULT_RECEIPTS_BUCKET
+    max_upload_bytes: int = DEFAULT_MAX_UPLOAD_BYTES
+
+
+REQUIRED_ENV = ("API_KEY", "SUPABASE_URL", "SUPABASE_SERVICE_KEY", "ANTHROPIC_API_KEY")
+
+
+def env_value(name: str) -> str | None:
+    """The variable's value, stripped, or None when unset or blank. Values are never reported."""
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return None
+    return raw.strip()
+
+
+def missing_env() -> list[str]:
+    """Names of the required variables that are unset or blank (never their values)."""
+    return [name for name in REQUIRED_ENV if env_value(name) is None]
+
+
+def is_production() -> bool:
+    """True when ENVIRONMENT=production: docs are off and startup insists on a real config."""
+    return (env_value("ENVIRONMENT") or "").lower() == "production"
+
+
+def max_upload_bytes() -> int:
+    """MAX_UPLOAD_BYTES, or the 10 MB default when it is unset."""
+    raw = env_value("MAX_UPLOAD_BYTES")
+    if raw is None:
+        return DEFAULT_MAX_UPLOAD_BYTES
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise RuntimeError("MAX_UPLOAD_BYTES must be a whole number of bytes.") from exc
+
+
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    """Build settings from the environment. Cached; call `get_settings.cache_clear()` to reload."""
+    missing = missing_env()
+    if missing:
+        raise RuntimeError(
+            "Missing required environment variable(s): "
+            + ", ".join(missing)
+            + ". Set them in the environment and restart."
+        )
+
+    return Settings(
+        api_key=env_value("API_KEY") or "",
+        supabase_url=env_value("SUPABASE_URL") or "",
+        supabase_service_key=env_value("SUPABASE_SERVICE_KEY") or "",
+        anthropic_api_key=env_value("ANTHROPIC_API_KEY") or "",
+        claude_model=env_value("CLAUDE_MODEL") or DEFAULT_CLAUDE_MODEL,
+        claude_fallback_model=env_value("CLAUDE_FALLBACK_MODEL") or DEFAULT_CLAUDE_FALLBACK_MODEL,
+        receipts_bucket=env_value("RECEIPTS_BUCKET") or DEFAULT_RECEIPTS_BUCKET,
+        max_upload_bytes=max_upload_bytes(),
+    )

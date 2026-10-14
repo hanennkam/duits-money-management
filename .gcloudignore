@@ -1,0 +1,19 @@
+# Files gcloud leaves out of `gcloud run deploy --source .` uploads.
+# Same syntax as .gitignore. Secrets and local/dev-only files never go up.
+.env
+.env.*
+!.env.example
+
+.venv
+tests
+__pycache__
+.pytest_cache
+.git
+*.pyc
+
+# env/secret YAML (App Engine env_variables, Cloud Run --env-vars-file secrets).
+# Deploy config such as app.yaml or cloudbuild.yaml is deliberately NOT excluded.
+env*.yaml
+env*.yml
+*.env.yaml
+*.env.yml

@@ -1,0 +1,309 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"><meta content="mobile_tab" name="shell-type"><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"><link href="https://fonts.googleapis.com" rel="preconnect"><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"><link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,300..900;1,300..900&amp;family=Manrope:wght@200..800&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"><style>@layer base{html,body{width:100%;margin:0;padding:0;background-color:#faf9fe;-webkit-tap-highlight-color:transparent;}body{overscroll-behavior-y:none;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: 'class', theme: { extend: { colors: { 'surface-container-low': '#f4f3f8', 'outline': '#717786', 'outline-variant': '#c0c6d6', 'surface-tint': '#005db8', 'secondary-fixed-dim': '#53e16f', 'tertiary': '#bc000a', 'surface-bright': '#faf9fe', 'on-tertiary-fixed-variant': '#930005', 'surface-container-highest': '#e3e2e7', 'on-error': '#ffffff', 'on-error-container': '#93000a', 'primary-fixed-dim': '#aac7ff', 'inverse-primary': '#aac7ff', 'surface-container-lowest': '#ffffff', 'inverse-on-surface': '#f1f0f5', 'on-tertiary': '#ffffff', 'secondary-fixed': '#72fe88', 'error': '#ba1a1a', 'on-primary-container': '#fefcff', 'surface': '#faf9fe', 'error-container': '#ffdad6', 'primary-fixed': '#d6e3ff', 'primary': '#005ab3', 'inverse-surface': '#2f3034', 'on-secondary': '#ffffff', 'on-surface': '#1a1b1f', 'surface-variant': '#e3e2e7', 'on-background': '#1a1b1f', 'on-tertiary-fixed': '#410001', 'tertiary-fixed-dim': '#ffb4aa', 'tertiary-fixed': '#ffdad5', 'on-secondary-fixed-variant': '#00531c', 'primary-container': '#0073e0', 'on-secondary-fixed': '#002107', 'on-primary': '#ffffff', 'secondary': '#006e28', 'on-primary-fixed-variant': '#00468d', 'on-primary-fixed': '#001b3e', 'tertiary-container': '#e2241f', 'on-tertiary-container': '#fffbff', 'on-secondary-container': '#00732a', 'background': '#faf9fe', 'secondary-container': '#6ffb85', 'on-surface-variant': '#414754', 'surface-dim': '#dad9df', 'surface-container-high': '#e9e7ed', 'surface-container': '#eeedf3' }, borderRadius: { 'DEFAULT': '1rem', 'lg': '2rem', 'xl': '3rem', 'full': '9999px' }, spacing: { 'space-md': '1rem', 'gutter': '1rem', 'space-lg': '1.25rem', 'margin': '1rem', 'space-sm': '0.5rem', 'space-xl': '1.75rem', 'space-xs': '0.25rem' }, fontFamily: { 'headline-md': ['Manrope'], 'caption': ['Hanken Grotesk'], 'subheadline': ['Hanken Grotesk'], 'currency-cell': ['Hanken Grotesk'], 'currency-display': ['Manrope'], 'body-strong': ['Hanken Grotesk'], 'footnote': ['Hanken Grotesk'], 'headline-sm': ['Manrope'], 'large-title': ['Manrope'], 'headline-lg': ['Manrope'], 'body-lg': ['Hanken Grotesk'] }, fontSize: { 'headline-md': ['22px', { lineHeight: '28px', letterSpacing: '-0.015em', fontWeight: '600' }], 'caption': ['12px', { lineHeight: '16px', letterSpacing: '0em', fontWeight: '500' }], 'subheadline': ['15px', { lineHeight: '20px', letterSpacing: '-0.005em', fontWeight: '400' }], 'currency-cell': ['17px', { lineHeight: '22px', letterSpacing: '0.01em', fontWeight: '600' }], 'currency-display': ['38px', { lineHeight: '44px', letterSpacing: '-0.03em', fontWeight: '800' }], 'body-strong': ['17px', { lineHeight: '22px', letterSpacing: '-0.01em', fontWeight: '600' }], 'footnote': ['13px', { lineHeight: '18px', letterSpacing: '0em', fontWeight: '400' }], 'headline-sm': ['20px', { lineHeight: '25px', letterSpacing: '-0.01em', fontWeight: '600' }], 'large-title': ['34px', { lineHeight: '41px', letterSpacing: '-0.025em', fontWeight: '700' }], 'headline-lg': ['28px', { lineHeight: '34px', letterSpacing: '-0.02em', fontWeight: '700' }], 'body-lg': ['17px', { lineHeight: '22px', letterSpacing: '-0.01em', fontWeight: '400' }] } } } }</script><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head><body class="bg-surface font-body-lg text-on-surface antialiased selection:bg-primary-fixed"><header class="fixed top-0 w-full z-50 bg-surface/85 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.03)]"><div class="pt-safe w-full"><div class="h-11 px-6 flex items-center justify-between text-on-surface select-none"><span class="font-headline-sm text-subheadline font-semibold tracking-tight">9:41</span><div class="h-7 w-28 bg-inverse-surface rounded-full flex items-center justify-center"><div class="w-2.5 h-2.5 rounded-full bg-surface/20 mr-1.5"></div><div class="w-2 h-2 rounded-full bg-primary/40"></div></div><div class="flex items-center gap-1.5 text-on-surface"><span class="material-symbols-outlined text-[15px]">signal_cellular_alt</span><span class="material-symbols-outlined text-[15px]">wifi</span><span class="material-symbols-outlined text-[19px]">battery_charging_full</span></div></div><div class="h-14 px-margin flex items-center justify-between"><div class="flex items-center gap-space-xs"><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></div></div></header><main class="flex flex-col relative w-full min-h-screen pt-[100px] pb-28 bg-surface px-margin"><div class="flex flex-col w-full pb-8">
+<!-- Interactive Client-side Script to update Bottom Shell Active Tab State -->
+<script>
+    (function() {
+      // Highlight the Transactions tab in the persistent shell navigation
+      const navLinks = document.querySelectorAll('nav a');
+      navLinks.forEach(link => {
+        const path = link.getAttribute('data-path');
+        if (path === 'transactions') {
+          link.classList.remove('text-on-surface-variant');
+          link.classList.add('text-primary');
+          const icon = link.querySelector('.material-symbols-outlined');
+          if (icon) icon.style.fontVariationSettings = "'FILL' 1";
+        } else if (path === 'home') {
+          link.classList.remove('text-primary');
+          link.classList.add('text-on-surface-variant');
+          const icon = link.querySelector('.material-symbols-outlined');
+          if (icon) icon.style.fontVariationSettings = "'FILL' 0";
+        }
+      });
+    })();
+  </script>
+<!-- Top Action & Large iOS Title Bar -->
+<div class="flex items-center justify-between pt-1 pb-3">
+<div class="flex items-center gap-1.5">
+<span class="font-large-title text-large-title text-on-surface tracking-tight">Transactions</span>
+</div>
+<div class="flex items-center gap-space-xs">
+<button aria-label="Export or Filter" class="w-9 h-9 rounded-full bg-surface-container-low flex items-center justify-center text-primary active:scale-95 transition-transform shadow-sm" type="button">
+<span class="material-symbols-outlined text-[20px]">ios_share</span>
+</button>
+<button aria-label="Filter Options" class="w-9 h-9 rounded-full bg-surface-container-low flex items-center justify-center text-primary active:scale-95 transition-transform shadow-sm" type="button">
+<span class="material-symbols-outlined text-[20px]">tune</span>
+</button>
+</div>
+</div>
+<!-- iOS Native Search Bar -->
+<div class="relative w-full mb-3.5">
+<div class="flex items-center w-full h-10 px-3 rounded-[12px] bg-surface-container-highest/60 text-on-surface-variant transition-colors focus-within:bg-surface-container-lowest focus-within:shadow-sm">
+<span class="material-symbols-outlined text-[19px] text-outline mr-2 select-none">search</span>
+<input class="w-full bg-transparent border-0 outline-none font-subheadline text-subheadline text-on-surface placeholder:text-outline/70 focus:ring-0 p-0" id="transaction-search" placeholder="Search transactions or merchants" type="search">
+<button class="w-5 h-5 rounded-full bg-outline/25 items-center justify-center text-on-surface-variant hidden active:opacity-70" id="clear-search-btn" type="button">
+<span class="material-symbols-outlined text-[13px]">close</span>
+</button>
+</div>
+</div>
+<!-- iOS Controls: Month Picker Pill & Segmented Control -->
+<div class="flex flex-col gap-2.5 mb-4">
+<!-- Month Picker & Quick Stat Pill Row -->
+<div class="flex items-center justify-between">
+<button class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container-low shadow-sm text-on-surface active:scale-95 transition-transform" type="button">
+<span class="material-symbols-outlined text-primary text-[18px]">calendar_month</span>
+<span class="font-body-strong text-subheadline text-on-surface">October 2026</span>
+<span class="material-symbols-outlined text-outline text-[16px]">arrow_drop_down</span>
+</button>
+<div class="flex items-center gap-1 bg-surface-container-low/80 px-2.5 py-1 rounded-full">
+<span class="w-2 h-2 rounded-full bg-secondary"></span>
+<span class="font-footnote text-footnote text-on-surface-variant">48 records</span>
+</div>
+</div>
+<!-- iOS Native Segmented Filter Pill -->
+<div class="flex p-0.5 rounded-[10px] bg-surface-container-highest/80 shadow-inner">
+<button class="flex-1 py-1.5 rounded-[8px] bg-surface-container-lowest shadow-sm font-body-strong text-caption text-on-surface text-center transition-all" type="button">
+        All
+      </button>
+<button class="flex-1 py-1.5 rounded-[8px] font-subheadline text-caption text-on-surface-variant hover:text-on-surface text-center transition-all" type="button">
+        Expenses
+      </button>
+<button class="flex-1 py-1.5 rounded-[8px] font-subheadline text-caption text-on-surface-variant hover:text-on-surface text-center transition-all" type="button">
+        Income
+      </button>
+</div>
+</div>
+<!-- Spending Flow Summary Card -->
+<div class="rounded-DEFAULT bg-surface-container-lowest p-4 shadow-[0_2px_12px_rgba(0,0,0,0.03)] mb-5 relative overflow-hidden" style="border-radius: 24px;">
+<div class="flex items-center justify-between mb-3">
+<div class="flex flex-col">
+<span class="font-caption text-caption text-outline uppercase tracking-wider">Total Outflow</span>
+<span class="font-currency-display text-[26px] leading-8 text-on-surface mt-0.5 font-bold">RM 3,240.80</span>
+</div>
+<div class="w-10 h-10 rounded-full bg-tertiary-fixed flex items-center justify-center">
+<span class="material-symbols-outlined text-tertiary text-[22px]">trending_down</span>
+</div>
+</div>
+<!-- Mini Metric Sparkbar -->
+<div class="w-full bg-surface-container h-1.5 rounded-full overflow-hidden flex">
+<div class="bg-tertiary h-full rounded-full" style="width: 68%;"></div>
+<div class="bg-primary h-full rounded-full ml-0.5" style="width: 20%;"></div>
+<div class="bg-secondary h-full rounded-full ml-0.5" style="width: 12%;"></div>
+</div>
+<div class="flex items-center justify-between mt-2.5 font-caption text-caption text-on-surface-variant">
+<span class="flex items-center gap-1">
+<span class="w-2 h-2 rounded-full bg-tertiary inline-block"></span>
+        Daily Avg RM 107.50
+      </span>
+<span class="text-secondary font-medium">+RM 4,200.00 Inflow</span>
+</div>
+</div>
+<!-- SECTION 1: TODAY -->
+<div class="flex flex-col mb-5">
+<div class="flex items-center justify-between px-1 mb-1.5">
+<span class="font-caption text-caption text-outline uppercase tracking-wider font-semibold">Today, 24 Oct</span>
+<span class="font-caption text-caption text-outline">-RM 659.90</span>
+</div>
+<div class="rounded-DEFAULT bg-surface-container-lowest shadow-[0_2px_10px_rgba(0,0,0,0.02)] overflow-hidden" style="border-radius: 24px;">
+<!-- Row 1: Apple Store -->
+<div class="flex items-center justify-between px-4 py-3 active:bg-surface-container-low transition-colors cursor-pointer">
+<div class="flex items-center gap-3 min-w-0">
+<div class="w-10 h-10 rounded-full bg-primary-fixed flex items-center justify-center flex-shrink-0">
+<span class="material-symbols-outlined text-primary text-[20px]">devices</span>
+</div>
+<div class="flex flex-col min-w-0">
+<span class="font-body-strong text-body-strong text-on-surface truncate">Apple Store Pavilion</span>
+<span class="font-footnote text-footnote text-on-surface-variant truncate">Electronics • Today</span>
+</div>
+</div>
+<div class="flex items-center gap-1.5 flex-shrink-0 ml-3">
+<span class="font-currency-cell text-currency-cell text-on-surface text-right font-semibold">-RM 449.00</span>
+<span class="material-symbols-outlined text-outline-variant text-[18px]">chevron_right</span>
+</div>
+</div>
+<div class="h-[0.5px] bg-surface-container-high ml-16"></div>
+<!-- Row 2: Village Grocer -->
+<div class="flex items-center justify-between px-4 py-3 active:bg-surface-container-low transition-colors cursor-pointer">
+<div class="flex items-center gap-3 min-w-0">
+<div class="w-10 h-10 rounded-full bg-secondary-container flex items-center justify-center flex-shrink-0">
+<span class="material-symbols-outlined text-on-secondary-container text-[20px]">shopping_cart</span>
+</div>
+<div class="flex flex-col min-w-0">
+<span class="font-body-strong text-body-strong text-on-surface truncate">Village Grocer</span>
+<span class="font-footnote text-footnote text-on-surface-variant truncate">Groceries • Today</span>
+</div>
+</div>
+<div class="flex items-center gap-1.5 flex-shrink-0 ml-3">
+<span class="font-currency-cell text-currency-cell text-on-surface text-right font-semibold">-RM 182.40</span>
+<span class="material-symbols-outlined text-outline-variant text-[18px]">chevron_right</span>
+</div>
+</div>
+<div class="h-[0.5px] bg-surface-container-high ml-16"></div>
+<!-- Row 3: Starbucks Reserve -->
+<div class="flex items-center justify-between px-4 py-3 active:bg-surface-container-low transition-colors cursor-pointer">
+<div class="flex items-center gap-3 min-w-0">
+<div class="w-10 h-10 rounded-full bg-tertiary-fixed flex items-center justify-center flex-shrink-0">
+<span class="material-symbols-outlined text-tertiary text-[20px]">local_cafe</span>
+</div>
+<div class="flex flex-col min-w-0">
+<span class="font-body-strong text-body-strong text-on-surface truncate">Starbucks Reserve</span>
+<span class="font-footnote text-footnote text-on-surface-variant truncate">Coffee • Today</span>
+</div>
+</div>
+<div class="flex items-center gap-1.5 flex-shrink-0 ml-3">
+<span class="font-currency-cell text-currency-cell text-on-surface text-right font-semibold">-RM 28.50</span>
+<span class="material-symbols-outlined text-outline-variant text-[18px]">chevron_right</span>
+</div>
+</div>
+</div>
+</div>
+<!-- SECTION 2: YESTERDAY -->
+<div class="flex flex-col mb-5">
+<div class="flex items-center justify-between px-1 mb-1.5">
+<span class="font-caption text-caption text-outline uppercase tracking-wider font-semibold">Yesterday, 23 Oct</span>
+<span class="font-caption text-caption text-secondary font-medium">+RM 3,662.90 Net</span>
+</div>
+<div class="rounded-DEFAULT bg-surface-container-lowest shadow-[0_2px_10px_rgba(0,0,0,0.02)] overflow-hidden" style="border-radius: 24px;">
+<!-- Row 1: Client Retainer (Income) -->
+<div class="flex items-center justify-between px-4 py-3 active:bg-surface-container-low transition-colors cursor-pointer">
+<div class="flex items-center gap-3 min-w-0">
+<div class="w-10 h-10 rounded-full bg-secondary-fixed flex items-center justify-center flex-shrink-0">
+<span class="material-symbols-outlined text-secondary text-[20px]" style="font-variation-settings: 'FILL' 1;">payments</span>
+</div>
+<div class="flex flex-col min-w-0">
+<span class="font-body-strong text-body-strong text-on-surface truncate">Client Retainer</span>
+<span class="font-footnote text-footnote text-on-surface-variant truncate">Consulting • Yesterday</span>
+</div>
+</div>
+<div class="flex items-center gap-1.5 flex-shrink-0 ml-3">
+<span class="font-currency-cell text-currency-cell text-secondary text-right">+RM 3,800.00</span>
+<span class="material-symbols-outlined text-outline-variant text-[18px]">chevron_right</span>
+</div>
+</div>
+<div class="h-[0.5px] bg-surface-container-high ml-16"></div>
+<!-- Row 2: Shell Petrol -->
+<div class="flex items-center justify-between px-4 py-3 active:bg-surface-container-low transition-colors cursor-pointer">
+<div class="flex items-center gap-3 min-w-0">
+<div class="w-10 h-10 rounded-full bg-primary-fixed-dim/50 flex items-center justify-center flex-shrink-0">
+<span class="material-symbols-outlined text-primary text-[20px]">local_gas_station</span>
+</div>
+<div class="flex flex-col min-w-0">
+<span class="font-body-strong text-body-strong text-on-surface truncate">Shell Petrol</span>
+<span class="font-footnote text-footnote text-on-surface-variant truncate">Transport • Yesterday</span>
+</div>
+</div>
+<div class="flex items-center gap-1.5 flex-shrink-0 ml-3">
+<span class="font-currency-cell text-currency-cell text-on-surface text-right font-semibold">-RM 95.00</span>
+<span class="material-symbols-outlined text-outline-variant text-[18px]">chevron_right</span>
+</div>
+</div>
+<div class="h-[0.5px] bg-surface-container-high ml-16"></div>
+<!-- Row 3: GrabFood -->
+<div class="flex items-center justify-between px-4 py-3 active:bg-surface-container-low transition-colors cursor-pointer">
+<div class="flex items-center gap-3 min-w-0">
+<div class="w-10 h-10 rounded-full bg-surface-container-high flex items-center justify-center flex-shrink-0">
+<span class="material-symbols-outlined text-on-surface-variant text-[20px]">restaurant</span>
+</div>
+<div class="flex flex-col min-w-0">
+<span class="font-body-strong text-body-strong text-on-surface truncate">GrabFood</span>
+<span class="font-footnote text-footnote text-on-surface-variant truncate">Food Delivery • Yesterday</span>
+</div>
+</div>
+<div class="flex items-center gap-1.5 flex-shrink-0 ml-3">
+<span class="font-currency-cell text-currency-cell text-on-surface text-right font-semibold">-RM 42.10</span>
+<span class="material-symbols-outlined text-outline-variant text-[18px]">chevron_right</span>
+</div>
+</div>
+</div>
+</div>
+<!-- SECTION 3: 21 OCT -->
+<div class="flex flex-col mb-4">
+<div class="flex items-center justify-between px-1 mb-1.5">
+<span class="font-caption text-caption text-outline uppercase tracking-wider font-semibold">21 Oct</span>
+<span class="font-caption text-caption text-outline">-RM 254.90</span>
+</div>
+<div class="rounded-DEFAULT bg-surface-container-lowest shadow-[0_2px_10px_rgba(0,0,0,0.02)] overflow-hidden">
+<!-- Row 1: Netflix -->
+<div class="flex items-center justify-between px-4 py-3 active:bg-surface-container-low transition-colors cursor-pointer">
+<div class="flex items-center gap-3 min-w-0">
+<div class="w-10 h-10 rounded-full bg-tertiary-fixed-dim/60 flex items-center justify-center flex-shrink-0">
+<span class="material-symbols-outlined text-tertiary text-[20px]">smart_display</span>
+</div>
+<div class="flex flex-col min-w-0">
+<span class="font-body-strong text-body-strong text-on-surface truncate">Netflix Subscription</span>
+<span class="font-footnote text-footnote text-on-surface-variant truncate">Streaming • 21 Oct</span>
+</div>
+</div>
+<div class="flex items-center gap-1.5 flex-shrink-0 ml-3">
+<span class="font-currency-cell text-currency-cell text-on-surface text-right font-semibold">-RM 55.00</span>
+<span class="material-symbols-outlined text-outline-variant text-[18px]">chevron_right</span>
+</div>
+</div>
+<div class="h-[0.5px] bg-surface-container-high ml-16"></div>
+<!-- Row 2: Uniqlo Mid Valley -->
+<div class="flex items-center justify-between px-4 py-3 active:bg-surface-container-low transition-colors cursor-pointer">
+<div class="flex items-center gap-3 min-w-0">
+<div class="w-10 h-10 rounded-full bg-primary-fixed flex items-center justify-center flex-shrink-0">
+<span class="material-symbols-outlined text-primary text-[20px]">checkroom</span>
+</div>
+<div class="flex flex-col min-w-0">
+<span class="font-body-strong text-body-strong text-on-surface truncate">Uniqlo Mid Valley</span>
+<span class="font-footnote text-footnote text-on-surface-variant truncate">Clothing • 21 Oct</span>
+</div>
+</div>
+<div class="flex items-center gap-1.5 flex-shrink-0 ml-3">
+<span class="font-currency-cell text-currency-cell text-on-surface text-right font-semibold">-RM 199.90</span>
+<span class="material-symbols-outlined text-outline-variant text-[18px]">chevron_right</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Footnote / Audit End Indicator -->
+
+<!-- Search Filter Micro-Interaction Logic -->
+<script>
+    const searchInput = document.getElementById('transaction-search');
+    const clearBtn = document.getElementById('clear-search-btn');
+    
+    if (searchInput && clearBtn) {
+      searchInput.addEventListener('input', (e) => {
+        const query = e.target.value.toLowerCase().trim();
+        if (query.length > 0) {
+          clearBtn.classList.remove('hidden');
+          clearBtn.classList.add('flex');
+        } else {
+          clearBtn.classList.add('hidden');
+          clearBtn.classList.remove('flex');
+        }
+
+        // Live Row Filter
+        const rows = document.querySelectorAll('.rounded-DEFAULT .cursor-pointer');
+        rows.forEach(row => {
+          const text = row.innerText.toLowerCase();
+          if (text.includes(query)) {
+            row.style.display = 'flex';
+          } else {
+            row.style.display = 'none';
+          }
+        });
+      });
+
+      clearBtn.addEventListener('click', () => {
+        searchInput.value = '';
+        searchInput.dispatchEvent(new Event('input'));
+        searchInput.focus();
+      });
+    }
+  </script>
+</div></main><nav class="fixed bottom-0 w-full z-50 pb-safe bg-surface/85 backdrop-blur-xl shadow-[0_-1px_12px_rgba(0,0,0,0.04)]" data-active-classes="text-primary font-body-strong"><div class="flex items-center justify-around h-16 px-space-xs"><a class="flex flex-col items-center justify-center flex-1 h-full text-on-surface-variant hover:text-on-surface transition-colors" data-path="home" href="#"><span class="material-symbols-outlined text-[24px]">home</span><span class="font-caption text-caption mt-0.5">Home</span></a><a class="flex flex-col items-center justify-center flex-1 h-full text-on-surface-variant hover:text-on-surface transition-colors" data-path="transactions" href="#" style="color: rgb(0, 122, 255);"><span class="material-symbols-outlined text-[24px]">receipt_long</span><span class="font-caption text-caption mt-0.5">Transactions</span></a><a class="flex flex-col items-center justify-center flex-1 h-full text-on-surface-variant hover:text-on-surface transition-colors" data-path="insights" href="#"><span class="material-symbols-outlined text-[24px]">pie_chart</span><span class="font-caption text-caption mt-0.5">Insights</span></a><a class="flex flex-col items-center justify-center flex-1 h-full text-on-surface-variant hover:text-on-surface transition-colors" data-path="settings" href="#"><span class="material-symbols-outlined text-[24px]">settings</span><span class="font-caption text-caption mt-0.5">Settings</span></a></div><div class="w-full flex justify-center pb-2 pt-1"><div class="w-32 h-1 bg-on-surface/20 rounded-full"></div></div></nav>
+
+
+
+
+
+</body></html>
