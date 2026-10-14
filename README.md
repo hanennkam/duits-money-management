@@ -327,6 +327,40 @@ The standalone app is edge to edge, in both themes:
 - The **Build** row in Settings prints the stamp, the status bar style the meta ended up with and
   whether it is running standalone, so a phone can be asked what it actually loaded.
 
+### Splash
+
+Every cold launch opens on a splash, and nothing else ever shows it — tab switches, month changes,
+sheets and refreshes do not touch it (`splashHidden` is one-way per page load).
+
+- **Painted on the first frame.** The overlay and its styles are the first things in `<body>`, above
+  the app markup, and its background is the theme's own `--bg` (#F2F2F7 / #000000, already resolved by
+  the pre-paint script in `<head>`), so there is no colour jump when it fades — and no chance of the
+  app flashing through, because it is opaque and `z-index: 9999`.
+- **What is on it**: `logo.png` at 96px with a 22px radius and a two-layer soft shadow so it reads as
+  an app icon on a white *and* a black page, `Duits` at 28px/700 in `--text`, 16px under it. Nothing
+  else — no spinner, no tagline. The inset padding uses `--sat`/`--sab`, the same variables as the
+  rest of the app.
+- **The wordmark never moves**: the waking-up line lives in a `height: 0` wrapper whose `-16px` margin
+  cancels the flex gap, so it appears under `Duits` without shifting the centred group.
+- **Entrance** is a CSS animation (400ms, logo `scale(.94) → 1` with a fade), so it starts with the
+  first paint rather than waiting for the script.
+- **It goes when both are true**: the first data load has settled (loaded *or* failed) and
+  `SPLASH_MIN_MS` (1200ms) has passed — so a warm cache still shows it for exactly the minimum, and a
+  slow one is never cut short. `start()` calls the same `splashSettled()` when the key dialog takes
+  over (that dialog is the next thing the user has to touch), after `await loadHome()`, and from the
+  `.then` on the boot promise, so a boot that throws still hands the screen over.
+- **If the load takes more than 4s** (`SPLASH_WAKING_MS`) a 14px grey line fades in under the
+  wordmark: "Waking up the server…" — the Render free instance's cold start, said out loud.
+- **Nothing can leave it up**: `SPLASH_MAX_MS` (60000) hides it regardless and, if the app itself
+  painted nothing (a hung request never reaches `loadHome`'s catch), writes the same error card the
+  loader would have.
+- **Exit** is the Web Animations API: opacity `1 → 0` over `SPLASH_FADE_MS` (300ms) with the logo
+  scaling to 1.04, then `visibility: hidden` and `pointer-events: none` — never `display: none` while
+  it is animating, and a timer backs the animation up. Reduce Motion drops the scale and fades in
+  150ms.
+- **While it is up it is locked**: it covers the app, so no tap can reach it, and `touch-action: none`
+  plus `overscroll-behavior: contain` stop a swipe from scrolling the page underneath.
+
 ### iOS touch behaviour
 
 Safari's own gestures are kept out of the way, because each one breaks the sheet:
@@ -664,6 +698,13 @@ Safari. Both write the same rows.
   in Settings remains the way to check what a phone actually loaded; if its stamp is older than the
   server, the shortcut needs deleting and re-adding. The cost is re-downloading a ~150KB page every
   launch, which is the right trade for an app whose only asset is that page.
+- **The splash's timing is measured in Chrome, not on a phone.** The probes show the minimum hold,
+  the 4s waking line, the 60s backstop (in the harness, with fake timers), the side effects of a
+  failing API and that it never returns; what they cannot show is how the 1200ms feels on a cold
+  iPhone launch, whether Safari's own launch image (a blank screen before the page paints) makes the
+  splash feel late, or whether the logo's first paint is as prompt on a device as it is in a warm
+  browser cache. The logo is a 180px PNG served with `max-age=600`, so a truly cold install may show
+  the icon a beat after the wordmark.
 - **The gesture's arbitration against iOS's own is reasoned, not tested.** The probes drive synthetic
   pointer events, so they prove the app's state machine (thresholds, velocity, cancel, spring, the
   exclusions) and nothing about how a real finger is arbitrated: whether iOS delivers `pointercancel`
@@ -731,6 +772,18 @@ edge, the Smart Entry card geometry, and a simulated keyboard (a faked `visualVi
 43% of the screen) to prove that **nothing moves**: the sheet keeps its size and position, the
 amount and keypad stay at the same coordinates, the keypad stays on screen, the page does not scroll
 and the layout does not overflow sideways.
+The splash is measured over CDP too: with a normal stub it is visible while the probe starts
+(`z-index: 9999`, covering the viewport, `touch-action: none`, `elementFromPoint` at the centre
+resolving to the splash itself), the logo is 96×96 at a 22px radius with its shadow, `Duits` is
+28px/700, the gap under the logo is exactly 16px, the logo+wordmark group is centred to the pixel, the
+hint is present but at `opacity: 0`, and the background is `rgb(242, 242, 247)` in light and
+`rgb(0, 0, 0)` in dark. It then hides ~1290ms after the script ran, leaves `visibility: hidden`,
+`opacity: 0`, `pointer-events: none` and `aria-hidden`, hands hits back to the app, and stays hidden
+through a tab switch, a month wheel, an add sheet and a refresh. With the stub slowed to 5.2s
+(`?slow`) the hint fades in at 4.2s and the splash goes at 5.7s; with the stub failing (`?fail`) the
+splash hides at ~1.25s with the app's own `error-card` visible behind it; under `--reduced-motion` the
+logo uses the opacity-only keyframes and the whole lifetime sees a single animation (no scale).
+
 The swipe-to-dismiss gesture is exercised with synthetic pointer sequences (`pointerdown` → moves →
 `pointerup`/`pointercancel`) in the same harness: a 200px drag from the header, from the amount and
 from the sheet's own empty space all follow the finger (`translateY(200px)` mid-drag, scrim at 0.745)

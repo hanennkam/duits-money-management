@@ -25,6 +25,23 @@ SETTINGS, ADD NEW TRANSACTION). **All five screens are built and in use.**
 
 Completed since the last handoff (all verified, see §3):
 
+- **Splash on every cold launch, then never again.** Markup + its own `<style>` are the first things in
+  `<body>`, so the overlay is painted with the first frame (opaque, `z-index: 9999`, background
+  `var(--bg)` from the already-resolved theme); logo 96px/radius 22px/soft shadow, `Duits` 28px/700,
+  16px under it, and the waking-up line in a `height: 0` wrapper so the wordmark cannot move when it
+  appears. Entrance is a CSS animation (400ms, `scale(.94) → 1`); the exit is WAAPI (`opacity 1 → 0`
+  over 300ms, logo to 1.04) followed by `visibility: hidden` + `pointer-events: none` — never
+  `display: none`, plus a backing timer. Reduce Motion: no scale, 150ms fade.
+  - `SPLASH_MIN_MS = 1200`, `SPLASH_WAKING_MS = 4000`, `SPLASH_MAX_MS = 60000`, `SPLASH_FADE_MS = 300`.
+  - `startSplash()` returns the settle callback; `start()` calls it when the key dialog takes over,
+    after `await loadHome()` (the boot now awaits it) and again from `start().then(...)`, so a
+    loaded/failed/thrown boot always hands the screen over.
+  - The 60s backstop also writes the normal error card when the app painted nothing (a hung request
+    never reaches `loadHome`'s catch).
+  - It is one-way per page load: tab switches, month changes, sheets and refreshes cannot re-show it.
+  - The splash uses the app's `--sat`/`--sab` variables rather than `env()` directly, so it stays part
+    of the "one name per inset" rule (and a probe can simulate a notch for it too).
+
 - **Swipe down to dismiss, from almost anywhere on the Add and edit sheets.** The old drag was bound to
   the grabber only and used an 80px threshold; it is replaced by one `attachSheetDrag(sheetId,
   overlayId, onDismiss, handleOnly)`:
@@ -293,7 +310,37 @@ Decisions worth knowing:
 
 ## 3. Validation (all executed this session)
 
-**This session — swipe to dismiss (all re-run after the final edit):**
+**This session — the cold-launch splash (all re-run after the final edit):**
+
+- `./.venv/bin/python -m pytest -q` → **83 passed**; `node /tmp/duits-ui-check.js` → **710 assertions**
+  / **852 in total** (40 splash pins: the markup being first in `<body>` with its own styles, the four
+  timings, the geometry, the entrance/exit keyframes, `visibility`/`pointer-events` and the absence of
+  `display: none`, the settle wiring, and two behavioural ones — firing the armed 4s and 60s timers
+  from the harness asserts the waking line appears, the backstop hides the splash **and** writes the
+  `error-card`, and that a second `hideSplash()` neither animates nor re-shows anything). The harness's
+  boot hook now targets `start().then(splashSettled, splashSettled)` and the exposed list carries
+  `startSplash/hideSplash/showTimeoutNotice` + the constants.
+- **Splash probe over CDP** (`/tmp/cdp-js-splash.js`), 375×667 and 430×932, dark and light:
+  - visible while the probe starts: `z=9999`, covers the viewport, `touch-action: none`,
+    `elementFromPoint(centre)` resolves inside the splash; logo `96x96 radius=22px shadow=true`,
+    `word: 28px/700`, `gap=16`, group centred `0px` off centre; hint present at `opacity: 0` with text
+    "Waking up the server…"; background `rgb(242, 242, 247)` light / `rgb(0, 0, 0)` dark;
+  - hides `~1290ms` after the script ran (`goneAt` 1620ms with injection at 330ms), leaving
+    `visibility=hidden opacity=0 pointerEvents=none ariaHidden=true`, and hits land on the app again;
+  - does not return after a tab switch, a month wheel, an add sheet and a refresh (`0/12` samples
+    visible, `anims=0`, one splash in the DOM).
+- **Slow and failing servers** (stub knobs `?slow` / `?fail` in the preview, `FRAME_URL` +
+  `READY_SELECTOR` in the runner):
+  - `?slow` (5.2s): the hint fades in at **4.2s**, the splash hides at **5.7s**;
+  - `?fail` (500): the splash hides at ~1.25s with the app's own `<div class="error-card">` behind it
+    at every 250ms sample, and no thrown errors or rejections.
+- **Reduce Motion** (`--reduced-motion`): `logo animation-name=splash-logo-fade`, and the whole
+  lifetime sees **one** animation on the logo (the CSS fade) instead of two (fade + WAAPI scale),
+  hiding at 1414ms with the app tappable.
+- **Regressions re-checked**: the ten button open/close cycles are still `10/10` with nothing stuck,
+  and the drag probe still closes from the header/amount/empty space (`translateY(200px)` mid-drag).
+
+**Previous session — swipe to dismiss (all re-run after the final edit):**
 
 - `./.venv/bin/python -m pytest -q` → **83 passed**; `node /tmp/duits-ui-check.js` → **670 assertions**
   / **812 in total** (36 new pins: the four drag constants, `setPointerCapture` on the sheet, the
@@ -488,6 +535,13 @@ Decisions worth knowing:
   with and without the mark (`barHeightMoved=false`), `barOverflow=no`, refresh button still 34px.
 
 ## 4. Unresolved issues / risks
+
+- **The splash's timings are measured in Chrome, not on a phone.** The probes prove the minimum hold,
+  the 4s line, the 60s backstop (in the harness, with fake timers), the failing-API path and that it
+  never comes back. They cannot show how the 1200ms *feels* on a real cold launch, whether iOS's own
+  launch image (the blank screen before the page paints) makes the splash look late, or how promptly
+  `logo.png` decodes on a cold install — it is a 180px PNG at `max-age=600`, so a truly cold cache can
+  put the icon a beat behind the wordmark.
 
 - **The swipe's arbitration against iOS's own gesture handling is reasoned, not tested.** The probes
   drive synthetic pointer events, so they prove the state machine (thresholds, velocity, cancel,

@@ -968,6 +968,52 @@
 </head>
 <body>
 
+<!-- Splash: the first thing in the body, with its own styles, so it is painted on the first frame and
+     nothing of the app can flash through it. The colours come from the palette in <head> (which the
+     pre-paint script has already pinned to the theme), and it is opaque, so the app behind it may load
+     in any order it likes. It is one-shot per page load: the script below hides it once the first data
+     load has settled, and never shows it again — tab switches, month changes, sheets and refreshes do
+     not touch it. -->
+<style>
+  #splash {
+    position: fixed; inset: 0; z-index: 9999;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+    /* The insets are the app's own variables (see :root), so there is still exactly one place that
+       reads env() and a probe can simulate a notch for the splash too. */
+    padding: max(var(--sat), 16px) 16px max(var(--sab), 16px);
+    background: var(--bg);                 /* the app's own colour: no jump when it fades */
+    /* Locked while it is up: it covers the app, so no tap can reach it, and touch-action: none stops
+       a swipe on the splash from scrolling the page underneath it. */
+    touch-action: none; overscroll-behavior: contain;
+  }
+  #splash .splash-logo {
+    display: block; width: 96px; height: 96px; border-radius: 22px;
+    /* A soft two-layer shadow so the icon reads as an app icon on both a white and a black page. */
+    box-shadow: 0 12px 28px rgba(0, 0, 0, .22), 0 2px 6px rgba(0, 0, 0, .12);
+    animation: splash-logo-in 400ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  }
+  #splash .splash-word {
+    font: 700 28px/1.1 -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", system-ui, sans-serif;
+    letter-spacing: -.02em; color: var(--text);
+  }
+  /* Height 0 with the -16px cancelling the flex gap: the hint cannot move the centred logo when it
+     appears under the wordmark four seconds in. */
+  #splash .splash-hint-wrap { height: 0; margin-top: -16px; display: flex; justify-content: center; }
+  #splash .splash-hint { font-size: 14px; color: var(--muted); opacity: 0; white-space: nowrap; }
+  #splash .splash-hint.is-on { animation: splash-hint-in 400ms ease both; }
+  @keyframes splash-logo-in { from { opacity: 0; transform: scale(.94); } to { opacity: 1; transform: scale(1); } }
+  @keyframes splash-hint-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes splash-logo-fade { from { opacity: 0; } to { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) {
+    #splash .splash-logo { animation: splash-logo-fade 400ms linear both; }   /* no scale */
+  }
+</style>
+<div id="splash" role="status" aria-label="Loading">
+  <img class="splash-logo" src="/logo.png" alt="" width="96" height="96">
+  <div class="splash-word">Duits</div>
+  <div class="splash-hint-wrap"><span class="splash-hint" id="splashHint">Waking up the server&#8230;</span></div>
+</div>
+
 <div class="app">
   <header class="topbar">
     <h1><img class="brand-mark" src="/logo.png" alt="" width="24" height="24">Duits</h1>
@@ -3405,6 +3451,80 @@
     wireTheme();   // last: the theme control is in Settings and needs nothing else wired first
   }
 
+  /* ---------- splash ---------- */
+
+  var SPLASH_MIN_MS = 1200;       // shortest time it stays up, even when everything is warm
+  var SPLASH_WAKING_MS = 4000;    // after this it says the server may be waking up (Render free tier)
+  var SPLASH_MAX_MS = 60000;      // nothing may leave it up: hide, with the normal error state behind
+  var SPLASH_FADE_MS = 300;
+
+  var splashHidden = false;
+
+  function hideSplash() {
+    if (splashHidden) return null;
+    splashHidden = true;
+    var splash = $("splash");
+    if (!splash) return null;
+    var logo = splash.querySelector(".splash-logo");
+    var reduced = reducedMotion();
+    var duration = reduced ? 150 : SPLASH_FADE_MS;
+    if (!reduced && logo) {
+      // The icon grows a hair as the page fades, so the fade reads as the app arriving.
+      logo.animate([{ transform: "scale(1)" }, { transform: "scale(1.04)" }],
+        { duration: duration, easing: EASE_IOS, fill: "both" });
+    }
+    var fade = splash.animate([{ opacity: 1 }, { opacity: 0 }],
+      { duration: duration, easing: "linear", fill: "both" });
+    var finish = function () {
+      splash.style.visibility = "hidden";      // not display: none — the fade had to be able to run
+      splash.style.pointerEvents = "none";     // and the app is tappable from this moment on
+      splash.style.opacity = "0";
+      splash.setAttribute("aria-hidden", "true");
+      try { fade.cancel(); } catch (error) { /* already gone */ }
+      showTimeoutNotice();
+    };
+    fade.finished.then(finish, finish);
+    setTimeout(finish, duration + 150);        // and never rely on the animation alone
+    return fade;
+  }
+
+  var splashTimedOut = false;
+
+  // On timeout the app may have painted nothing at all (a hung request never reaches loadHome's catch),
+  // so the timeout surfaces the same error card the loader would have.
+  function showTimeoutNotice() {
+    if (!splashTimedOut) return;
+    splashTimedOut = false;
+    if ($("homeError").innerHTML) return;
+    $("homeError").innerHTML = '<div class="error-card">' +
+      escapeHtml("The server did not answer. Check your connection and pull to refresh.") + "</div>";
+  }
+
+  // One shot per page load. Returns the function the boot calls when the first data load has settled
+  // (loaded or failed): the splash then stays for whatever is left of SPLASH_MIN_MS and fades out.
+  function startSplash() {
+    var splash = $("splash");
+    var started = Date.now();
+    if (!splash) return function () {};
+    var waking = setTimeout(function () {
+      var hint = $("splashHint");
+      if (hint && !splashHidden) hint.classList.add("is-on");
+    }, SPLASH_WAKING_MS);
+    var backstop = setTimeout(function () {
+      splashTimedOut = true;
+      hideSplash();
+    }, SPLASH_MAX_MS);
+    return function settled() {
+      if (splashHidden) return;
+      clearTimeout(waking);
+      clearTimeout(backstop);
+      var left = Math.max(0, SPLASH_MIN_MS - (Date.now() - started));
+      setTimeout(hideSplash, left);
+    };
+  }
+
+  var splashSettled = startSplash();
+
   async function start() {
     renderScreenHeaders(); // before wire(), so the shared pills exist to bind and paint
     wire();
@@ -3414,12 +3534,16 @@
     setScanBusy(false); // paints the camera icon on the scan row
     renderKeyStatus();
     if (!getKey()) {
+      // The key dialog is the next thing the user has to touch, and it is behind the splash: hand the
+      // screen over now instead of holding it until they have pasted a key.
+      splashSettled();
       await askForKey("Paste the API_KEY from your .env. It stays in this browser only.");
     }
-    loadHome();
+    await loadHome();
+    splashSettled();
   }
 
-  start();
+  start().then(splashSettled, splashSettled);   // a boot that throws still shows the app
 })();
 </script>
 </body>
