@@ -25,6 +25,28 @@ SETTINGS, ADD NEW TRANSACTION). **All five screens are built and in use.**
 
 Completed since the last handoff (all verified, see §3):
 
+- **The Add and edit sheets are bottom sheets now, not full-screen pages.** One knob for the top edge,
+  `--sheet-top-gap: max(var(--sat) + 12px, 10dvh)` at `:root`; `#addSheet` is
+  `position: fixed; left/right/bottom: 0` with `height: calc(100dvh - var(--sheet-top-gap))`,
+  `border-radius: 28px 28px 0 0`, `padding: 8px 16px 0` (handle, 8px, header) and the keypad's own
+  bottom padding is `--sab`, so its background reaches the bottom edge and no strip of scrim shows
+  under the keys. `#addOverlay` moved out of `.app` (it was nested inside) so it is a sibling of the
+  other overlays.
+  - `#txnSheet` wears the same clothes (same anchor, same gap, same corners, `padding-bottom:
+    calc(20px + var(--sab))`) but keeps a content-sized height capped at the gap and may scroll
+    internally. The month wheel keeps its own height and its own deeper scrim.
+  - Scrim for those two sheets: a new token `--scrim-sheet: rgba(0, 0, 0, .35)` (the harness's "every
+    colour is a variable" rule caught the raw literal, hence the token).
+  - The page behind eases back (`PAGE_BEHIND = translateY(8px) scale(0.96)` on `.app`), driven by
+    WAAPI from `openOverlay`/`closeOverlay` in a `pageMotion` variable; transform only, skipped under
+    Reduce Motion, and cancelled/cleared when a close lands.
+  - **Never scroll**: both old scroll escape hatches (the `@media (max-height: 660px)` hatch and the
+    `@container (max-height: 500px)` net) are deleted. The shrink order is now exactly the brief's —
+    amount font (56 → 44), keypad keys (56 → 44, never lower), then the gaps — driven by container
+    queries on the sheet's own box.
+  - Everything else kept: WAAPI open/close, swipe-down-to-close (measured from the finger, so the new
+    anchoring changes nothing), fixed layout under the keyboard, scrim tap dismiss.
+
 - **Splash on every cold launch, then never again.** Markup + its own `<style>` are the first things in
   `<body>`, so the overlay is painted with the first frame (opaque, `z-index: 9999`, background
   `var(--bg)` from the already-resolved theme); logo 96px/radius 22px/soft shadow, `Duits` 28px/700,
@@ -310,7 +332,37 @@ Decisions worth knowing:
 
 ## 3. Validation (all executed this session)
 
-**This session — the cold-launch splash (all re-run after the final edit):**
+**This session — bottom sheets (all re-run after the final edit):**
+
+- `./.venv/bin/python -m pytest -q` → **83 passed**; `node /tmp/duits-ui-check.js` → **720 assertions**
+  / **862 in total** (the full-screen `#addSheet` pins were replaced by bottom-sheet ones: the top-gap
+  token, the anchored geometry, `--scrim-sheet`, the `#txnSheet` rules, `PAGE_BEHIND` + its two call
+  sites, and that both scroll escape hatches are gone — the harness now also asserts
+  `overflow-y: auto` count **0** in the add-sheet slice, `max-height: 660px`/`500px` absent, and the
+  fake `document`/`window` gained `querySelector`/`getComputedStyle` for `pageBehind`).
+- **Bottom-sheet probe** (`/tmp/cdp-js-bs1.js`, `/tmp/cdp-js-bs2.js`) with the insets simulated:
+  - **375×667** (sat 47 / sab 34): `top=67` = `max(sat+12, 10dvh)` ✓, `bottom=667=vh` ✓,
+    `height=600`, `radius=28px/0px`, `position=fixed`; `scrim=rgba(0,0,0,0.35)`;
+    `pageBehind=matrix(0.96,0,0,0.96,0,8)`; Cancel top `99` (≥ 47, `handleToHeader=7px`); keypad
+    `bottom=667` `reachesBottom=true` `padBottom=38px`; `clipped=[]` `sheetScrolls=false`
+    `columnScrolls=false` `overflowX=0`;
+    **shrink steps used: `[amount 44px, keys 44px, tighter gaps]`** (`amountFont=44px`, `keyH=44`,
+    `smartCardPad=8px`, `chipGap=6px`) — the column measures `client=282 scroll=282 overflow=0`.
+  - **390×844**: `shrinkSteps=[none]` (`amountFont=56px`, `keyH=56`), no clipping, no scroll, keypad to
+    the bottom. **430×932**: identical (no steps fired).
+  - scrim tap: `elementFromPoint(8, gap/2)` is `addOverlay`, and a click there closes the sheet with
+    the page transform cleared; a drag from the amount still closes it (`translateY(180px)` mid-flight,
+    page stays scaled while dragging); the keypad still types (`RM 5`) and `distanceToVh=0`.
+  - **Edit sheet**: `top=67`, `bottom=667`, `radius=28px/0px`, `padBottom=54px` (20 + 34), scrim
+    `.35`, page scaled, scrim tap closes. **Month wheel**: `height=333` (its own), radius 24px, its own
+    `rgba(0,0,0,0.55)` scrim.
+  - **Reduce Motion**: identical geometry, `pageBehind=none`, all three shrink steps still applied.
+- **Regressions re-checked**: ten button cycles `10/10` with nothing stuck and the sheet resting at
+  `translateY(600.297px)` (its new height); the drag probe still closes from header/amount/empty space;
+  the shell probe still reports the nav bar reaching y=0 with its content below `--sat` and the tab bar
+  clearing the home indicator; the splash probe is untouched by the change.
+
+**Previous session — the cold-launch splash (all re-run after the final edit):**
 
 - `./.venv/bin/python -m pytest -q` → **83 passed**; `node /tmp/duits-ui-check.js` → **710 assertions**
   / **852 in total** (40 splash pins: the markup being first in `<body>` with its own styles, the four
@@ -535,6 +587,19 @@ Decisions worth knowing:
   with and without the mark (`barHeightMoved=false`), `barOverflow=no`, refresh button still 34px.
 
 ## 4. Unresolved issues / risks
+
+- **The bottom-sheet geometry is measured, not seen.** The probes prove the anchoring maths, the shrink
+  order, that nothing clips or scrolls and that the scrim tap / drag / keypad all still work — but not
+  how the sheet *feels* on a real iPhone: whether `10dvh` is the right amount of page showing above it,
+  whether the 28px corner radius matches iOS's own, or how the scrim behaves over a real page.
+- **The page-behind scale is the risky half of this change.** Scaling `.app` also scales the two frosted
+  bars (`backdrop-filter: blur(20px)`), which is the one thing on the page that a scaled compositing
+  layer can make janky on a phone. It is transform-only, waits for no layout, and is one constant
+  (`PAGE_BEHIND`) plus its two call sites to drop if it stutters. Unverified on hardware, along with
+  whether the 8px/0.96 offset reads as "native" or as slightly too much.
+- **375×667 is a squeeze.** It fits exactly (`client=282 scroll=282`) after all three shrink steps, so
+  there is no slack left at that size: a longer label, a bigger category list or a larger font would
+  tip it into clipping, because the sheet no longer scrolls by design.
 
 - **The splash's timings are measured in Chrome, not on a phone.** The probes prove the minimum hold,
   the 4s line, the 60s backstop (in the harness, with fake timers), the failing-API path and that it

@@ -210,7 +210,7 @@ Settings keeps the large title alone.
   touches (one request per month, filtered to the seven days in the browser).
 - **Add** (a full-height sheet opened by the raised `+`) — the Stitch "New Transaction" sheet, three ways
   in, all ending in the same row on the list. It fills one screen and does not scroll at either
-  target size: `position: fixed; inset: 0` with `height: 100dvh` (a plain `100%` first as a fallback),
+  target size: a bottom sheet — `position: fixed; left: 0; right: 0; bottom: 0` with
   `overflow: hidden`, and one flex column
   whose only flexible slot is the amount itself — so the slack on a tall phone collects around the
   number, and collapses when a panel opens or the keys step aside.
@@ -303,18 +303,16 @@ The standalone app is edge to edge, in both themes:
 - Every inset has one name — `--sat`, `--sab`, `--sal`, `--sar`, each resolved once from `env()`
   at `:root` — so a probe (or a device without a notch) has a single place to simulate them. Nothing
   else in the file calls `env()` directly.
-- **The Add sheet is a full-screen page**: `position: fixed; inset: 0; height: 100dvh`, with
-  `padding-top: max(var(--sat), 8px)` so Cancel / New Transaction / Save always sit fully below the
-  status bar, and the keypad pads its bottom by `--sab`. It is deliberately *not* sized from
-  `window.innerHeight`: in a standalone app that is not the screen, and pinning it in pixels is what
-  used to push the sheet's head under the status bar. The edit sheet and the month wheel get the same
-  treatment from the overlay they live in: `padding: max(var(--sat), 12px) 12px calc(12px + var(--sab))`
-  and a `max-height` of `min(88dvh, 100dvh - the insets)`, so a tall sheet cannot reach either edge.
-- **When the box is short, the sheet gives height back instead of scrolling.** The insets are real
-  space (a 375×667 screen with a 47px status bar has 586px of sheet), so three container queries on
-  the sheet's own box step in: 44px keys and tighter gaps and a smaller amount floor under 640px,
-  40px keys under 560, and a scroll of the content column only under 500. A phone with no notch keeps
-  every size it was tuned with, because 667px of box trips none of them.
+- **Bottom sheets, not pages.** The Add and edit sheets are anchored to the bottom edge with their top
+  edge at `--sheet-top-gap`, so Cancel / New Transaction / Save always sit clear of the status bar (see
+  *Bottom sheets*). They are deliberately *not* sized from `window.innerHeight`: in a standalone app
+  that is not the screen, and pinning them in pixels is what used to push the sheet's head under the
+  status bar.
+- **When the box is short, the sheet gives height back instead of scrolling.** The insets and the top
+  gap are real space (a 375×667 screen has a 592px box), so container queries on
+  the sheet's own box step in: the amount font (56 → 44px), then the keys (56 → 44px), then the gaps,
+  in that order. A tall phone trips none of them (844 and 932 give boxes of 760 and 830) and keeps
+  every size it was tuned with. The sheet never scrolls at any size.
 - **The status bar style is theme-aware, and that is the honest answer.** `black-translucent` is what
   the page ships (it is what lets the page paint under the bar), but iOS gives it **white** glyphs,
   and the light theme's bar is `rgba(249, 249, 249, .85)` — white on near-white is unreadable. So the
@@ -361,8 +359,34 @@ sheets and refreshes do not touch it (`splashHidden` is one-way per page load).
 - **While it is up it is locked**: it covers the app, so no tap can reach it, and `touch-action: none`
   plus `overscroll-behavior: contain` stop a swipe from scrolling the page underneath.
 
-### iOS touch behaviour
+### Bottom sheets
 
+The Add sheet and the edit sheet are native-style bottom sheets, not full-screen pages:
+
+- **One knob for the top edge**: `--sheet-top-gap: max(var(--sat) + 12px, 10dvh)` in `:root`. The sheet
+  is `position: fixed; left: 0; right: 0; bottom: 0` with `height: calc(100dvh - var(--sheet-top-gap))`
+  — the keypad's background reaches the bottom edge, so there is never a strip of scrim under the keys,
+  and its bottom padding is the home-indicator inset. `border-radius: 28px 28px 0 0`, grab handle kept,
+  and the header sits 8px under the handle.
+- **The edit sheet wears the same clothes** (`#txnOverlay`/`#txnSheet`: same anchor, same gap, same
+  28px corners, its own padding-bottom for the home indicator) but keeps a content-sized height capped
+  at the gap, and it may scroll internally — a list of corrections is not a keypad. The **month wheel
+  keeps its own height and its own scrim**.
+- **The scrim is `--scrim-sheet: rgba(0, 0, 0, .35)`** for those two sheets (the modal scrim stays
+  deeper darker), so the page behind stays readable, and tapping it dismisses.
+- **The page behind eases back**: `.app` scales to 0.96 and shifts down 8px while a bottom sheet is
+  open, driven by the Web Animations API in `openOverlay`/`closeOverlay` (`PAGE_BEHIND`), transform
+  only. The overlays are siblings of `.app`, so a transform there cannot disturb their fixed
+  positioning — the sheet itself never scales with the page. Reduce Motion skips it entirely.
+- **Nothing scrolls**: the old sub-660px media escape hatch and the tiny-box container net are gone.
+  The sheet's own box (its height minus its padding, with the top gap and both insets already taken
+  out) drives the shrink order — amount font, then keypad keys, then the gaps — and 375×667 fits
+  exactly with all three steps applied.
+- Everything else is unchanged: open/close on the Web Animations API, swipe-down-to-close (still
+  measured from the finger, so it behaves the same from the lower position), the fixed layout when the
+  keyboard opens, and the scrim tap.
+
+### iOS touch behaviour
 Safari's own gestures are kept out of the way, because each one breaks the sheet:
 
 - **No focus zoom.** Every control a finger can focus is at least **16px** — `.add-field` (Smart Entry,
@@ -381,8 +405,8 @@ Safari's own gestures are kept out of the way, because each one breaks the sheet
 - **No sideways scroll.** `html, body { overflow-x: hidden; max-width: 100vw }`, `box-sizing:
   border-box` throughout, `min-width: 0` on the flexing field. The only things off the right edge are
   the category chips, which live in their own horizontal scroller by design.
-- **Keyboard.** The Add sheet does not react to the keyboard at all. It is one fixed full-screen page
-  (`inset: 0`, `100dvh`) and the page behind it is scroll-locked while it is open,
+- **Keyboard.** The Add sheet does not react to the keyboard at all. It is one fixed bottom sheet
+  (anchored, `100dvh` minus its top gap) and the page behind it is scroll-locked while it is open,
   so there is no `visualViewport` reading, no `--vvh`, no scroll-into-view and no layout change —
   the keyboard simply covers the lower half, which is acceptable because the Smart Entry field is at
   the top. `focus()` is always called with `{ preventScroll: true }` so Safari never pans the page to
@@ -705,6 +729,9 @@ Safari. Both write the same rows.
   splash feel late, or whether the logo's first paint is as prompt on a device as it is in a warm
   browser cache. The logo is a 180px PNG served with `max-age=600`, so a truly cold install may show
   the icon a beat after the wordmark.
+- **The page-behind scale is untested on hardware.** Scaling `.app` also scales the two frosted bars
+  (`backdrop-filter: blur(20px)`), which is the one thing on this page that a scaled compositing layer
+  can make janky on a phone. It is one line (`PAGE_BEHIND`) to drop if it stutters.
 - **The gesture's arbitration against iOS's own is reasoned, not tested.** The probes drive synthetic
   pointer events, so they prove the app's state machine (thresholds, velocity, cancel, spring, the
   exclusions) and nothing about how a real finger is arbitrated: whether iOS delivers `pointercancel`
@@ -784,6 +811,20 @@ through a tab switch, a month wheel, an add sheet and a refresh. With the stub s
 splash hides at ~1.25s with the app's own `error-card` visible behind it; under `--reduced-motion` the
 logo uses the opacity-only keyframes and the whole lifetime sees a single animation (no scale).
 
+The bottom sheets are measured the same way, with the insets simulated, at 375×667, 390×844 and
+430×932: the sheet's top edge equals `max(sat + 12px, 10dvh)` (67px at all three), its bottom equals
+the viewport height, its height is the difference, the radius is `28px 0`, the scrim is
+`rgba(0, 0, 0, 0.35)`, the page behind reads `matrix(0.96, 0, 0, 0.96, 0, 8)`, the header's Cancel
+button starts below the status bar and 7px under the handle, the keypad's bottom is the viewport's
+bottom (`distanceToVh=0`), nothing reachable is clipped (`clipped=[]`), neither the sheet nor the
+content column scrolls, and the only overflow is horizontal zero. The reported shrink steps are the
+brief's three — `amount 44px, keys 44px, tighter gaps` — on 375×667 and `none` on 390×844 and 430×932
+(where the amount is 56px and the keys are 56px). The scrim tap closes the sheet, a drag from the
+amount still closes it with `translateY(180px)` mid-flight (and the page stays scaled until it is
+gone), the keypad still types, and the edit sheet reports the same anchor, radius and `54px`
+bottom padding (20 + the home-indicator inset) while the month wheel keeps its own 333px height and
+its own scrim. Under `--reduced-motion` the geometry is identical and `pageBehind=none`.
+
 The swipe-to-dismiss gesture is exercised with synthetic pointer sequences (`pointerdown` → moves →
 `pointerup`/`pointercancel`) in the same harness: a 200px drag from the header, from the amount and
 from the sheet's own empty space all follow the finger (`translateY(200px)` mid-drag, scrim at 0.745)
@@ -800,11 +841,8 @@ one with **zero** spring animations, and still takes the transform from a runnin
 The safe-area probe runs with the notch insets simulated (47px/59px top, 34px bottom, set through the
 `--sat`/`--sab` variables) at 375×667, 390×844 and 430×932: it checks that the nav bar's background
 reaches y=0 while its content starts below `--sat`, that the tab bar reaches the bottom edge while
-its last row clears `--sab`, that the Add sheet is a full-screen page (`top=0`, height = the viewport,
-`position: fixed`, `padding-top` = the status bar inset) whose Cancel button and last key row both
-clear the insets, that the month wheel sits between them, that nothing reachable is clipped or
-scrolled, and that the sheet's container-query shrink (44px keys at 375×667, 56px at the two taller
-sizes) is what makes that fit possible.
+its last row clears `--sab`, that the month wheel sits between them, and that nothing reachable is
+clipped or scrolled. The bottom-sheet probe (below) does the same for the sheet's new geometry.
 Animation is measured over CDP in a real Chrome on real timers, at an exact 375×667 / 390×844 device
 viewport: ten open/close pairs (10/10 open, 10/10 close, nothing stuck, the sheet back at
 `translateY(667px)`, no running animations left, no thrown errors), ten tab switches (the ring's dash

@@ -49,6 +49,9 @@
     /* One name per inset: env() is resolved once here and everything else reads the variable, so a
        simulated inset (a probe, or a device without a notch) has a single place to change. */
     --sat: env(safe-area-inset-top, 0px);
+    /* How far below the top of the screen the Add / edit sheet starts: clear of the status bar, but
+       never above 10dvh, so it always reads as a sheet rather than a page. Tune it here. */
+    --sheet-top-gap: max(var(--sat) + 12px, 10dvh);
     --sab: env(safe-area-inset-bottom, 0px);
     --sal: env(safe-area-inset-left, 0px);
     --sar: env(safe-area-inset-right, 0px);
@@ -87,6 +90,9 @@
     --placeholder: rgba(60, 60, 67, .3);
     --grab: rgba(60, 60, 67, .2);
     --scrim: rgba(0, 0, 0, .28);
+    /* The two bottom sheets dim less than a modal does, so the page behind stays readable. Same value
+       in both themes: a sheet is a layer over the page, not a takeover of it. */
+    --scrim-sheet: rgba(0, 0, 0, .35);
     --toast-bg: rgba(26, 27, 31, .92);
     --toast-ink: #ffffff;
     --toast-shadow: 0 10px 30px rgba(0, 0, 0, .18);
@@ -221,7 +227,10 @@
     -webkit-font-smoothing: antialiased;
     overscroll-behavior-y: none;
   }
-  .app { max-width: 640px; margin: 0 auto; padding: 0 16px calc(96px + var(--sab)); }
+  /* The page behind a bottom sheet shrinks away a little (transform only, driven by the Web Animations
+     API in openOverlay/closeOverlay). The overlays are siblings of .app, so a transform here cannot
+     disturb their fixed positioning — the sheet itself never scales with the page. */
+  .app { max-width: 640px; margin: 0 auto; padding: 0 16px calc(96px + var(--sab)); transform-origin: 50% 0; }
 
   /* ---------- nav bar ---------- */
   .topbar {
@@ -504,29 +513,25 @@
     background: var(--grab); margin: 0 auto;
   }
   .sheet-done[disabled] { color: var(--muted); }
-  /* The Add sheet is a full-screen page, not a card hanging off the bottom: fixed, inset: 0, the whole
-     screen tall. It used to be pinned to window.innerHeight in pixels, which is wrong in a standalone
-     app (innerHeight is not the screen once the status bar and the home indicator are involved) and
-     that is exactly what pushed Cancel / New Transaction / Save under the status bar. The safe-area
-     inset is the top padding instead, so the head always sits fully below the clock. Nothing inside
-     scrolls, and the keyboard does not resize it: iOS leaves 100dvh alone when the keyboard opens. */
-  #addOverlay { padding: 0; }
+  /* The Add sheet is a bottom sheet, anchored to the bottom edge with its top edge at
+     --sheet-top-gap, and its height is the rest of the screen: the keypad's background reaches the
+     bottom, so there is never a strip of scrim under it. Nothing inside scrolls, and the keyboard does
+     not resize it (iOS leaves 100dvh alone when the keyboard opens). */
+  #addOverlay { padding: 0; background: var(--scrim-sheet); }
   #addSheet {
-    position: fixed; inset: 0;
-    height: 100%;                          /* fallback: no dvh anywhere */
-    height: 100dvh;                        /* the whole screen, status bar and home indicator too */
+    position: fixed; left: 0; right: 0; bottom: 0;
+    height: 100%;                              /* fallback: no dvh anywhere */
+    height: calc(100dvh - var(--sheet-top-gap));
     max-height: none; overflow: hidden;
-    /* 8px minimum, not 12: with no notch there is nothing to clear, and a 375x667 screen needs every
-       pixel (the amount absorbs whatever the gap above leaves on a taller screen). */
-    padding: max(var(--sat), 8px) 16px 0;
+    padding: 8px 16px 0;                       /* the handle, 8px, then the header */
     display: flex; flex-direction: column;
-    border-radius: 0;                      /* a page, not a card: no rounded corner under the clock */
+    border-radius: 28px 28px 0 0;              /* top corners only: it is a sheet, not a page */
     /* The shrink rules below ask how much room the sheet actually has, which is this box and nothing
        else: a container query on the content box is the honest measure, where a media query only ever
        sees the phone. A 375x667 screen with a 47px status bar has ~586px to spend here. */
     container-type: size;
   }
-  #addSheet .sheet-grab { margin: -2px 0 0; padding: 4px 0 8px; }
+  #addSheet .sheet-grab { margin: 0; padding: 4px 0 8px; }   /* handle, 8px, then the header */
   /* Swipe-to-dismiss. A pointer may claim the gesture anywhere on the sheet except over something that
      has its own: the chips row pans sideways, the expanded Details row can scroll, and everywhere else
      in this sheet has nothing to pan (it is overflow: hidden and the page behind it is locked), so the
@@ -671,39 +676,39 @@
   /* Second in line behind the amount font: 44px keys, which is 4 rows of 44 plus gaps = 16px back.
      Both target sizes (667 and 844) are above this, so they keep 48px keys. */
   @media (max-height: 620px) { .key { height: 44px; } }
-  /* Last resort, below both target heights: the content column may scroll (it only does when the
-     rows genuinely cannot fit, e.g. Details open on a 320x568 screen) so nothing ever paints over
-     the keypad. At 667 and 844 the column never scrolls. The keys stay pinned either way. */
-  @media (max-height: 660px) { #screen-add { overflow-y: auto; -webkit-overflow-scrolling: touch; } }
-  /* The sheet's own box is the honest measure of the room left: the phone's height minus the status
-     bar and home indicator. When it is short — a 375x667 screen with a 47px status bar only has
-     586px — give height back in this order, before anything is allowed to scroll: keys 44px, then the
-     gaps and the Smart Entry card, then the amount. A phone without a notch keeps every size it had
-     (667px of box = no trigger), so nothing regresses on the screens the layout was tuned for. */
+  /* The sheet's own box is the honest measure of the room left: its height minus its padding, with the
+     top gap and both safe areas already taken out. When it is short the content gives height back in
+     this order — the amount font (56 -> 44), then the keypad keys (56 -> 44), then the vertical gaps —
+     and it never scrolls: a 375x667 screen has a 592px box, an iPhone SE (568px, no notch) about 500px.
+     A tall phone trips none of this and keeps every size the layout was tuned with. */
   @container (max-height: 640px) {
+    /* 1. the amount: the only flexible block, so its own floor decides whether the column fits */
+    .add-amount { font-size: clamp(34px, 7.2dvh, 44px); min-height: .85em; padding: 0; }
+    /* 2. the keys: 44px is the floor, because that is the tap target */
     .key { height: 44px; }
     .keypad-grid { gap: 6px; }
-    /* The amount is the only flexible block, so its own floor is what decides whether the column
-       fits: 1.4em at 48px is 67px of floor the layout cannot reclaim. */
-    .add-amount { font-size: clamp(34px, 7.2dvh, 44px); min-height: 1em; padding: 0; }
-    .smart-card { padding: 10px 12px; margin-bottom: 8px; }
-    .smart-card-head { margin-bottom: 8px; }
-    .add-pill { min-height: 32px; }
-    .cat-chip { min-height: 32px; }
+    /* 3. the gaps — measured on 375x667, where 15px had to come out of them */
+    .smart-card { padding: 8px 12px; margin-bottom: 6px; }
+    .smart-card-head { margin-bottom: 6px; }
+    .add-pill { min-height: 30px; }
+    .cat-chip { min-height: 30px; }
+    .add-toggle .seg-btn { min-height: 34px; }
     .add-row { min-height: 44px; }
-    .chip-scroll { margin-top: 8px; }
-    .add-rows { margin-top: 6px; }
+    .chip-scroll { margin-top: 6px; }
+    .add-rows { margin-top: 4px; }
+    .keypad-grid { padding: 4px; }
     .keypad { padding-top: 4px; padding-bottom: calc(4px + var(--sab)); }
   }
+  /* Deeper again for a small screen with no notch: everything tightens, the keys stay at 44. */
   @container (max-height: 560px) {
-    .key { height: 40px; }
-    .add-amount { font-size: clamp(32px, 7dvh, 44px); }
+    .add-amount { min-height: .85em; }
+    .smart-card { padding: 8px 12px; }
+    .add-pill { min-height: 30px; }
+    .cat-chip { min-height: 30px; }
+    .chip-scroll { margin-top: 6px; }
+    .add-rows { margin-top: 4px; }
+    .keypad { padding-top: 2px; }
     .add-hint { display: none; }
-  }
-  /* Last resort for a genuinely tiny box: scroll the content column rather than clip it. Nothing
-     scrolls at any of the three target sizes with their real insets — this is the safety net. */
-  @container (max-height: 500px) {
-    #screen-add { overflow-y: auto; -webkit-overflow-scrolling: touch; }
   }
   /* Sits above the keys, so a failure can never hide below the fold. */
   .add-notice { position: absolute; left: 12px; right: 12px; bottom: 100%; margin-bottom: 6px; }
@@ -744,6 +749,17 @@
        own Cancel button under the clock or its last row under the home indicator. */
     max-height: min(88dvh, calc(100dvh - max(var(--sat), 12px) - 12px - var(--sab)));
     overflow-y: auto; -webkit-overflow-scrolling: touch;
+  }
+  /* The edit sheet wears the same clothes as the Add sheet: anchored to the bottom edge, its top never
+     above --sheet-top-gap, 28px top corners and the safe-area inset inside its own padding. Unlike the
+     Add sheet it is as tall as its content (a receipt makes it tall), so it keeps a max-height instead
+     of a fixed height, and it may scroll internally — a list of corrections is not a keypad. */
+  #txnOverlay { padding: 0; background: var(--scrim-sheet); }
+  #txnSheet {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    max-height: calc(100dvh - var(--sheet-top-gap));
+    border-radius: 28px 28px 0 0;
+    padding-bottom: calc(20px + var(--sab));
   }
   .sheet h2 { margin: 0 0 6px; font-size: 20px; }
   .sheet-note { margin: 0 0 14px; font-size: 15px; color: var(--muted); }
@@ -1072,81 +1088,6 @@
 
 
   <!-- 2. Add - a full-height sheet, opened by the raised "+" in the tab bar -->
-  <div class="overlay" id="addOverlay" aria-hidden="true">
-    <div class="sheet add-sheet" id="addSheet">
-      <div class="sheet-grab" id="addGrab" aria-hidden="true"><span></span></div>
-      <div class="sheet-head has-done">
-        <button class="btn-ghost sheet-cancel" id="closeAddBtn" type="button">Cancel</button>
-        <h2 class="sheet-title">New Transaction</h2>
-        <button class="btn-ghost sheet-done" id="saveAddBtn" type="button" disabled>Save</button>
-      </div>
-
-      <section id="screen-add">
-        <!-- Smart Entry: always visible, directly under the header, so the keyboard only ever covers
-             the lower half of a sheet that never resizes. -->
-        <div class="smart-card" id="smartEntry">
-          <div class="smart-card-head">
-            <span class="add-row-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4.2l1.7 4.6 4.6 1.7-4.6 1.7L12 16.8l-1.7-4.6-4.6-1.7 4.6-1.7L12 4.2Z"/><path d="M18.4 15.6l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2Z"/></svg>
-            </span>
-            <span class="add-row-label">Smart Entry</span>
-          </div>
-          <div class="smart-card-row">
-            <input class="add-field add-text" id="textInput" type="text" placeholder="makan tengah hari 12 ringgit"
-                   autocapitalize="sentences" enterkeyhint="done">
-            <button class="btn-primary" id="textBtn" type="button">Add</button>
-          </div>
-        </div>
-        <div class="segmented" id="addTypeToggle" role="group" aria-label="Type">
-          <button class="seg-btn is-active" type="button" data-add-type="expense">Expense</button>
-          <button class="seg-btn" type="button" data-add-type="income">Income</button>
-        </div>
-
-        <div class="add-amount" id="addAmount">RM 0.00</div>
-
-        <div class="add-pills">
-          <label class="add-pill add-pill-date" for="addDate">
-            <span id="addDateLabel">Today</span>
-            <input class="add-date-input" id="addDate" type="date" aria-label="Date">
-          </label>
-          <button class="add-pill" id="addModePill" type="button" aria-label="Switch between Personal and Business">
-            <span id="addModeLabel">Personal</span>
-          </button>
-          <button class="add-pill" id="addDetailsPill" type="button" aria-expanded="false" aria-controls="addDetails">
-            <span>Details</span>
-          </button>
-        </div>
-
-        <div class="add-details" id="addDetails">
-          <div class="add-fields">
-            <input class="add-field add-text" id="addMerchant" type="text" placeholder="Merchant"
-                   autocomplete="off" autocapitalize="words">
-            <input class="add-field add-text" id="addNote" type="text" placeholder="Note" maxlength="500"
-                   autocomplete="off">
-          </div>
-        </div>
-
-        <div class="chip-scroll" id="addChips" role="group" aria-label="Category"></div>
-
-        <!-- Scan Receipt is the one row left under the chips: Smart Entry is a fixed card at the top. -->
-        <div class="add-rows">
-          <button class="add-row" id="scanBtn" type="button" aria-busy="false">
-            <span class="add-row-icon" id="scanIcon"></span>
-            <span class="add-row-label" id="scanLabel">Scan Receipt</span>
-            <svg class="add-row-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
-          </button>
-        </div>
-
-        <p class="add-hint" id="scanHint" hidden>Photos are resized on your phone. Location data is removed.</p>
-        <input type="file" id="fileInput" accept="image/*" capture="environment" hidden>
-      </section>
-
-      <div class="keypad" id="addKeypad">
-        <div class="add-notice" id="addNotice" hidden></div>
-        <div class="keypad-grid" id="keypadGrid"></div>
-      </div>
-    </div>
-  </div>
 
   <!-- 3. Transactions -->
   <section class="screen" id="screen-transactions" hidden>
@@ -1290,6 +1231,82 @@
     </button>
   </div>
 </nav>
+
+  <div class="overlay" id="addOverlay" aria-hidden="true">
+    <div class="sheet add-sheet" id="addSheet">
+      <div class="sheet-grab" id="addGrab" aria-hidden="true"><span></span></div>
+      <div class="sheet-head has-done">
+        <button class="btn-ghost sheet-cancel" id="closeAddBtn" type="button">Cancel</button>
+        <h2 class="sheet-title">New Transaction</h2>
+        <button class="btn-ghost sheet-done" id="saveAddBtn" type="button" disabled>Save</button>
+      </div>
+
+      <section id="screen-add">
+        <!-- Smart Entry: always visible, directly under the header, so the keyboard only ever covers
+             the lower half of a sheet that never resizes. -->
+        <div class="smart-card" id="smartEntry">
+          <div class="smart-card-head">
+            <span class="add-row-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4.2l1.7 4.6 4.6 1.7-4.6 1.7L12 16.8l-1.7-4.6-4.6-1.7 4.6-1.7L12 4.2Z"/><path d="M18.4 15.6l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2Z"/></svg>
+            </span>
+            <span class="add-row-label">Smart Entry</span>
+          </div>
+          <div class="smart-card-row">
+            <input class="add-field add-text" id="textInput" type="text" placeholder="makan tengah hari 12 ringgit"
+                   autocapitalize="sentences" enterkeyhint="done">
+            <button class="btn-primary" id="textBtn" type="button">Add</button>
+          </div>
+        </div>
+        <div class="segmented" id="addTypeToggle" role="group" aria-label="Type">
+          <button class="seg-btn is-active" type="button" data-add-type="expense">Expense</button>
+          <button class="seg-btn" type="button" data-add-type="income">Income</button>
+        </div>
+
+        <div class="add-amount" id="addAmount">RM 0.00</div>
+
+        <div class="add-pills">
+          <label class="add-pill add-pill-date" for="addDate">
+            <span id="addDateLabel">Today</span>
+            <input class="add-date-input" id="addDate" type="date" aria-label="Date">
+          </label>
+          <button class="add-pill" id="addModePill" type="button" aria-label="Switch between Personal and Business">
+            <span id="addModeLabel">Personal</span>
+          </button>
+          <button class="add-pill" id="addDetailsPill" type="button" aria-expanded="false" aria-controls="addDetails">
+            <span>Details</span>
+          </button>
+        </div>
+
+        <div class="add-details" id="addDetails">
+          <div class="add-fields">
+            <input class="add-field add-text" id="addMerchant" type="text" placeholder="Merchant"
+                   autocomplete="off" autocapitalize="words">
+            <input class="add-field add-text" id="addNote" type="text" placeholder="Note" maxlength="500"
+                   autocomplete="off">
+          </div>
+        </div>
+
+        <div class="chip-scroll" id="addChips" role="group" aria-label="Category"></div>
+
+        <!-- Scan Receipt is the one row left under the chips: Smart Entry is a fixed card at the top. -->
+        <div class="add-rows">
+          <button class="add-row" id="scanBtn" type="button" aria-busy="false">
+            <span class="add-row-icon" id="scanIcon"></span>
+            <span class="add-row-label" id="scanLabel">Scan Receipt</span>
+            <svg class="add-row-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
+          </button>
+        </div>
+
+        <p class="add-hint" id="scanHint" hidden>Photos are resized on your phone. Location data is removed.</p>
+        <input type="file" id="fileInput" accept="image/*" capture="environment" hidden>
+      </section>
+
+      <div class="keypad" id="addKeypad">
+        <div class="add-notice" id="addNotice" hidden></div>
+        <div class="keypad-grid" id="keypadGrid"></div>
+      </div>
+    </div>
+  </div>
 
 <div class="overlay" id="txnOverlay" aria-hidden="true">
   <div class="sheet" id="txnSheet"></div>
@@ -1531,6 +1548,29 @@
     return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   }
 
+  // The two bottom sheets push the page behind them back a little, the way a native sheet does. Transform
+  // only, on .app (the overlays are its siblings, so nothing about their fixed positioning is affected),
+  // and it is one animation the overlay owns: the close cancels it once the app is home again.
+  var PAGE_BEHIND = "translateY(8px) scale(0.96)";
+  var PAGE_BEHIND_SHEETS = { addOverlay: true, txnOverlay: true };
+  var pageMotion = null;
+
+  function pageBehind(element, back) {
+    var app = document.querySelector(".app");
+    if (!app || !PAGE_BEHIND_SHEETS[element.id]) return;
+    if (pageMotion) { try { pageMotion.cancel(); } catch (error) { /* already finished */ } pageMotion = null; }
+    if (reducedMotion()) {
+      // No movement under Reduce Motion: the scrim alone says something is up.
+      app.style.transform = "";
+      return;
+    }
+    var current = window.getComputedStyle(app).transform;
+    var frames = back
+      ? [{ transform: current && current !== "none" ? current : "none" }, { transform: PAGE_BEHIND }]
+      : [{ transform: PAGE_BEHIND }, { transform: "none" }];
+    pageMotion = app.animate(frames, { duration: motionMs("--dur-sheet"), easing: EASE_IOS, fill: "both" });
+  }
+
   function sheetParts(element) {
     return { scrim: element, sheet: element.querySelector(".sheet") };
   }
@@ -1559,6 +1599,7 @@
       element.runningAnimations.push(parts.sheet.animate(
         [{ transform: "translateY(100%)" }, { transform: "translateY(0)" }], options));
     }
+    pageBehind(element, true);
   }
 
   // Close: animate out, wait for the animation (or a 500ms fallback) and only then hide. Cancelling
@@ -1582,9 +1623,13 @@
       element.setAttribute("aria-hidden", "true");
       element.style.opacity = "";                // whatever a drag left behind cannot outlive the close
       if (parts.sheet) parts.sheet.style.transform = "";
+      var app = document.querySelector(".app");
+      if (app && PAGE_BEHIND_SHEETS[element.id]) app.style.transform = "";
+      if (pageMotion) { try { pageMotion.cancel(); } catch (error) { /* already finished */ } pageMotion = null; }
       cancelOverlayMotion(element);
       if (after) after();
     };
+    pageBehind(element, false);
     var from = Number(fromOffset) > 0 ? Number(fromOffset) : 0;
     // The scrim may already be thinned by the drag; the fade continues from where it is.
     var scrimFrom = from ? (Number(window.getComputedStyle(element).opacity) || 1) : 1;
