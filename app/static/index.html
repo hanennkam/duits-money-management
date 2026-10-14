@@ -26,8 +26,13 @@
   if (status) status.setAttribute("content", dark ? "black-translucent" : "default");
 })();
 </script>
-<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-<link rel="icon" type="image/png" href="/logo.png">
+<!-- Icons. The ?v= is the cache buster: iOS keys its Home Screen icon on the URL, so bump the v
+     number in all four links whenever app/static/logo.png or the apple-touch-icon* files change,
+     or the phone keeps showing the old tile. -->
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=2">
+<link rel="apple-touch-icon" sizes="152x152" href="/apple-touch-icon-152x152.png?v=2">
+<link rel="apple-touch-icon" sizes="120x120" href="/apple-touch-icon-120x120.png?v=2">
+<link rel="icon" type="image/png" sizes="180x180" href="/logo.png?v=2">
 <style>
   /* Every colour in this file is a variable: the light values live here, the dark palette below
      overrides them, and [data-theme] on <html> (set before first paint) picks which applies. */

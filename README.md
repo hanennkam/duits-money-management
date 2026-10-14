@@ -18,9 +18,10 @@ app/
   db.py            # Supabase client, dedupe_hash, query/insert helpers
   models.py        # Pydantic v2 models + row/JSON shaping
   static/index.html  # the whole mobile UI: HTML + CSS + vanilla JS, served at GET /
-  static/logo.png    # the app icon: 180x180, opaque white, served at /logo.png + /apple-touch-icon.png
+  static/logo.png    # the app icon (180x180): the favicon, and the source the other sizes come from
+  static/apple-touch-icon*.png  # 180/152/120 slots iOS probes, opaque white, served publicly
 schema.sql         # transactions table, indexes, receipts bucket
-tests/             # pytest: dedupe, models, auth, extractor, endpoints, production, static (78 tests)
+tests/             # pytest: dedupe, models, auth, extractor, endpoints, production, static (83 tests)
 .env.example
 ctl.sh             # start / stop / status / restart, and whether the listener is stale
 design/            # the Stitch screens the UI was rebuilt from (screen.png + code.html + DESIGN.md)
@@ -269,10 +270,14 @@ Settings keeps the large title alone.
 
 The API key is asked for on first load and kept in `localStorage` under `apiKey`; it is never
 in the HTML or in this repo. A `401` clears it and re-prompts. Add to Home Screen works like an
-app: PWA meta tags plus `<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">`
-and `<link rel="icon" type="image/png" href="/logo.png">`, both served from the same file with no
-API key — `app/static/logo.png`, 180×180 and fully opaque (iOS paints a transparent icon's padding
-black). There is no service worker, so nothing is cached offline.
+app: PWA meta tags plus four icon links — `apple-touch-icon.png` (180), `-152x152`, `-120x120` and
+`logo.png` as the favicon — each with a `?v=` cache-buster and served publicly with
+`Cache-Control: public, max-age=600` (deliberately *not* immutable; the `?v=` is what invalidates
+iOS's Home Screen icon, which iOS keys on the URL). The files are opaque white and square — iOS
+paints an icon's transparency black and applies its own rounded mask — and `GET /` itself is
+`no-cache`, so a shortcut can never be built from stale HTML. **When the icon art changes, bump the
+`?v=` in `app/static/index.html`**, or the phone keeps showing the old tile. There is no service
+worker, so nothing is cached offline.
 
 ### Dark mode
 
@@ -501,19 +506,20 @@ pip install -r requirements-dev.txt   # requirements.txt alone is production-onl
 pytest
 ```
 
-78 tests, no network and no API key needed — Claude is monkeypatched at `extractor._call` and
+83 tests, no network and no API key needed — Claude is monkeypatched at `extractor._call` and
 the Supabase helpers at `app.db.*`: dedupe policy (receipts with a merchant dedupe; text notes
 and merchant-less receipts do not, and two text entries of the same amount on the same day both
 insert), hand-typed rows (`source = "manual"`, note kept in `raw_extraction.note`, empty category
 stored as null, defaults for a bare amount, and the `409` guard), month bounds, model
 validation/defaults/JSON shape, the auth dependency, and
-extraction parsing/retry plus the image payload, and the app icon (served under both names with no
-key, absent from the schema, and a PNG with no alpha channel at 180×180).
+extraction parsing/retry plus the image payload, and the app icon (four public URLs with the right
+`Cache-Control`, absent from the schema, versioned in the page, and each file an alpha-free PNG at
+the square size its slot expects).
 
 ### UI checks
 
 The pytest suite above covers the API only; the UI has no committed test suite yet. It is checked
-with a scratch Node harness that evals the page's `<script>` and asserts 634 things about the
+with a scratch Node harness that evals the page's `<script>` and asserts 647 things about the
 markup, the CSS and the behaviour (theme plumbing and palette, Add-sheet order, the shrink ladder,
 the icon links and the removal of the runtime canvas icon,
 that only the Details block may scroll, Save gating, keypad visibility) — plus headless-Chrome probes

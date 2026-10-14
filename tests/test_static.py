@@ -1,51 +1,86 @@
-"""The app icon: served publicly under both names browsers ask for, and safe for iOS.
+"""The app icon: served publicly at every name iOS probes, opaque, and cache-busted.
 
-The PNG is inspected with the standard library (the IHDR chunk is 13 fixed bytes) so the test
-needs no image dependency: what matters is that the file has no alpha channel — iOS paints
-transparency black on the Home Screen — and that it is the 180x180 iOS expects.
+The PNGs are inspected with the standard library (the IHDR chunk is 13 fixed bytes) so the tests
+need no image dependency: what matters is that the files carry no alpha channel — iOS paints
+transparency black on the Home Screen — that each is the square size its slot expects, and that the
+page asks for them with a version query, because iOS keys its cached Home Screen icon on the URL.
 """
 
 from __future__ import annotations
 
+import re
 import struct
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
-ICON_PATH = Path(__file__).resolve().parents[1] / "app" / "static" / "logo.png"
+STATIC_DIR = Path(__file__).resolve().parents[1] / "app" / "static"
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 ALPHA_FREE_COLOUR_TYPES = {0, 2, 3}  # greyscale, truecolour, palette — none carry an alpha channel
 
-
-def test_the_icon_is_public_under_both_names(client: TestClient) -> None:
-    logo = client.get("/logo.png")
-    touch = client.get("/apple-touch-icon.png")
-
-    for response in (logo, touch):
-        assert response.status_code == 200            # no X-API-Key: the page's own icon must load
-        assert response.headers["content-type"] == "image/png"
-        assert response.headers["X-Content-Type-Options"] == "nosniff"
-        assert response.headers["Referrer-Policy"] == "no-referrer"
-        assert response.headers.get("Cache-Control") != "no-store"   # static art may be cached
-
-    assert logo.content == touch.content              # one file, two names
-    assert logo.content == ICON_PATH.read_bytes()
+# url -> (file, pixel size) for every name iOS or Safari asks for.
+ICONS = {
+    "/apple-touch-icon.png": ("apple-touch-icon.png", 180),
+    "/apple-touch-icon-152x152.png": ("apple-touch-icon-152x152.png", 152),
+    "/apple-touch-icon-120x120.png": ("apple-touch-icon-120x120.png", 120),
+    "/logo.png": ("logo.png", 180),
+}
 
 
-def test_the_icon_is_documented_nowhere_as_api(client: TestClient) -> None:
+def test_every_icon_is_public_and_short_lived(client: TestClient) -> None:
+    for url, (_, _size) in ICONS.items():
+        response = client.get(url)                       # no X-API-Key: the page's own icons
+        assert response.status_code == 200, url
+        assert response.headers["content-type"] == "image/png", url
+        assert response.headers["X-Content-Type-Options"] == "nosniff", url
+        assert response.headers["Referrer-Policy"] == "no-referrer", url
+
+        cache = response.headers["Cache-Control"]
+        assert cache == "public, max-age=600", url        # short, never immutable
+        assert "immutable" not in cache and "no-store" not in cache, url
+
+        assert response.content == (STATIC_DIR / ICONS[url][0]).read_bytes(), url
+
+
+def test_the_icons_are_documented_nowhere_as_api(client: TestClient) -> None:
     paths = client.get("/openapi.json").json()["paths"]
-    assert "/logo.png" not in paths
-    assert "/apple-touch-icon.png" not in paths
+    assert not [path for path in ICONS if path in paths]
 
 
-def test_the_icon_file_is_opaque_and_ios_sized() -> None:
-    raw = ICON_PATH.read_bytes()
-    assert raw.startswith(PNG_SIGNATURE)
+def test_the_page_is_revalidated_not_stored_stale(client: TestClient) -> None:
+    """A shortcut added today must not be built from HTML cached weeks ago."""
+    home = client.get("/")
+    assert home.headers["Cache-Control"] == "no-cache"
+    assert "ETag" in home.headers                        # still emitted, just not turned into a 304
+
+
+@pytest.mark.parametrize(
+    "url, filename, size", [(url, name, size) for url, (name, size) in sorted(ICONS.items())]
+)
+def test_the_icon_files_are_opaque_and_square(url: str, filename: str, size: int) -> None:
+    raw = (STATIC_DIR / filename).read_bytes()
+    assert raw.startswith(PNG_SIGNATURE), url
 
     width, height, depth, colour_type = struct.unpack(">IIBB", raw[16:26])
-    assert (width, height) == (180, 180)              # the size iOS asks for
-    assert depth == 8
+    assert (width, height) == (size, size), url
+    assert width == height, f"{url} must be square so iOS rounds it, not distorts it"
+    assert depth == 8, url
     assert colour_type in ALPHA_FREE_COLOUR_TYPES, (
-        "the icon must have no alpha channel, or iOS draws the transparent parts black"
+        f"{url} must have no alpha channel, or iOS draws the transparent parts black"
     )
-    assert len(raw) < 150_000, "a 180x180 icon should not be hundreds of kilobytes"
+    assert len(raw) < 150_000, url
+
+
+def test_the_icon_links_are_versioned(client: TestClient) -> None:
+    page = client.get("/").text
+    links = re.findall(r'<link rel="(?:apple-touch-icon|icon)"[^>]*href="([^"]+)"', page)
+
+    assert len(links) == len(ICONS)
+    for href in links:
+        assert re.search(r"\?v=\d+$", href), (
+            f"{href} needs a ?v= query: iOS keys its cached Home Screen icon on the URL"
+        )
+    # and every versioned URL the page asks for is really served
+    for href in links:
+        assert client.get(href).status_code == 200, href

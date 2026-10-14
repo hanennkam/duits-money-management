@@ -36,16 +36,22 @@ Completed since the last handoff (all verified, see §3):
   applied live with no reload; System follows the phone and reacts to `prefers-color-scheme` changes.
 - **Add sheet reordered** to: header → Expense/Income → amount → pills → Details → chips →
   **Smart Entry row → Scan Receipt row** → keypad. The old side-by-side button row is gone.
-- **Real app icon.** The canvas-drawn touch icon is gone; `app/static/logo.png` (the saved 3D frosted
-  wallet) is now the one icon file, served publicly at `/logo.png` **and** `/apple-touch-icon.png`.
-  Linked from `<head>` with `apple-touch-icon`/`icon`, and shown as a 24px rounded mark beside the
-  `Duits` wordmark in the sticky top bar.
+- **Real app icon.** The canvas-drawn touch icon is gone. `app/static/logo.png` (the saved 3D frosted
+  wallet, flattened to opaque white) plus three `apple-touch-icon*` copies at 180/152/120 are served
+  publicly from four routes, linked from `<head>` with a `?v=` cache-buster, and the same artwork is
+  the 24px mark beside the `Duits` wordmark in the sticky top bar.
+- **Home Screen icon cache busted.** Re-adding the shortcut still showed the old tile: the icon had
+  **no `Cache-Control` at all** (Safari heuristic-cached it), the links had no version query (iOS keys
+  its cached icon on the URL), and `GET /` was heuristically cacheable too, so the shortcut could be
+  built from old markup. Icons now send `public, max-age=600` (never `immutable`), every icon href
+  carries `?v=2`, and `GET /` sends `no-cache`.
 
 ## 2. Changes
 
 Files touched: `app/static/index.html` (HTML + CSS + vanilla JS, no build step, served by the API at
-`GET /`), `app/main.py` (two public icon routes), `app/static/logo.png` (re-processed, see decisions),
-`tests/test_static.py` (new, 3 tests), `README.md`, and this `Handoff.md`.
+`GET /`), `app/main.py` (one `_icon()` helper + four public icon routes, and `no-cache` on `GET /`),
+`app/static/logo.png` and the three `app/static/apple-touch-icon*.png` files, `tests/test_static.py`,
+`README.md`, and this `Handoff.md`.
 
 Decisions worth knowing:
 
@@ -66,13 +72,18 @@ Decisions worth knowing:
   events. The Scan privacy hint appears only after tapping Scan Receipt.
 - **Icon**: the file the user saved had **no white background** — 1254×1254 RGBA with `alpha=0` at all
   four corners, which iOS paints black on the Home Screen. It was composited onto solid `#FFFFFF` and
-  downscaled to **180×180** (the size iOS asks for) in place: 575,869 bytes → 10,045. It is still
-  square and leaves the artwork's own padding, so iOS's rounded mask has clean white to work with.
-  `logo.png` serves both URLs (`ICON = STATIC_DIR / "logo.png"`, `FileResponse(..., media_type="image/png")`,
-  `include_in_schema=False`) rather than shipping two files; both are public like `GET /`, and the existing
-  middleware keeps adding `nosniff` + `Referrer-Policy`. The old data-URI SVG favicon and the
-  `buildAppIcon()` canvas (which had been drawing "RM" on a blue squircle from `--accent`) are deleted —
-  `getContext` remains only in the receipt downscaler.
+  downscaled to **180×180** (the size iOS asks for) in place: 575,869 bytes → 10,045. `logo.png` is now
+  the committed master; `apple-touch-icon.png` is a byte-identical copy of it, and the 152 and 120 files
+  are Lanczos downscales of it (8,117 and 5,355 bytes) — all RGB, square, corners `255,255,255`.
+  Every route is `include_in_schema=False` and public like `GET /` (public is what makes the icon load
+  for a shortcut that has no API key yet), and the middleware keeps adding `nosniff` + `Referrer-Policy`.
+  The old data-URI SVG favicon and the `buildAppIcon()` canvas (which had been drawing "RM" on a blue
+  squircle from `--accent`) are deleted — `getContext` remains only in the receipt downscaler.
+- **Cache headers**: `Cache-Control: public, max-age=600` on the four icons, `no-cache` on `GET /`.
+  Measured on the running server: `GET /` → `cache-control: no-cache` + ETag, `/apple-touch-icon.png?v=2`
+  → 200 `image/png` with `max-age=600` and the hardening headers. Note Starlette 1.7's `FileResponse`
+  emits an ETag but **does not answer `If-None-Match` with 304** (verified in-process and over HTTP), so a
+  page load re-sends all 134 KB. Accepted: freshness is what fixes the icon, and the payload is small.
 - **Brand mark**: `.brand-mark` is 24px/radius 6px with a `.5px` hairline (`--line`) so its white tile
   stays defined on the dark bar. Measured: the bar is 52px with *and* without the mark (the refresh
   button is 34px, the mark shorter), no overflow at 375 or 390 — nothing downstream can shift.
@@ -82,8 +93,11 @@ Decisions worth knowing:
 
 ## 3. Validation (all executed this session)
 
-- `pytest -q` → **78 passed** (0.25s) — the 75 existing tests plus the 3 new icon tests.
-- `/tmp/duits-ui-check.js` (Node harness that evals the extracted `<script>`) → **634 assertions pass**,
+- `pytest -q` → **83 passed** (0.31s) — the 75 original tests plus 8 in `tests/test_static.py`
+  (four icon URLs public + `image/png` + `max-age=600` + byte-identical to disk; not in the schema;
+  `GET /` `no-cache` with an ETag; each file alpha-free and square at 180/180/152/120; and every icon
+  link in the page versioned and really served).
+- `/tmp/duits-ui-check.js` (Node harness that evals the extracted `<script>`) → **647 assertions pass**,
   including: no colour literal anywhere in the stylesheet or script outside the two palette blocks and the
   two hue constants; the pre-paint script's position and `try/catch`; the exact dark palette values; the
   Add sheet order; 12/8/8px gaps and 48px rows; only `.add-details` may `overflow-y: auto`; the 44px key
@@ -99,16 +113,21 @@ Decisions worth knowing:
   invisible samples are always flagged (worst 1.1:1) — before that check it silently reported `NaN` as a
   pass. Re-run after the top-bar/icon change (Home, both themes): dark → 0 light boxes, 0 low-contrast
   (worst 4.7:1); light → only the same pre-existing items; calibration still flags 2.
-- Served app (after `./ctl.sh restart`, so the new routes are live): `GET /logo.png` and
-  `GET /apple-touch-icon.png` → **200, `image/png`, 10,045 bytes, identical, no `X-API-Key`**, with
-  `X-Content-Type-Options: nosniff` + `Referrer-Policy: no-referrer` and no `Cache-Control: no-store`;
-  `GET /` → 200 (134,181 bytes) carrying both `<link>` tags. `uvicorn` running; LAN IP **192.168.1.12**
-  (phone URL `http://192.168.1.12:8000/`; hard-refresh once if Safari cached the old page or icon).
+- Served app (after `./ctl.sh restart`, so the new routes are live): all four icons → **200, `image/png`,
+  `public, max-age=600`, no `X-API-Key`**, with `nosniff` + `Referrer-Policy` (`/logo.png` 10,045 b,
+  `apple-touch-icon.png` 10,045 b, `-152x152` 8,117 b, `-120x120` 5,355 b; the `?v=2` form serves the same
+  bytes with the same headers, and the served 180×180 is byte-identical to disk). `GET /` → 200 (134,624 b)
+  with `cache-control: no-cache` and all four versioned `<link>` tags. `uvicorn` running; LAN IP
+  **192.168.1.12** (phone URL `http://192.168.1.12:8000/`).
 - In-browser brand check (375×667 and 390×844): `mark=24x24 radius=6px loaded=180x180`, bar height 52px
   with and without the mark (`barHeightMoved=false`), `barOverflow=no`, refresh button still 34px.
 
 ## 4. Unresolved issues / risks
 
+- **iOS Home Screen icon caching cannot be verified from here** (no device). The `?v=` link is the
+  standard cure because iOS keys the cached icon on the URL, but if a phone still shows the old tile
+  after a hard refresh and a re-add, the next thing to try is deleting the shortcut, force-quitting
+  Safari, then re-adding — iOS keeps icon caches outside the page cache.
 - **`app/static/logo.png` was rewritten in place** (opaque white + 180×180). If the 1254×1254 master is
   only on the developer's machine, the high-resolution original no longer exists in the repo — keep a
   master elsewhere if it will be re-exported.

@@ -120,26 +120,55 @@ async def upstream_error_handler(_request: Request, exc: extractor.UpstreamError
 
 @app.get("/", include_in_schema=False)
 async def index() -> FileResponse:
-    """The mobile-first UI. Public, but every API call it makes needs X-API-Key."""
-    return FileResponse(STATIC_DIR / "index.html")
+    """The mobile-first UI. Public, but every API call it makes needs X-API-Key.
+
+    ``no-cache`` means revalidate, not "do not store" — and because this is the file that carries the
+    icon links, freshness is the point: a Home Screen shortcut must never be built from HTML that a
+    browser or Render's edge cached days ago. Starlette's FileResponse emits an ETag but does not
+    answer conditional requests with 304, so a load re-sends the 134 KB page. Worth it.
+    """
+    return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache"})
 
 
-# The app icon is one file, served under both names browsers ask for: iOS looks for
-# /apple-touch-icon.png when saving to the Home Screen, everything else for /logo.png.
+# The app icon: iOS probes apple-touch-icon(-120x120|-152x152).png by name, and Safari wants a plain
+# favicon, so the same artwork is served at each size those slots ask for. All four are opaque — iOS
+# paints transparency black — with square corners, because iOS applies its own rounded mask.
 # Public like the page itself; the middleware still adds nosniff and Referrer-Policy.
-ICON = STATIC_DIR / "logo.png"
+#
+# Deliberately cacheable but *not* immutable: the ?v= query in <head> is what busts iOS's Home Screen
+# icon cache (iOS keys it on the URL), and this short max-age lets a re-saved icon heal by itself.
+ICON_MAX_AGE = "public, max-age=600"
+
+
+def _icon(filename: str) -> FileResponse:
+    """An icon from app/static, publicly cacheable for a few minutes."""
+    return FileResponse(
+        STATIC_DIR / filename, media_type="image/png", headers={"Cache-Control": ICON_MAX_AGE}
+    )
 
 
 @app.get("/logo.png", include_in_schema=False)
 async def logo() -> FileResponse:
-    """The app icon, opaque and 180x180 so iOS never draws its transparency as black."""
-    return FileResponse(ICON, media_type="image/png")
+    """The app icon, used as the favicon."""
+    return _icon("logo.png")
 
 
 @app.get("/apple-touch-icon.png", include_in_schema=False)
 async def apple_touch_icon() -> FileResponse:
-    """Same icon under the name iOS asks for when the page is added to the Home Screen."""
-    return FileResponse(ICON, media_type="image/png")
+    """What iOS asks for first when the page is saved to the Home Screen (180x180)."""
+    return _icon("apple-touch-icon.png")
+
+
+@app.get("/apple-touch-icon-120x120.png", include_in_schema=False)
+async def apple_touch_icon_120() -> FileResponse:
+    """The 120x120 slot iOS probes for the Home Screen."""
+    return _icon("apple-touch-icon-120x120.png")
+
+
+@app.get("/apple-touch-icon-152x152.png", include_in_schema=False)
+async def apple_touch_icon_152() -> FileResponse:
+    """The 152x152 slot iOS probes for the Home Screen."""
+    return _icon("apple-touch-icon-152x152.png")
 
 
 @app.get("/health")
