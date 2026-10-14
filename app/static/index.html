@@ -136,6 +136,62 @@
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   [hidden] { display: none !important; }
+
+  /* ---------- iOS motion: one curve, four durations, one place to tune ----------
+     Everything below animates transform and opacity only (plus SVG stroke-dasharray for the ring),
+     so no animation can trigger layout. --move-* are the distances, which is what reduced motion
+     zeroes out: the fades stay, the movement goes. */
+  :root {
+    --ease-ios: cubic-bezier(0.32, 0.72, 0, 1);
+    --dur-sheet: 350ms;
+    --dur-page: 180ms;
+    --dur-press: 100ms;
+    --dur-toast: 250ms;
+    --move-sheet: 100%;      /* a sheet starts one full height below its resting place */
+    --move-page: 6px;
+    --move-month: 20px;
+    --move-row: 4px;
+    --move-toast: -120%;   /* the toast drops in from above the screen */
+    --press-scale: .96;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    /* No movement anywhere: only short opacity fades. The ring draw and the row stagger are
+       movement with no fade-only equivalent, so they are skipped outright (final state, no anim). */
+    :root {
+      --dur-sheet: 150ms;
+      --dur-page: 150ms;
+      --dur-press: 1ms;
+      --dur-toast: 150ms;
+      --move-sheet: 0%;
+      --move-page: 0px;
+      --move-month: 0px;
+      --move-row: 0px;
+      --move-toast: 0px;
+      --press-scale: 1;
+    }
+    .donut circle,
+    .txn,
+    .cat-fill,
+    .day-bar { animation: none !important; }
+  }
+  @keyframes fade-in { from { opacity: 0; } }
+  @keyframes fade-out { to { opacity: 0; } }
+  @keyframes sheet-in { from { transform: translateY(var(--move-sheet)); } }
+  @keyframes sheet-out { to { transform: translateY(var(--move-sheet)); } }
+  @keyframes page-in { from { opacity: 0; transform: translateY(var(--move-page)); } }
+  @keyframes month-in { from { opacity: 0; transform: translateX(var(--slide, 0px)); } }
+  @keyframes row-in { from { opacity: 0; transform: translateY(var(--move-row)); } }
+  @keyframes grow-in { from { transform: scaleX(0); } }
+  @keyframes grow-up { from { transform: scaleY(0); } }
+  @keyframes ring-in { from { stroke-dasharray: 0 var(--circ); } }
+  /* One animation for the toast's whole life: in from above, hold, fade out. The percentages are the
+     250ms in/out of --dur-toast against the 4500ms the JS keeps it for. */
+  @keyframes toast-life {
+    0% { opacity: 0; transform: translate(-50%, var(--move-toast)); }
+    6% { opacity: 1; transform: translate(-50%, 0); }
+    94% { opacity: 1; transform: translate(-50%, 0); }
+    100% { opacity: 0; transform: translate(-50%, var(--move-toast)); }
+  }
   /* Nothing may push the page sideways, and no tap may double-tap-zoom. Every tappable thing here is
      a <button> except the date pill, which is a <label> wrapping the invisible date input. */
   html, body { margin: 0; padding: 0; overflow-x: hidden; max-width: 100vw; }
@@ -175,7 +231,6 @@
     display: flex; align-items: center; justify-content: center;
   }
   .icon-btn svg { width: 18px; height: 18px; }
-  .icon-btn:active { transform: scale(.94); }
 
   /* ---------- cards ---------- */
   .card {
@@ -205,7 +260,6 @@
     position: relative; z-index: 1;          /* nothing may end up on top of the tap target */
     touch-action: manipulation;              /* no 300ms double-tap zoom wait on iOS */
   }
-  .month-pill:active { transform: scale(.97); }
   .month-pill-icon { width: 16px; height: 16px; color: var(--accent); }
   .month-pill-chev { width: 14px; height: 14px; color: var(--muted); }
 
@@ -300,9 +354,9 @@
   .cat-amount { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
   .cat-track { height: 8px; border-radius: 9999px; background: var(--card-2); overflow: hidden; margin: 0 0 14px 42px; }
   .cat-track:last-child { margin-bottom: 0; }
-  .cat-fill { height: 100%; border-radius: 9999px; transition: width .25s ease; }
+  .cat-fill { height: 100%; border-radius: 9999px; }   /* grows with scaleX, never with width */
   /* The extra categories animate open by growing a 0fr grid row, so no height maths in JS. */
-  .cat-more { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .28s ease; }
+  .cat-more { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-page) var(--ease-ios); }
   .cat-more.open { grid-template-rows: 1fr; }
   .cat-more > div { min-height: 0; overflow: hidden; }
   .cat-toggle {
@@ -310,11 +364,10 @@
     width: 100%; min-height: 40px; margin-top: 2px; padding: 0; border: 0; background: none;
     color: var(--accent); font: inherit; font-size: 15px; font-weight: 600;
   }
-  .cat-toggle:active { opacity: .6; }
-  .cat-chevron { width: 16px; height: 16px; transition: transform .25s ease; }
+  .cat-chevron { width: 16px; height: 16px; transition: transform var(--dur-page) var(--ease-ios); }
   .cat-toggle.is-open .cat-chevron { transform: rotate(180deg); }
   .bar { height: 8px; border-radius: 9999px; background: var(--card-2); overflow: hidden; }
-  .bar-fill { height: 100%; border-radius: 9999px; transition: width .25s ease; }
+  .bar-fill { height: 100%; border-radius: 9999px; }
 
   /* ---------- home: recent list ---------- */
   .section-head {
@@ -412,7 +465,6 @@
     width: 100%; min-height: 50px; border: 0; border-radius: 9999px;
     background: var(--accent); color: var(--on-accent); font: inherit; font-size: 17px; font-weight: 600;
   }
-  .btn-primary:active { transform: scale(.98); }
   .btn-primary[aria-busy="true"] { opacity: .6; }
   .btn-secondary {
     min-height: 44px; padding: 0 18px; border: 0; border-radius: 9999px;
@@ -475,18 +527,29 @@
     font: inherit; font-size: 14px; font-weight: 600; white-space: nowrap;
     display: inline-flex; align-items: center; justify-content: center; gap: 5px;
   }
-  .add-pill:active { opacity: .65; }
   .add-pill.is-on { background: var(--accent-soft); color: var(--accent); }
   /* The real picker sits invisibly over the pill, so a tap opens the native date sheet. 16px because
      iOS zooms the whole page in when a focused control is smaller, and this one is focusable. */
   .add-date-input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; border: 0; font-size: 16px; }
-  /* Merchant + Note open between the pills and the chips. If the sheet runs out of room this is the
-     one area allowed to scroll, so nothing else is ever cut off. */
+  /* Merchant + Note open between the pills and the chips. The block grows a 0fr grid row (the one way
+     to animate an expand without touching height/width) so a closed block is exactly 0 tall — no
+     leftover margin — and the inner row is the one area still allowed to scroll on a very short
+     screen. visibility flips only after the collapse has finished, so a closed block cannot be tabbed
+     into. */
   .add-details {
-    flex: 0 1 auto; min-height: 0; max-height: 132px; overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-    display: flex; gap: 8px; margin: 8px 0 0;
+    flex: 0 1 auto; display: grid; grid-template-rows: 0fr; overflow: hidden;
+    transition: grid-template-rows var(--dur-page) var(--ease-ios);
   }
+  .add-details.is-open { grid-template-rows: 1fr; }
+  .add-details > * {
+    min-height: 0; max-height: 132px; overflow: hidden auto;
+    -webkit-overflow-scrolling: touch; visibility: hidden;
+    transition: visibility 0s linear var(--dur-page);
+  }
+  .add-details.is-open > * { visibility: visible; transition-delay: 0s; }
+  /* The 8px that used to sit above the fields lives inside the clipped row, so it costs nothing shut. */
+  .add-fields { display: flex; gap: 8px; }
+  .add-fields > .add-field { margin-top: 8px; }
   .add-field {
     flex: 1; min-width: 0; min-height: 38px; padding: 0 12px;
     border: .5px solid var(--line); border-radius: 12px;
@@ -505,7 +568,6 @@
     border: .5px solid var(--line); border-radius: 9999px; background: var(--card-2);
     color: var(--text); font: inherit; font-size: 14px; font-weight: 500;
   }
-  .cat-chip:active { opacity: .7; }
   /* ---------- category hue comes in on --cat, so one markup works in either theme ---------- */
   .cat-chip.is-on { color: var(--cat); border-color: transparent; }
   .cat-dot, .legend-dot { background: var(--cat); }
@@ -519,7 +581,6 @@
     background: var(--card-2); color: var(--text); font: inherit; font-size: 15px; font-weight: 600;
     display: flex; align-items: center; gap: 10px; text-align: left;
   }
-  .add-row:active { opacity: .7; }
   .add-row.is-open { background: var(--pressed); }
   .add-row[aria-busy="true"] { opacity: .55; }
   .add-row-icon { display: inline-flex; flex: none; color: var(--accent); }
@@ -528,7 +589,7 @@
   .add-row-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .add-row-chev {
     width: 16px; height: 16px; flex: none; color: var(--chevron);
-    transition: transform .15s ease;
+    transition: transform var(--dur-page) var(--ease-ios);
   }
   .add-row.is-open .add-row-chev { transform: rotate(90deg); }   /* chevron points down when open */
   /* Smart Entry is one card: 48px header row, 12px, then the input row inside the same grey card
@@ -538,7 +599,18 @@
   .add-row-block:has(.add-row.is-open) { padding: 14px; background: var(--card-2); }
   .add-row-block:has(.add-row.is-open) > .add-row { background: transparent; padding: 0; }
   /* input flexes, button keeps its own width: at 375px the field is ~250px and nothing overflows. */
-  .smart-entry { flex: none; display: flex; gap: 10px; margin: 12px 0 0; }
+  .smart-entry {
+    display: grid; grid-template-rows: 0fr; overflow: hidden;
+    transition: grid-template-rows var(--dur-page) var(--ease-ios);
+  }
+  .smart-entry.is-open { grid-template-rows: 1fr; }
+  .smart-entry > * {
+    min-height: 0; visibility: hidden;
+    transition: visibility 0s linear var(--dur-page);
+  }
+  .smart-entry.is-open > * { visibility: visible; transition-delay: 0s; }
+  .smart-entry-row { display: flex; gap: 10px; }
+  .smart-entry-row > * { margin-top: 12px; }
   .smart-entry .add-field { flex: 1; min-width: 0; }
   .smart-entry .btn-primary {
     flex: 0 0 auto; width: auto; min-width: 64px; min-height: 38px; padding: 0 18px; font-size: 16px;
@@ -552,13 +624,6 @@
     max-height: var(--vvh); overflow-y: auto; -webkit-overflow-scrolling: touch;
   }
   #screen-add { scroll-padding-bottom: 12px; }
-  /* The card is taller than the row it replaced, so if the keyboard is dismissed while it stays open
-     (keypad back on screen) the column can run out of room at 375x667. In exactly that state the
-     column scrolls, so the Scan Receipt row stays reachable instead of hiding behind the keys.
-     Scrolling with no overflow to consume is inert, so the other states are unaffected. */
-  html:has(.add-row.is-open) #screen-add {
-    overflow-y: auto; -webkit-overflow-scrolling: touch;
-  }
   .add-hint { flex: none; margin: 8px 2px 0; font-size: 12px; line-height: 1.35; color: var(--muted); }
   /* The keys are the sheet's own footer: no scroll, no sticky needed. */
   .keypad {
@@ -606,10 +671,17 @@
   .result-meta { font-size: 13px; color: var(--muted); margin-top: 4px; }
 
   /* ---------- sheet ---------- */
+  /* Sliding in plays off the display change itself (hidden -> shown), so no JS waits on it, and it
+     does not fill forwards: the inline transform the drag handler writes keeps working afterwards. */
   .overlay {
     position: fixed; inset: 0; z-index: 20; display: flex; align-items: flex-end; justify-content: center;
     padding: 12px 12px calc(12px + env(safe-area-inset-bottom)); background: var(--scrim);
+    animation: fade-in var(--dur-sheet) var(--ease-ios);
   }
+  /* Closing is driven by .is-closing: closeOverlay() adds it, waits out the animation, then hides. */
+  .overlay.is-closing { animation: fade-out var(--dur-sheet) var(--ease-ios) forwards; }
+  .overlay > .sheet { animation: sheet-in var(--dur-sheet) var(--ease-ios); }
+  .overlay.is-closing > .sheet { animation: sheet-out var(--dur-sheet) var(--ease-ios) forwards; }
   .sheet {
     width: 100%; max-width: 640px; padding: 20px;
     background: var(--card); border-radius: var(--r-lg); box-shadow: var(--shadow-up);
@@ -758,7 +830,7 @@
   .cat-pct { width: 34px; flex: none; text-align: right; font-size: 13px; font-weight: 500; color: var(--muted); }
   .day-chart { display: flex; align-items: flex-end; gap: 3px; height: 116px; padding-top: 22px; }
   .day-col { position: relative; flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; }
-  .day-bar { width: 100%; border-radius: 4px; background: var(--bar-track); transition: height .25s ease; }
+  .day-bar { width: 100%; border-radius: 4px; background: var(--bar-track); transform-origin: bottom center; }
   .day-bar.top { background: var(--accent); }
   .day-peak {
     position: absolute; top: -17px; left: 50%; transform: translateX(-50%); white-space: nowrap;
@@ -802,6 +874,42 @@
     animation: spin .7s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+  /* ---------- motion: the pieces that need their own state ---------- */
+  /* Press feedback, identical everywhere: scale and dim, springing back on the same curve. The tab
+     bar and the raised + are deliberately excluded — they must not animate. */
+  button:not(.tab):not(.tab-add), .add-pill {
+    transition: transform var(--dur-press) var(--ease-ios), opacity var(--dur-press) var(--ease-ios);
+  }
+  button:not(.tab):not(.tab-add):active, .add-pill:active {
+    transform: scale(var(--press-scale)); opacity: .7;
+  }
+  /* One fade + 6px rise per tab switch, played off the display change itself, so a re-render never
+     restarts it. No .screen contains the tab bar or the + button. */
+  .screen:not([hidden]) { animation: page-in var(--dur-page) var(--ease-ios); }
+  /* Month change: every block on the screen slides in from the side the change came from. */
+  .screen.is-sliding > * { animation: month-in var(--dur-page) var(--ease-ios); }
+  /* Toast: one animation for its whole life — in from above, hold, fade out. */
+  .toast { animation: toast-life 4500ms var(--ease-ios) both; }
+  /* Lists: rows rise in with a 30ms stagger, first eight only (--i is capped in txnRowHtml). */
+  .is-fresh .txn { animation: row-in var(--dur-page) var(--ease-ios) both; animation-delay: calc(var(--i, 0) * 30ms); }
+  /* Bars grow from the left edge. Width stays a real layout size; only scaleX moves. */
+  .cat-fill { transform-origin: left center; }
+  .is-fresh .cat-fill { animation: grow-in 600ms var(--ease-ios) both; }
+  /* The day chart keeps its height as a layout size and grows with scaleY from the baseline. */
+  .is-fresh .day-bar { animation: grow-up 600ms var(--ease-ios) both; }
+  /* The ring draws itself clockwise from each segment's own start, staggering into a sweep. */
+  .is-fresh .donut circle:not(.donut-track) {
+    animation: ring-in 600ms var(--ease-ios) both;
+    animation-delay: calc(var(--i, 0) * 60ms);
+  }
+  /* A row that was just saved: a tinted overlay that fades out, so nothing but opacity moves. */
+  @keyframes highlight-out { from { opacity: 1; } to { opacity: 0; } }
+  .txn { position: relative; }
+  .txn.is-new::after {
+    content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    background: var(--accent-soft);
+    animation: highlight-out 800ms var(--ease-ios) both;
+  }
   .field, .chip, .btn-primary, .btn-danger, .pill { max-width: 100%; }
 </style>
 </head>
@@ -816,7 +924,7 @@
   </header>
 
     <!-- 1. Home -->
-  <section id="screen-home">
+  <section class="screen" id="screen-home">
     <!-- title + month pill + mode toggle, rendered by screenHeaderHtml() -->
     <div data-screen-header="Home"></div>
 
@@ -895,11 +1003,13 @@
           </button>
         </div>
 
-        <div class="add-details" id="addDetails" hidden>
-          <input class="add-field add-text" id="addMerchant" type="text" placeholder="Merchant"
-                 autocomplete="off" autocapitalize="words">
-          <input class="add-field add-text" id="addNote" type="text" placeholder="Note" maxlength="500"
-                 autocomplete="off">
+        <div class="add-details" id="addDetails">
+          <div class="add-fields">
+            <input class="add-field add-text" id="addMerchant" type="text" placeholder="Merchant"
+                   autocomplete="off" autocapitalize="words">
+            <input class="add-field add-text" id="addNote" type="text" placeholder="Note" maxlength="500"
+                   autocomplete="off">
+          </div>
         </div>
 
         <div class="chip-scroll" id="addChips" role="group" aria-label="Category"></div>
@@ -913,10 +1023,12 @@
               <span class="add-row-label">Smart Entry</span>
               <svg class="add-row-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
             </button>
-            <div class="smart-entry" id="smartEntry" hidden>
-              <input class="add-field add-text" id="textInput" type="text" placeholder="makan tengah hari 12 ringgit"
-                     autocapitalize="sentences" enterkeyhint="done">
-              <button class="btn-primary" id="textBtn" type="button">Add</button>
+            <div class="smart-entry" id="smartEntry">
+              <div class="smart-entry-row">
+                <input class="add-field add-text" id="textInput" type="text" placeholder="makan tengah hari 12 ringgit"
+                       autocapitalize="sentences" enterkeyhint="done">
+                <button class="btn-primary" id="textBtn" type="button">Add</button>
+              </div>
             </div>
           </div>
           <button class="add-row" id="scanBtn" type="button" aria-busy="false">
@@ -938,7 +1050,7 @@
   </div>
 
   <!-- 3. Transactions -->
-  <section id="screen-transactions" hidden>
+  <section class="screen" id="screen-transactions" hidden>
     <!-- same shared header as Home -->
     <div data-screen-header="Transactions"></div>
 
@@ -960,7 +1072,7 @@
   </section>
 
   <!-- 4. Insights: week and month are real; Year needs a range endpoint the API does not have. -->
-  <section id="screen-insights" hidden>
+  <section class="screen" id="screen-insights" hidden>
     <!-- same shared header as Home, then Insights' own period row -->
     <div data-screen-header="Insights"></div>
 
@@ -1008,7 +1120,7 @@
   </section>
 
   <!-- 5. Settings -->
-  <section id="screen-settings" hidden>
+  <section class="screen" id="screen-settings" hidden>
     <h2 class="large-title">Settings</h2>
 
     <div class="settings-section">
@@ -1265,6 +1377,66 @@
     }).join("");
   }
 
+  /* ---------- motion ---------- */
+  // Durations live in CSS so reduced motion can shorten them; read them back instead of duplicating.
+  function motionMs(name) {
+    var value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    var ms = parseFloat(value);
+    if (isNaN(ms)) return 0;
+    return value.indexOf("ms") > -1 ? ms : ms * 1000;
+  }
+
+  // Opening plays off the display change itself (see the .overlay rules). Closing has to keep the
+  // overlay on screen for the length of the exit animation, so it waits — and a second close restarts
+  // that wait rather than stacking one, so no overlay can ever be left stuck.
+  function showOverlay(element) {
+    if (!element) return;
+    clearTimeout(element.closeTimer);
+    element.classList.remove("is-closing");
+    element.hidden = false;
+  }
+
+  function closeOverlay(element, after) {
+    if (!element || element.hidden) { if (after) after(); return; }
+    element.classList.add("is-closing");
+    clearTimeout(element.closeTimer);
+    element.closeTimer = setTimeout(function () {
+      element.classList.remove("is-closing");
+      element.hidden = true;
+      if (after) after();
+    }, motionMs("--dur-sheet"));
+  }
+
+  // Content motion is for "something appeared or changed", never for a re-render or a refresh: the
+  // things that change what a screen shows call bumpContentMotion(), and every renderer in the burst
+  // that follows draws its rows/ring/bars in.
+  var motionUntil = 0;
+  var slideFrom = 1;              // +1: newer month slides in from the right, -1: older from the left
+
+  function bumpContentMotion() { motionUntil = Date.now() + 900; }
+  function contentIsFresh() { return Date.now() < motionUntil; }
+
+  // Mark a container so its rows/ring/bars animate once, then drop the mark so a re-render is silent.
+  function markFresh(node, holdMs) {
+    if (!node || !contentIsFresh() || node.classList.contains("is-fresh")) return;
+    void node.offsetWidth;                        // restart cleanly if the mark is somehow still on
+    node.classList.add("is-fresh");
+    clearTimeout(node.freshTimer);
+    node.freshTimer = setTimeout(function () { node.classList.remove("is-fresh"); }, holdMs);
+  }
+
+  // Every block of the visible screen slides in from the side the month change came from.
+  function slideScreen() {
+    if (!contentIsFresh()) return;
+    var screen = $("screen-" + state.screen);
+    if (!screen || screen.classList.contains("is-sliding")) return;
+    screen.style.setProperty("--slide", slideFrom < 0 ? "calc(-1 * var(--move-month))" : "var(--move-month)");
+    screen.classList.add("is-sliding");
+    clearTimeout(screen.slideTimer);
+    screen.slideTimer = setTimeout(function () { screen.classList.remove("is-sliding"); },
+      motionMs("--dur-page") + 40);
+  }
+
   function needsReview(row) {
     return !!(row.raw_extraction && row.raw_extraction.needs_review);
   }
@@ -1359,13 +1531,13 @@
   function askForKey(hint) {
     $("keyHint").textContent = hint;
     $("keyInput").value = "";
-    $("keyOverlay").hidden = false;
+    showOverlay($("keyOverlay"));
     setTimeout(function () { $("keyInput").focus(); }, 50);
     return new Promise(function (resolve) { keyResolver = resolve; });
   }
 
   function closeKeyDialog(value) {
-    $("keyOverlay").hidden = true;
+    closeOverlay($("keyOverlay"));
     $("keyInput").value = "";
     var resolve = keyResolver;
     keyResolver = null;
@@ -1507,6 +1679,8 @@
       '<div class="cat-split-legend">' +
       groups.map(function (group) { return legendRowHtml(group, summary.total); }).join("") +
       "</div></div>";
+    markFresh($("categoryList"), 800);
+    slideScreen();
   }
 
   // ---------- Insights keeps the full list, behind its own "show all" row ----------
@@ -1550,11 +1724,13 @@
   }
 
   // One row shape, shared by Home and the Transactions page so they cannot drift apart.
-  function txnRowHtml(row) {
+  function txnRowHtml(row, index) {
     var income = row.type === "income";
     var name = row.merchant || capitalise(row.category || "uncategorised");
     var colour = categoryColour(row.category);
-    return '<button class="txn" type="button" data-id="' + escapeHtml(row.id) + '">' +
+    // --i drives the 30ms stagger (first eight rows only); is-new lights the row that was just saved.
+    return '<button class="txn' + (row.id === highlightId ? " is-new" : "") +
+      '" type="button" style="--i:' + Math.min(index || 0, 7) + '" data-id="' + escapeHtml(row.id) + '">' +
       '<span class="txn-icon" style="--cat:' + colour + ";background:" + tint(colour) + '">' +
       categoryIcon(row.category) + "</span>" +
       '<span class="txn-main">' +
@@ -1573,7 +1749,7 @@
 
   function txnListHtml(rows) {
     return rows.map(function (row, index) {
-      return (index ? '<div class="divider"></div>' : "") + txnRowHtml(row);
+      return (index ? '<div class="divider"></div>' : "") + txnRowHtml(row, index);
     }).join("");
   }
 
@@ -1597,6 +1773,8 @@
     }
     // Home is a glance at the newest few; the rest of the month is behind "See All".
     $("txnList").innerHTML = txnListHtml(visible.slice(0, HOME_LIST_ROWS));
+    markFresh($("txnList"), 700);
+    slideScreen();
   }
 
   /* ---------- transactions page ---------- */
@@ -1644,6 +1822,8 @@
         (net > 0 ? "+" : net < 0 ? "\u2212" : "") + escapeHtml(money(net)) + "</span></div>" +
         '<div class="list-card">' + txnListHtml(group.rows) + "</div></div>";
     }).join("");
+    markFresh($("txnGroups"), 700);
+    slideScreen();
   }
 
   async function loadTransactions() {
@@ -1831,12 +2011,12 @@
   }
 
   function openMonthSheet() {
-    $("monthOverlay").hidden = false;   // unhide first: the columns need layout before scrolling
+    showOverlay($("monthOverlay"));   // shown first: the columns need layout before scrolling
     buildWheel();
   }
 
   function closeMonthSheet() {
-    $("monthOverlay").hidden = true;    // Cancel, a tap outside, or a drag down: no changes
+    closeOverlay($("monthOverlay"));    // Cancel, a tap outside, or a drag down: no changes
   }
 
   // Done applies the choice, and clamps again: a future month can never reach the shared state.
@@ -1855,7 +2035,9 @@
   }
 
   function setMonth(month) {
+    slideFrom = month < state.month ? -1 : 1;   // older month comes in from the left, newer from the right
     state.month = month;
+    bumpContentMotion();
     paintMonth();
     reloadScreen();
   }
@@ -1921,6 +2103,10 @@
 
   // A new row can belong to a month the screen is not showing: follow it there, else refresh in place.
   function afterAdd(transaction, savedMessage) {
+    highlightId = transaction.id || null;      // the row that lights up in the list below
+    clearTimeout(highlightTimer);
+    highlightTimer = setTimeout(function () { highlightId = null; }, 1200);
+    bumpContentMotion();
     var month = String(transaction.txn_date || "").slice(0, 7); // "2026-05"
     if (month && month !== state.month) {
       setMonth(month);                 // moves Home, Transactions and Insights together
@@ -1942,6 +2128,8 @@
     'stroke-linecap="round" stroke-linejoin="round"><path d="M12 4.2l1.7 4.6 4.6 1.7-4.6 1.7L12 16.8l-1.7-4.6' +
     '-4.6-1.7 4.6-1.7L12 4.2Z"/><path d="M18.4 15.6l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2Z"/></svg>';
 
+  var highlightId = null;    // the row to flash after a save, cleared once the flash has played
+  var highlightTimer = null;
   var addAmount = "";        // what the keypad has typed: digits and at most one "."
   var addCategory = null;    // null until a chip is tapped; tapping it again clears it
   var addType = "expense";
@@ -2096,8 +2284,8 @@
 
   // Details holds Merchant and Note: collapsed until the pill is tapped.
   function toggleAddDetails() {
-    var open = $("addDetails").hidden;
-    $("addDetails").hidden = !open;
+    var open = !$("addDetails").classList.contains("is-open");   // about to open?
+    $("addDetails").classList.toggle("is-open", open);
     $("addDetailsPill").setAttribute("aria-expanded", open ? "true" : "false");
     $("addDetailsPill").classList.toggle("is-on", open);
     if (open && $("addMerchant").focus) $("addMerchant").focus();
@@ -2105,8 +2293,8 @@
   }
 
   function toggleSmartEntry() {
-    var open = $("smartEntry").hidden; // about to open?
-    $("smartEntry").hidden = !open;
+    var open = !$("smartEntry").classList.contains("is-open");   // about to open?
+    $("smartEntry").classList.toggle("is-open", open);
     $("smartRow").setAttribute("aria-expanded", open ? "true" : "false");
     $("smartRow").classList.toggle("is-open", open);
     if (open && $("textInput").focus) $("textInput").focus();
@@ -2171,15 +2359,15 @@
   }
 
   function closeSheet() {
-    $("txnOverlay").hidden = true;
-    $("txnSheet").innerHTML = "";
+    // Emptied only once the slide-out has finished, or the sheet would leave the screen blank.
+    closeOverlay($("txnOverlay"), function () { $("txnSheet").innerHTML = ""; });
     sheetRow = null;
   }
 
   function openSheet(row) {
     sheetRow = row;
     $("txnSheet").innerHTML = sheetView(row);
-    $("txnOverlay").hidden = false;
+    showOverlay($("txnOverlay"));
     loadReceipt(row);
   }
 
@@ -2304,6 +2492,7 @@
     try {
       await api("/transactions/" + encodeURIComponent(row.id), { method: "DELETE" });
       closeSheet();
+      bumpContentMotion();
       await reloadScreen();
       toast("Deleted.");
     } catch (error) {
@@ -2513,12 +2702,13 @@
     var gap = opts.gap || 0;
     var circumference = 2 * Math.PI * radius;
     var offset = 0;
-    var arcs = entries.map(function (entry) {
+    var arcs = entries.map(function (entry, index) {
       var arc = total > 0 ? (entry.total / total) * circumference : 0;
       // A round cap paints width/2 past each end of the dash, so ask for the gap plus that back.
       var dash = gap ? Math.max(arc - gap - ring, 0.5) : arc;
       var segment = '<circle cx="80" cy="80" r="' + radius + '" fill="none" style="--cat:' +
-        categoryColour(entry.name) + ';stroke:var(--cat)" stroke-width="' + ring + '" stroke-dasharray="' +
+        categoryColour(entry.name) + ';--i:' + index + ';stroke:var(--cat)" stroke-width="' + ring +
+        '" stroke-dasharray="' +
         dash.toFixed(2) + " " + (circumference - dash).toFixed(2) + '" stroke-dashoffset="' +
         (-offset).toFixed(2) + '"' + (gap ? ' stroke-linecap="round"' : "") + "></circle>";
       offset += arc;
@@ -2528,8 +2718,10 @@
     // than Insights' three smaller lines; both blocks stay centred in the ring.
     var capY = 72;
     var totalY = opts.note ? 93 : 100;
+    // --circ is what the draw-on animation grows the dash out from (see @keyframes ring-in).
     return '<svg class="donut' + (opts.small ? " donut-sm" : "") +
-      '" viewBox="0 0 160 160" role="img" aria-label="Spending by category">' +
+      '" viewBox="0 0 160 160" style="--circ:' + circumference.toFixed(2) + '" role="img" ' +
+      'aria-label="Spending by category">' +
       '<circle class="donut-track" cx="80" cy="80" r="' + radius +
       '" fill="none" stroke-width="' + ring + '"></circle>' + arcs +
       '<text class="donut-cap" x="80" y="' + capY + '" text-anchor="middle">' +
@@ -2698,6 +2890,9 @@
           insightCategoryList(rest, total) + "</div></div>" +
           categoryToggleHtml(CATEGORY_IDS.insights, insightCategoryToggleLabel(), state.insightCatsExpanded)
         : "");
+    markFresh($("insightDonut"), 800);
+    markFresh($("insightCats"), 800);
+    slideScreen();
   }
 
   function renderInsights(plan, rows, previousRows) {
@@ -2711,6 +2906,8 @@
     $("insightDays").innerHTML = total > 0
       ? barChartHtml(periodBuckets(plan, summary.spent))
       : '<div class="empty">No spending in this ' + periodNoun(plan) + " yet.</div>";
+    markFresh($("insightDays"), 700);
+    slideScreen();
     renderInsightComparison(plan, total, previousRows);
     renderInsightCategories(plan, total, summary.byCategory, summary.count);
     renderInsightHighlights(plan, summary.byDay, summary.byCategory);
@@ -2725,6 +2922,7 @@
 
   function setPeriod(period) {
     state.period = period === "week" ? "week" : "month";
+    bumpContentMotion();
     Array.prototype.forEach.call(document.querySelectorAll(".seg-btn[data-period]"), function (button) {
       button.classList.toggle("is-active", button.dataset.period === state.period);
     });
@@ -2780,9 +2978,9 @@
     $("addMerchant").value = "";
     $("addNote").value = "";
     $("textInput").value = "";
-    $("smartEntry").hidden = true;
+    $("smartEntry").classList.remove("is-open");
     $("smartRow").setAttribute("aria-expanded", "false");
-    $("addDetails").hidden = true;    // Merchant and Note start collapsed
+    $("addDetails").classList.remove("is-open");   // Merchant and Note start collapsed
     $("addDetailsPill").setAttribute("aria-expanded", "false");
     $("addDetailsPill").classList.remove("is-on");
     $("scanHint").hidden = true;      // the privacy note only appears with Scan Receipt
@@ -2800,11 +2998,11 @@
     $("screen-add").hidden = false;
     $("addSheet").style.transform = "";
     $("addSheet").scrollTop = 0;
-    $("addOverlay").hidden = false;
+    showOverlay($("addOverlay"));
   }
 
   function closeAddSheet() {
-    $("addOverlay").hidden = true;
+    closeOverlay($("addOverlay"));
     $("addSheet").style.transform = "";
     if ($("textInput").blur) $("textInput").blur();
   }
@@ -2830,6 +3028,7 @@
 
   function setMode(mode) {
     state.mode = mode === "business" ? "business" : "personal";
+    bumpContentMotion();
     Array.prototype.forEach.call(document.querySelectorAll(".seg-btn[data-mode]"), function (button) {
       button.classList.toggle("is-active", button.dataset.mode === state.mode);
     });
@@ -2837,6 +3036,7 @@
 
   function setFilter(filter) {
     state.filter = filter === "income" || filter === "expense" ? filter : "all";
+    bumpContentMotion();
     Array.prototype.forEach.call(document.querySelectorAll(".seg-btn[data-filter]"), function (button) {
       button.classList.toggle("is-active", button.dataset.filter === state.filter);
     });
@@ -2865,9 +3065,12 @@
       if (startY === null) return;
       var offset = Math.max(0, event.clientY - startY);
       startY = null;
-      sheet.style.transition = "transform .2s ease";
+      if (offset > 80) {
+        onDismiss();                 // the close animation carries it down from where the finger let go
+        return;
+      }
+      sheet.style.transition = "transform var(--dur-press) var(--ease-ios)";
       sheet.style.transform = "";
-      if (offset > 80) onDismiss();
     }
     handle.addEventListener("pointerup", release);
     handle.addEventListener("pointercancel", release);
@@ -2914,6 +3117,7 @@
     wireSheetDrag("wheelSheet", "monthGrab", closeMonthSheet);   // drag down = cancel, no changes
     $("reviewChip").addEventListener("click", function () {
       state.reviewOnly = !state.reviewOnly;
+      bumpContentMotion();          // the list really did change shape
       renderTransactions(state.rows);
     });
     $("seeAllBtn").addEventListener("click", function () { showScreen("transactions"); });
@@ -2989,6 +3193,7 @@
   }
 
   async function start() {
+    bumpContentMotion();            // first paint of a screen is an appearance, so it animates
     renderScreenHeaders(); // before wire(), so the shared pills exist to bind and paint
     wire();
     setMode("personal");

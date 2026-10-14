@@ -45,6 +45,11 @@ Completed since the last handoff (all verified, see §3):
   its cached icon on the URL), and `GET /` was heuristically cacheable too, so the shortcut could be
   built from old markup. Icons now send `public, max-age=600` (never `immutable`), every icon href
   carries `?v=2`, and `GET /` sends `no-cache`.
+- **iOS motion pass.** Every animation now runs on `transform`/`opacity` only (plus the ring's
+  `stroke-dasharray`) on one curve (`cubic-bezier(0.32, 0.72, 0, 1)`) with four durations in `:root`
+  (sheet 350, page 180, press 100, toast 250). Two real defects were found while doing it: the day
+  chart was animating **height** and the category bars **width** (layout properties), and the collapsed
+  Details/Smart Entry blocks were leaking 8px/12px of padding into the layout.
 - **iOS zoom + Smart Entry row.** The "field and Add button cut off on the right" was not a layout bug:
   the Smart Entry input was **15px**, and iOS zooms the whole page in when a focused control is under
   16px, which is what pushed the right-hand edge off screen. Measured first: `overflow=0` on every
@@ -53,7 +58,8 @@ Completed since the last handoff (all verified, see §3):
 
 ## 2. Changes
 
-Files touched (this task: `app/static/index.html` and the docs only — no backend, no API):
+Files touched (both of the last two tasks: `app/static/index.html` and the docs only — no backend,
+no API, no test file):
 `app/static/index.html` (HTML + CSS + vanilla JS, no build step, served by the API at
 `GET /`), `app/main.py` (one `_icon()` helper + four public icon routes, and `no-cache` on `GET /`),
 `app/static/logo.png` and the three `app/static/apple-touch-icon*.png` files, `tests/test_static.py`,
@@ -98,6 +104,22 @@ Decisions worth knowing:
 - **Brand mark**: `.brand-mark` is 24px/radius 6px with a `.5px` hairline (`--line`) so its white tile
   stays defined on the dark bar. Measured: the bar is 52px with *and* without the mark (the refresh
   button is 34px, the mark shorter), no overflow at 375 or 390 — nothing downstream can shift.
+- **Motion**: the tokens (`--ease-ios`, `--dur-sheet/page/press/toast`, `--move-sheet/page/month/row/toast`,
+  `--press-scale`) live in one `:root` block beside the palette, and `prefers-reduced-motion: reduce`
+  overrides the same block (durations 150ms, every `--move-*` zero, `--press-scale: 1`) plus switches
+  off the three pieces that are movement without a fade-only equivalent (ring draw, bar grows, row
+  stagger). The entrance of a sheet rides the display change (no JS), the exit is `.is-closing` + a
+  `closeOverlay()` timer whose length is read from CSS via `motionMs()` — so reduced motion also
+  shortens the *wait*, and the timer is stored on the element so a second close restarts it instead
+  of stacking (nothing can be stuck). `button:not(.tab):not(.tab-add), .add-pill` is the one press
+  rule; the tab bar and the `+` are excluded by the task's wording. `.screen` wrappers give the page
+  fade without touching the tab bar. `bumpContentMotion()` opens a 900ms window and `markFresh()`
+  guards every row/ring/bar animation, so a re-render or a refresh is silent (verified: a refresh
+  leaves `freshMarks=0`). The day chart now grows with `scaleY` and the category bars with `scaleX`
+  (`transition: height`/`width` are gone), and the collapsed expanders are 0-tall grid rows with
+  their spacing as a margin on the clipped content — padding on the clipped box was the 8px/12px leak.
+  The old `html:has(.add-row.is-open) #screen-add` scroll escape was removed: with the leak fixed no
+  state overflows at 375×667 any more.
 - **iOS touch/zoom rules**: a **16px floor on every control a finger can focus** (`.add-field`,
   `.search-field input`, and the invisible `font-size: 16px` date input — `.field` inherits the 17px
   body), `maximum-scale=1` in the viewport meta (belt, not braces: iOS has ignored it for pinch since
@@ -121,7 +143,7 @@ Decisions worth knowing:
   (four icon URLs public + `image/png` + `max-age=600` + byte-identical to disk; not in the schema;
   `GET /` `no-cache` with an ETag; each file alpha-free and square at 180/180/152/120; and every icon
   link in the page versioned and really served).
-- `/tmp/duits-ui-check.js` (Node harness that evals the extracted `<script>`) → **671 assertions pass**,
+- `/tmp/duits-ui-check.js` (Node harness that evals the extracted `<script>`) → **722 assertions pass**,
   including: no colour literal anywhere in the stylesheet or script outside the two palette blocks and the
   two hue constants; the pre-paint script's position and `try/catch`; the exact dark palette values; the
   Add sheet order; 12/8/12px gaps and 48px rows; the four states that may scroll (`.add-details`, the
@@ -129,10 +151,10 @@ Decisions worth knowing:
   derivations (amount still 56px at 667, keys still 48px at 667); the 16px floor on every focusable
   control; `touch-action: manipulation`; and that `revealFocusedField()` scrolls and never zooms.
 - Real-browser fit probe (iframe = exact viewport) at **375×667** and **390×844**, five states each:
-  `orderOk=true`, `sheetScroll=false`, clipped elements `[]`, amount 56px, gaps 12/8/12, rows 48/48, keys
-  48/48 (667) and 56/56 (844), keypad bottom == sheet bottom, Save disabled at RM 0.00 and enabled at
-  RM 12.50. Nothing is clipped in any state; the one state with overflow is the Smart Entry card open
-  with the keyboard dismissed at 667, and there the column scrolls (`contentClips=false`).
+  `orderOk=true`, `sheetScroll=false`, clipped elements `[]`, amount 56px, gaps 12/8/12 in every state,
+  rows 48/48, keys 48/48 (667) and 56/56 (844), keypad bottom == sheet bottom, Save disabled at
+  RM 0.00 and enabled at RM 12.50. No state overflows or clips any more, so the Smart Entry scroll
+  escape (and the `:has()` rule behind it) is gone.
 - Touch probe at 375×667 (screens + sheet states): `overflow=0` and nothing crossing the viewport edge
   except the category chips, which scroll horizontally by design. Computed control fonts: `addDate 16,
   addMerchant 16, addNote 16, textInput 16, txnSearch 16, keyInput 17` (the only sub-16 is the hidden
@@ -153,6 +175,24 @@ Decisions worth knowing:
   (worst 4.7:1); light → only the same pre-existing items; calibration still flags 2. Re-run again
   after the Smart Entry card change (all 17 states): dark → 0/0 in every Add-sheet state (worst 3.6:1),
   light → the same six pre-existing 2.9:1 `#8E8E93` items, no new ones.
+- Real-time animation measurement over CDP (real Chrome, real timers — `--virtual-time-budget`
+  **freezes the animation timeline**, so it cannot be used for any of this): Add sheet
+  `translateY(381px) @60ms → 26px @200ms → none @600ms`, scrim `0.43 → 1`, resting `height=667
+  bottom=667`; exit `class='overlay is-closing' @60ms` then `hidden=true transform=none class=overlay`;
+  page fade `translateY(1.07px) opacity=0.82 @50ms → none/1 @350ms` with `tabbar=none plus=none`
+  throughout; ring dash `0 → 52.8 → 127.7 → 128.25 of 402.12`; category bar `scaleX 0 → 0.41 → 0.996
+  → 1`; day bar `scaleY 0 → 0.64 → 0.998 → 1`; toast `translateY(-49px) opacity=0 → 0/1` then
+  `opacity=0.03 @4.4s` and `hidden` after; save highlight `::after opacity 0.84 → 0.03 → 0` over 800ms
+  on `rgba(10,132,255,0.18)`; a real mouse press scales a key/chip/row to `matrix(0.96, …)` with
+  `opacity=0.7`, back to `none`/`1` on release.
+- Ten fast open/close pairs (synchronous, then one settle): `openAnimated=10/10 exitAnimated=10/10`,
+  `is-closing` set on every close, never a stray visible-not-closing overlay, and after settling:
+  `overlays=none closing=0 hidden=true transform=none overflow=0 scrollY=0`. Six fast tab switches:
+  six page animations, `tabbar`/`+` never animated, one visible screen, nothing stuck.
+- `--force-prefers-reduced-motion`: tokens read `dur-sheet=150ms move-sheet=0% move-page=0px
+  move-month=0px move-toast=0px press-scale=1`; the sheet stays at `matrix(1,0,0,1,0,0)` while the
+  scrim still fades, the page fades without moving, the ring/bars are `animation=none` at their final
+  values, and the close still waits exactly 150ms.
 - Served app (after `./ctl.sh restart`, so the new routes are live): all four icons → **200, `image/png`,
   `public, max-age=600`, no `X-API-Key`**, with `nosniff` + `Referrer-Policy` (`/logo.png` 10,045 b,
   `apple-touch-icon.png` 10,045 b, `-152x152` 8,117 b, `-120x120` 5,355 b; the `?v=2` form serves the same
@@ -164,6 +204,12 @@ Decisions worth knowing:
 
 ## 4. Unresolved issues / risks
 
+- **Real-device motion is unverified beyond timing and geometry**: 60fps on an iPhone, whether the
+  curve *feels* right, iOS's own Reduce Motion setting, and whether the sheet animation stays in step
+  with the keyboard's own slide are all untested here (Chrome on this Mac, headless, at 375×667).
+- **The 900ms freshness window is a heuristic**: a content change opens it, so a re-render that
+  happens *within* 900ms of a month/filter change animates a second time, and a change that lands
+  later than 900ms after the bump (a slow fetch) animates nothing. Neither has been seen in practice.
 - **iOS Home Screen icon caching cannot be verified from here** (no device). The `?v=` link is the
   standard cure because iOS keys the cached icon on the URL, but if a phone still shows the old tile
   after a hard refresh and a re-add, the next thing to try is deleting the shortcut, force-quitting
@@ -212,6 +258,11 @@ Decisions worth knowing:
 
 ## 6. Instructions for the orchestrator — settle these before more UI work
 
+- **Is excluding the tab bar and the `+` from press feedback right?** The task said they must not
+  animate during a tab switch, and that is honoured; the press scale was also left off them to stay
+  literal. Say the word and they get the same 0.96 spring as every other button.
+- **Toast percentages are tied to its 4.5s life** (`6% / 94%` in `toast-life` against the JS timeout).
+  If the toast timeout ever changes, that keyframe needs the same edit — worth a shared constant?
 - **`:has()` is now load-bearing for two rules** (`html:has(.add-row.is-open) #screen-add` and the Smart
   Entry card). It needs Safari 15.4+ / iOS 15.4+; on anything older the field still works, it just does
   not get the shared card or the scroll escape. Is iOS 15.4 an acceptable floor, or should the card get

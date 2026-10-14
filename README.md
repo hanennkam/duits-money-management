@@ -240,11 +240,11 @@ Settings keeps the large title alone.
   - When height runs short the layout gives way in a fixed order, never by scrolling: first the amount
     font (`clamp(40px, 8.8vh, 56px)`, so it only starts shrinking below ~636px of height and stops at
     40px), then the key height (48px → 44px below 620px). As a last resort, below 660px, the content
-    column itself may scroll so nothing ever paints over the pinned keys. One further state scrolls by
-    design: the Smart Entry card is 32px taller than the row it replaced, so if the keyboard is
-    dismissed while the card stays open (keypad back on screen) the column scrolls at 375×667 rather
-    than hiding the Scan Receipt row behind the keys. Everywhere else the two target sizes are clear:
-    at 375×667 and 390×844 the number is 56px, the keys 48/56px and nothing else scrolls.
+    column itself may scroll so nothing ever paints over the pinned keys. The two target sizes are
+    clear of all of it: at 375×667 and 390×844 the number is 56px, the keys 48/56px, gaps 12/8/12 and
+    nothing scrolls or clips in any state, because the collapsed Details and Smart Entry blocks are
+    0 tall exactly (a 0fr grid row with the spacing inside the clip — padding on the clipped box would
+    have kept 8px).
   - One row of three small pills: the **date** (`Today` / `Yesterday` / `12 Oct`, an
     invisible native `<input type="date">` over the pill opens the real picker, and nothing past today is
     accepted), **Personal/Business** (tap to toggle) and **Details**.
@@ -308,6 +308,45 @@ Safari's own gestures are kept out of the way, because each one breaks the sheet
   visible strip (`--vvh`) and scrolls the field the remaining few pixels into view — scroll only, never
   a transform or a zoom. Both listeners (`resize`, `scroll`) and the attribute are torn down again when
   the keyboard closes, so the sheet behaves exactly as before with no keyboard.
+
+### Motion
+
+Everything animates **transform and opacity only** (plus SVG `stroke-dasharray` for the ring), so no
+animation can trigger layout on a phone. One curve, four durations, all in `:root` next to the
+palette: `--ease-ios: cubic-bezier(0.32, 0.72, 0, 1)`, with `--dur-sheet: 350ms`, `--dur-page: 180ms`,
+`--dur-press: 100ms` and `--dur-toast: 250ms`. No animation library, no JS tweening.
+
+- **Sheets** (Add, edit, month picker, key dialog) slide up from `translateY(100%)` while the scrim
+  fades in: the entrance plays off the display change itself (`.overlay` / `.overlay > .sheet`), so
+  nothing has to be added by hand and a re-render cannot restart it. The exit runs behind
+  `.is-closing`, which `closeOverlay()` adds and then clears with the element hidden one
+  `motionMs("--dur-sheet")` later — read from CSS, so reduced motion shortens the wait too, and a
+  second close restarts that one timer rather than stacking another (no overlay can be left stuck).
+  The entrance deliberately does *not* fill forwards, or the inline transform a drag writes could not
+  win afterwards. Dragging the handle past 80px hands off to the same exit animation.
+- **Presses**: one shared rule — `button:not(.tab):not(.tab-add), .add-pill` scale to
+  `var(--press-scale)` (0.96) and dim to 0.7 while held, springing back on release. The tab bar and
+  the raised `+` are excluded on purpose; the date pill's hit target is the invisible native input
+  above it, so it does not scale.
+- **Pages**: a switch fades the incoming screen in with a 6px rise. The `.screen` wrappers contain
+  neither the tab bar nor `+`, so those never move.
+- **Month change**: `setMonth()` records the direction (older from the left, newer from the right) and
+  marks the content fresh; the visible screen's blocks slide 20px and fade in.
+- **Toast**: one `toast-life` animation covers its whole 4.5s life — in from above, hold, fade out —
+  so the fade needs no second timer.
+- **Ring, bars and rows**: the ring draws each segment from a zero-length dash to its own
+  `stroke-dasharray` (600ms, staggered 60ms per segment, clockwise); category bars grow with
+  `scaleX`, the day chart with `scaleY` (its `height` stays a layout size — the old `transition:
+  height` is gone); rows rise in with a 30ms stagger, first eight only (`--i` is capped in
+  `txnRowHtml`).
+- **Save**: the new row gets `is-new`, a tinted `::after` overlay that fades out over 800ms.
+- **Only when something changes**: `bumpContentMotion()` opens a 900ms window and every renderer in
+  that burst draws its rows/ring/bars in (`markFresh`), then drops the mark. Month, mode, filter,
+  period, a save, a delete and the first boot bump it; a plain refresh or re-render does not, so the
+  page never flickers.
+- **Reduced motion**: `prefers-reduced-motion: reduce` zeroes the `--move-*` distances (fades stay, at
+  150ms) and sets `--press-scale: 1`, and the three "movement with no fade-only equivalent" pieces —
+  the ring draw, the bar grows and the row stagger — are switched off entirely.
 
 ### Dark mode
 
@@ -518,7 +557,9 @@ Safari. Both write the same rows.
   `revealFocusedField()` (the keyboard can only be simulated there — `visualViewport` is faked),
   whether iOS honours `maximum-scale=1`, a double tap on the keypad, the native date picker raised
   from inside the sheet, actual `env(safe-area-inset-*)` values, and a receipt scan end to end
-  (camera → HEIC → upload).
+  (camera → HEIC → upload). The animations are the same story: their timing, travel and resting
+  state are measured in Chrome, but 60fps on a real iPhone, the *feel* of the curve, iOS's own
+  reduced-motion setting and the keyboard's own animation staying in step are not.
 - **No `Year` segment in Insights** — the API has no range query (see the Insights bullet above); it
   needs a `?from=&to=` endpoint before a year can be honest.
 - **`.env.example` does not list `CLAUDE_FALLBACK_MODEL`**, although `config.py` defaults it to
@@ -553,14 +594,19 @@ the square size its slot expects).
 ### UI checks
 
 The pytest suite above covers the API only; the UI has no committed test suite yet. It is checked
-with a scratch Node harness that evals the page's `<script>` and asserts 671 things about the
+with a scratch Node harness that evals the page's `<script>` and asserts 722 things about the
 markup, the CSS and the behaviour (theme plumbing and palette, Add-sheet order, the shrink ladder,
 the icon links and the removal of the runtime canvas icon, the iOS touch rules — a 16px floor on
-controls, `touch-action: manipulation`, the keyboard reveal — which areas may scroll, Save gating,
-keypad visibility) — plus headless-Chrome probes
+controls, `touch-action: manipulation`, the keyboard reveal — the motion tokens and every animation
+declaration, which areas may scroll, Save gating, keypad visibility) — plus headless-Chrome probes
 and screenshots at 375×667 and 390×844 in both themes. Those probes report the computed font size of
 every focusable control, the computed `touch-action` per element, any element crossing the viewport
 edge, the Smart Entry card geometry, and a simulated keyboard (a faked `visualViewport` shrinking to
 380px) to prove the field is scrolled into view — and that closing it restores the layout exactly.
-That harness lives outside the repo today;
+Animation is measured over CDP in a real Chrome on real timers (a sheet travels 381px → 26px → rest
+with the scrim fading 0 → 1; the ring's dash grows 0 → 81.6 → 128.25 of its 402.12 circumference; a
+real mouse press scales a key to 0.96 and dims it to 0.7; ten fast open/close pairs leave no stuck
+overlay), and again with `--force-prefers-reduced-motion` to prove no movement survives. Note that
+headless `--virtual-time-budget` freezes the animation timeline, so it cannot be used for any of
+this. That harness lives outside the repo today;
 moving it in (e.g. `tools/`) is the first item in `Handoff.md`.
