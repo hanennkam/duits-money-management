@@ -25,6 +25,35 @@ SETTINGS, ADD NEW TRANSACTION). **All five screens are built and in use.**
 
 Completed since the last handoff (all verified, see §3):
 
+- **A closing sheet went see-through. Root cause: the scrim *was* the overlay.** `sheetParts()`
+  returned `{ scrim: element }`, so `openOverlay`/`closeOverlay` animated `opacity` on the overlay
+  itself — and an opacity on an ancestor is a *group* opacity, so it faded the `.sheet` inside it.
+  The closed state did the same thing (`.overlay { opacity: 0 }`). The drag had a third copy of the
+  bug: it set `overlay.style.opacity` while following the finger.
+  - **The dim is now its own layer**: `<div class="scrim">` as the first child of all four overlays,
+    `position: absolute; inset: 0`, painted under the sheet, `opacity: 0` when closed / `1` when
+    `.open` (the state that holds between animations, e.g. after a cancelled drag spring). Colours:
+    `--scrim` for the key dialog and the month wheel, `--scrim-sheet` for the two bottom sheets.
+    `sheetParts()` now returns that child, so every `.animate()` call targets it and the sheet is
+    never in an animated opacity's subtree.
+  - **No opacity on `.overlay` at all**, open or closed. The closed state is now exactly
+    `translateY(100%)` (the `.overlay > .sheet` rest transform) + `visibility: hidden` +
+    `pointer-events: none`.
+  - The sheet animates **transform only**: `translateY(100%) → 0` on open, `translateY(from) → 100%`
+    on close (and `translateY(dy)` while dragging). The scrim fades 1 → 0 in the same duration.
+  - The drag's inline dim is written to the scrim (`scrim.style.opacity`), `clearInline` clears that,
+    and `closeOverlay`'s drag hand-off reads the scrim's computed opacity for its `scrimFrom`.
+  - The scrim is a child now, so the three "tap outside" handlers changed from `event.target === this`
+    to `!event.target.closest('.sheet')` (also accepting a tap on the scrim itself).
+  - **Content fades while moving**: the press feedback is a scale *and* a dim, so a tap on Cancel left
+    that button fading for 100ms of the close. `markMoving(sheet, on)` toggles `.sheet.is-moving`,
+    whose rule drops `opacity` from the transition list (`transition-property: transform`), which stops
+    any in-flight fade and leaves the scale. Set on open, on a drag claim, and on close; cleared when
+    the close lands or the finger lets go.
+  - Bottom padding for the story: the "backdrop" question — during a close the page behind reports
+    `appOpacity=1`, `barOpacity=1`, a static `backdrop-filter: blur(20px)` and no running animations,
+    so the scale/blur is transform-only and there is nothing to ghost.
+
 - **The Add and edit sheets are bottom sheets now, not full-screen pages.** One knob for the top edge,
   `--sheet-top-gap: max(var(--sat) + 12px, 10dvh)` at `:root`; `#addSheet` is
   `position: fixed; left/right/bottom: 0` with `height: calc(100dvh - var(--sheet-top-gap))`,
@@ -332,7 +361,40 @@ Decisions worth knowing:
 
 ## 3. Validation (all executed this session)
 
-**This session — bottom sheets (all re-run after the final edit):**
+**This session — the closing sheet must stay opaque (all re-run after the final edit):**
+
+- `./.venv/bin/python -m pytest -q` → **83 passed**; `node /tmp/duits-ui-check.js` → **733 assertions**
+  / **875 in total** (13 new: no `opacity` on `.overlay` or `.overlay.open`, the `.overlay .scrim` state
+  rule and its `opacity: 1` open state, the `.sheet.is-moving` rule, four `<div class="scrim">` layers,
+  `sheetParts()` returning the child, `markMoving` on open and on a drag claim, the drag's scrim write,
+  the close animating `translateY(from) → 100%`, and that `parts.sheet.animate` never carries an
+  `opacity` keyframe).
+- **Frame-by-frame opacity probe** (`/tmp/cdp-js-opaque.js`), 375×667 and 390×844:
+  - `overlayOpacity=1`, the scrim layer present with `rgba(0, 0, 0, 0.35)`, sheet background
+    `rgb(28, 28, 30)`;
+  - during the close, at just-after-tap and +100/+200/+300ms: **`sheetChainOpacity=1`** (the sheet and
+    its whole ancestor chain, the overlay included), **`descendantsOpacity=1`** out of 74 visible
+    descendants, the background unchanged, the transform walking `0 → 69.7 → 526.7 → 587.5 → 600.3px`
+    while the scrim alone fades `1 → 0.884 → 0.123 → 0.021 → 0`;
+  - closed: `visibility=hidden pointerEvents=none sheetTransform=translateY(600.297px) scrim=0
+    appTransform=none anims=0`, with no opacity anywhere;
+  - the page behind during the close: `appOpacity=1`, `barOpacity=1`, static
+    `backdrop-filter: blur(20px)`, `barAnimations=0`;
+  - a 160px drag: sheet and descendants `opacity=1`, only the scrim thins (`0.796`), sheet moved to
+    `translateY(160px)`, and everything cleared afterwards (`isMoving=false`);
+  - ten open/close cycles sampling five times each: `closed=10/10`, **`translucentFrames=0`**, final
+    state clean (`openOverlays=0`, `anims=0`);
+  - **Reduce Motion**: the sheet's transform stays at `translateY(0)` (no movement) while its opacity
+    stays 1, the scrim fades to 0, and it is hidden at the end; the same ten cycles report
+    `translucentFrames=0`.
+- **Regressions re-checked** (their probes now read the scrim layer, since the overlay no longer
+  carries the dim): button cycles `10/10` with `scrim=0` and nothing stuck; the drag suite still passes
+  (wobbles don't close, a focused field is blurred and the drag closes, `pointercancel` leaves the
+  sheet at rest); the bottom-sheet geometry probe still reports `scrim=rgba(0,0,0,0.35)`,
+  `clipped=[]`, no scroll and the page at `matrix(0.96,0,0,0.96,0,8)`; the scrim tap still closes and
+  the keypad still types.
+
+**Previous session — bottom sheets (all re-run after the final edit):**
 
 - `./.venv/bin/python -m pytest -q` → **83 passed**; `node /tmp/duits-ui-check.js` → **720 assertions**
   / **862 in total** (the full-screen `#addSheet` pins were replaced by bottom-sheet ones: the top-gap
@@ -587,6 +649,15 @@ Decisions worth knowing:
   with and without the mark (`barHeightMoved=false`), `barOverflow=no`, refresh button still 34px.
 
 ## 4. Unresolved issues / risks
+
+- **Opaqueness is proven by computed style, not by sampling pixels.** The probe asserts that nothing in
+  the sheet's ancestor chain animates opacity, that the scrim is a separate layer, and that the closed
+  state does not use opacity — which is the mechanism behind the bug — but only a real pixel sample (a
+  screen recording on the phone) can show the rendered result, e.g. whether a subpixel seam appears at
+  the sheet's rounded corners while it moves over the scaled page.
+- **The scrim is now a child, so its box is the overlay's padding box.** It covers the whole screen
+  (`inset: 0` against a fixed parent), but a device is the only place to confirm that the strip behind
+  the status bar and the home indicator is dimmed exactly as far as the sheet's own edges.
 
 - **The bottom-sheet geometry is measured, not seen.** The probes prove the anchoring maths, the shrink
   order, that nothing clips or scrolls and that the scrim tap / drag / keypad all still work — but not

@@ -372,8 +372,12 @@ The Add sheet and the edit sheet are native-style bottom sheets, not full-screen
   28px corners, its own padding-bottom for the home indicator) but keeps a content-sized height capped
   at the gap, and it may scroll internally — a list of corrections is not a keypad. The **month wheel
   keeps its own height and its own scrim**.
-- **The scrim is `--scrim-sheet: rgba(0, 0, 0, .35)`** for those two sheets (the modal scrim stays
-  deeper darker), so the page behind stays readable, and tapping it dismisses.
+- **The scrim is a layer, not the overlay**: `<div class="scrim">` as the first child of every
+  overlay, painted under the sheet, `--scrim-sheet: rgba(0, 0, 0, .35)` for these two sheets (the modal
+  scrim stays deeper darker). It is the only opacity animation in an overlay — which is what keeps the
+  sheet and its contents fully opaque while they move. `.overlay .scrim` is 0 when closed and 1 when
+  open (the state for the moments when no animation is running, e.g. after a cancelled drag spring),
+  and the animations move it between those two. Tapping it dismisses.
 - **The page behind eases back**: `.app` scales to 0.96 and shifts down 8px while a bottom sheet is
   open, driven by the Web Animations API in `openOverlay`/`closeOverlay` (`PAGE_BEHIND`), transform
   only. The overlays are siblings of `.app`, so a transform there cannot disturb their fixed
@@ -431,7 +435,8 @@ grabber with a thumb is the one gesture a phone should not require. One implemen
   does nothing at all, so a tap with a wobble and a scroll never fight the sheet.
 - At that moment the finger takes over: any running open/close animation is **cancelled**
   (`cancelOverlayMotion`), a focused input is **blurred** so the keyboard closes with the drag, the
-  sheet follows `translateY(dy)` with no animation, and the scrim's opacity thins with the distance
+  sheet follows `translateY(dy)` with no animation (it never fades), and the scrim layer's opacity
+  thins with the distance
   (never below 0.3, so the screen behind stays readable).
 - **On release** it closes if the sheet is more than `DRAG_CLOSE_PX` (120px) down *or* the last
   movement was faster than `DRAG_CLOSE_VELOCITY` (0.5 px/ms — a quick flick counts from much less than
@@ -447,7 +452,8 @@ grabber with a thumb is the one gesture a phone should not require. One implemen
 
 ### Motion
 
-Everything animates **transform and opacity only** (plus SVG `stroke-dasharray` for the ring), so no
+Everything animates **transform and opacity only** (plus SVG `stroke-dasharray` for the ring), and in
+an overlay the only element whose opacity moves is the scrim layer (see *Motion*), so no
 animation can trigger layout on a phone. One curve, four durations, all in `:root` next to the
 palette: `--ease-ios: cubic-bezier(0.32, 0.72, 0, 1)`, with `--dur-sheet: 350ms`, `--dur-page: 180ms`,
 `--dur-press: 100ms` and `--dur-toast: 250ms`. No animation library, no JS tweening.
@@ -464,10 +470,15 @@ palette: `--ease-ios: cubic-bezier(0.32, 0.72, 0, 1)`, with `--dur-sheet: 350ms`
   applies the closed state only when the animation reports `finished` — with a **500ms fallback
   timer** so a close can never stick. Every open **cancels** whatever is still running *and* bumps a
   close token, so ten fast open/close pairs land on the right state every time and a close still in
-  flight cannot re-close a sheet that has been reopened. The class is only *state* (`opacity: 0;
-  visibility: hidden; pointer-events: none` when closed — never `display: none`), and there is
-  deliberately **no CSS transition on the overlay at all**, which is exactly what iOS played once and
-  then ignored. A downward drag cancels whatever animation is running, hands the transform to the
+  flight cannot re-close a sheet that has been reopened. The class is only *state* (`visibility:
+  hidden; pointer-events: none` when closed, with the sheet resting at `translateY(100%)` — never
+  `display: none`), and there is deliberately **no CSS transition on the overlay at all**, which is
+  exactly what iOS played once and then ignored.
+  **The sheet never fades.** Nothing animates the sheet's opacity: `openOverlay`/`closeOverlay` only
+  ever move it, and there is no `opacity` on `.overlay` either — an opacity on an ancestor is a group
+  opacity, so fading the overlay faded the sheet inside it and a closing sheet went see-through with
+  the page showing through its text. The dim is a `.scrim` layer of its own (one per overlay, painted
+  under the sheet) and that is the only thing in an overlay that animates opacity. A downward drag cancels whatever animation is running, hands the transform to the
   finger and releases into the same exit (see *Swipe to dismiss* below).
 - **Presses**: one shared rule — `button:not(.tab):not(.tab-add), .add-pill` scale to
   `var(--press-scale)` (0.96) and dim to 0.7 while held, springing back on release. The tab bar and
@@ -729,6 +740,11 @@ Safari. Both write the same rows.
   splash feel late, or whether the logo's first paint is as prompt on a device as it is in a warm
   browser cache. The logo is a 180px PNG served with `max-age=600`, so a truly cold install may show
   the icon a beat after the wordmark.
+- **Opaqueness is proven by computed style, not by sampling pixels.** The probes show that nothing in the
+  sheet's chain animates opacity and that the closed state does not use it — which is the mechanism
+  behind the see-through bug — but a real pixel sample (a screen recording on the phone) is the only way
+  to see the rendered result, e.g. whether a subpixel seam shows at the sheet's rounded corners while it
+  moves over the scaled page.
 - **The page-behind scale is untested on hardware.** Scaling `.app` also scales the two frosted bars
   (`backdrop-filter: blur(20px)`), which is the one thing on this page that a scaled compositing layer
   can make janky on a phone. It is one line (`PAGE_BEHIND`) to drop if it stutters.
@@ -810,6 +826,20 @@ through a tab switch, a month wheel, an add sheet and a refresh. With the stub s
 (`?slow`) the hint fades in at 4.2s and the splash goes at 5.7s; with the stub failing (`?fail`) the
 splash hides at ~1.25s with the app's own `error-card` visible behind it; under `--reduced-motion` the
 logo uses the opacity-only keyframes and the whole lifetime sees a single animation (no scale).
+
+Opacity is checked frame by frame too (`/tmp/cdp-js-opaque.js`), because "the sheet must never be
+translucent" is not something a screenshot-free probe can see directly — so it measures the property
+that causes it, at every level. With a close sampled just after the tap and at +100/+200/+300ms: the
+sheet's **whole ancestor chain** (the overlay included) reports `opacity=1`, every visible descendant
+reports `opacity=1` (74 of them; `.add-date-input` is the one deliberately transparent element, excluded
+by design), the sheet's own background stays `rgb(28, 28, 30)`, and its transform walks
+`0 → 69.7 → 526.7 → 587.5 → 600.3px` while the scrim alone fades `1 → 0.884 → 0.123 → 0.021 → 0`. The
+closed state is `visibility=hidden`, `pointer-events=none`, `translateY(600.297px)`, `scrim=0`, with no
+opacity anywhere. The same script drags the sheet 160px (sheet and descendants opaque, scrim at 0.796),
+runs ten open/close cycles sampling five times each and counts **zero** translucent frames, and reports
+the page behind during the close as `appOpacity=1`, `barOpacity=1`, a static
+`backdrop-filter: blur(20px)` (its `transition-property` is the CSS default `all` at a 0s duration, and
+neither bar has a running animation). Under `--reduced-motion` the sheet never moves and never fades.
 
 The bottom sheets are measured the same way, with the insets simulated, at 375×667, 390×844 and
 430×932: the sheet's top edge equals `max(sat + 12px, 10dvh)` (67px at all three), its bottom equals

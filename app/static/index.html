@@ -727,21 +727,35 @@
   .result-meta { font-size: 13px; color: var(--muted); margin-top: 4px; }
 
   /* ---------- sheet ---------- */
-  /* Overlays stay in the DOM and are hidden by state, not by display: closed is opacity 0, visibility
-     hidden and no pointer events. The movement is done by the Web Animations API (see openOverlay),
-     so there is deliberately no transition here — a transition and an animation on the same property
-     fight, and the visibility delay would hold the closed sheet on screen after the animation ends. */
+  /* Overlays stay in the DOM and are hidden by state, not by display: closed is visibility hidden and no
+     pointer events, and the sheet sits at translateY(100%). The movement is done by the Web Animations
+     API (see openOverlay), so there is deliberately no transition here — a transition and an animation
+     on the same property fight, and the visibility delay would hold the closed sheet on screen after the
+     animation ends.
+     There is deliberately no `opacity` on the overlay either: opacity on an ancestor is a group opacity,
+     so fading the overlay fades the sheet inside it — which is exactly how the sheet became see-through
+     while closing. The dim is the .scrim layer instead, the sheet above it keeps opacity 1 throughout,
+     and the closed state is translateY(100%) + visibility hidden + pointer-events none. */
   .overlay {
     position: fixed; inset: 0; z-index: 20; display: flex; align-items: flex-end; justify-content: center;
     /* Both ends: a tall edit sheet or the month wheel must not slide under the status bar or into the
        home indicator either. */
     padding: max(var(--sat), 12px) 12px calc(12px + var(--sab));
-    background: var(--scrim);
-    opacity: 0; visibility: hidden; pointer-events: none;
+    visibility: hidden; pointer-events: none;
   }
-  .overlay.open { opacity: 1; visibility: visible; pointer-events: auto; }
+  .overlay.open { visibility: visible; pointer-events: auto; }
+  /* The one thing in an overlay that fades. Its opacity is state (0 closed / 1 open) for the moments
+     when no animation is running — after a cancelled drag spring, for instance — and the animations
+     themselves move it between those two values. */
+  .overlay .scrim { position: absolute; inset: 0; background: var(--scrim); opacity: 0; }
+  .overlay.open .scrim { opacity: 1; }
+  #addOverlay .scrim, #txnOverlay .scrim { background: var(--scrim-sheet); }
   .overlay > .sheet { transform: translateY(var(--move-sheet)); }
   .overlay.open > .sheet { transform: translateY(0); }
+  /* Nothing inside a moving sheet may fade. The press feedback on every button is a scale *and* a dim,
+     so a tap on Cancel would otherwise leave that button translucent for 100ms of the close; dropping
+     opacity from the transition list stops any in-flight fade and leaves the scale alone. */
+  .sheet.is-moving button, .sheet.is-moving .add-pill { transition-property: transform; }
   .sheet {
     width: 100%; max-width: 640px; padding: 20px;
     background: var(--card); border-radius: var(--r-lg); box-shadow: var(--shadow-up);
@@ -1233,6 +1247,9 @@
 </nav>
 
   <div class="overlay" id="addOverlay" aria-hidden="true">
+  <!-- The dim is its own layer so the only animated opacity in an overlay is this one; the
+       sheet above it can never be tinted by it. -->
+  <div class="scrim" aria-hidden="true"></div>
     <div class="sheet add-sheet" id="addSheet">
       <div class="sheet-grab" id="addGrab" aria-hidden="true"><span></span></div>
       <div class="sheet-head has-done">
@@ -1309,10 +1326,16 @@
   </div>
 
 <div class="overlay" id="txnOverlay" aria-hidden="true">
+  <!-- The dim is its own layer so the only animated opacity in an overlay is this one; the
+       sheet above it can never be tinted by it. -->
+  <div class="scrim" aria-hidden="true"></div>
   <div class="sheet" id="txnSheet"></div>
 </div>
 
 <div class="overlay" id="keyOverlay" aria-hidden="true">
+  <!-- The dim is its own layer so the only animated opacity in an overlay is this one; the
+       sheet above it can never be tinted by it. -->
+  <div class="scrim" aria-hidden="true"></div>
   <div class="sheet">
     <h2>API key</h2>
     <p class="sheet-note" id="keyHint">Paste the <code>API_KEY</code> from your <code>.env</code>. It stays in this browser.</p>
@@ -1326,6 +1349,9 @@
 </div>
 
 <div class="overlay" id="monthOverlay" aria-hidden="true">
+  <!-- The dim is its own layer so the only animated opacity in an overlay is this one; the
+       sheet above it can never be tinted by it. -->
+  <div class="scrim" aria-hidden="true"></div>
   <div class="sheet" id="wheelSheet">
     <div class="sheet-grab" id="monthGrab" aria-hidden="true"><span></span></div>
     <div class="sheet-head has-done">
@@ -1571,8 +1597,18 @@
     pageMotion = app.animate(frames, { duration: motionMs("--dur-sheet"), easing: EASE_IOS, fill: "both" });
   }
 
+  // The scrim is a child layer, not the overlay itself: animating the overlay's opacity would apply a
+  // group opacity to everything inside it, the sheet included, and that is what made a closing sheet
+  // translucent with the page showing through its text.
   function sheetParts(element) {
-    return { scrim: element, sheet: element.querySelector(".sheet") };
+    return { scrim: element.querySelector(".scrim"), sheet: element.querySelector(".sheet") };
+  }
+
+  // While a sheet is moving, its contents must not fade (see .sheet.is-moving).
+  function markMoving(sheet, on) {
+    if (!sheet) return;
+    if (on) sheet.classList.add("is-moving");
+    else sheet.classList.remove("is-moving");
   }
 
   function cancelOverlayMotion(element) {
@@ -1586,8 +1622,10 @@
     if (!element) return;
     clearTimeout(element.closeTimer);
     element.closeToken = (element.closeToken || 0) + 1;   // a close still in flight becomes a no-op
-    element.style.opacity = "";
+    if (element.querySelector(".scrim")) element.querySelector(".scrim").style.opacity = "";
     cancelOverlayMotion(element);
+    markMoving(element.querySelector(".sheet"), true);
+    setTimeout(function () { markMoving(element.querySelector(".sheet"), false); }, motionMs("--dur-sheet") + 60);
     var parts = sheetParts(element);
     var duration = motionMs("--dur-sheet");
     var options = { duration: duration, easing: EASE_IOS, fill: "both" };
@@ -1621,8 +1659,8 @@
       clearTimeout(element.closeTimer);
       element.classList.remove("open");          // the closed state takes over before the fill drops
       element.setAttribute("aria-hidden", "true");
-      element.style.opacity = "";                // whatever a drag left behind cannot outlive the close
-      if (parts.sheet) parts.sheet.style.transform = "";
+      if (parts.scrim) parts.scrim.style.opacity = "";   // a drag may have left a partial dim behind
+      if (parts.sheet) { parts.sheet.style.transform = ""; markMoving(parts.sheet, false); }
       var app = document.querySelector(".app");
       if (app && PAGE_BEHIND_SHEETS[element.id]) app.style.transform = "";
       if (pageMotion) { try { pageMotion.cancel(); } catch (error) { /* already finished */ } pageMotion = null; }
@@ -1630,9 +1668,11 @@
       if (after) after();
     };
     pageBehind(element, false);
+    markMoving(parts.sheet, true);
     var from = Number(fromOffset) > 0 ? Number(fromOffset) : 0;
     // The scrim may already be thinned by the drag; the fade continues from where it is.
-    var scrimFrom = from ? (Number(window.getComputedStyle(element).opacity) || 1) : 1;
+    var scrimFrom = from && parts.scrim
+      ? (Number(window.getComputedStyle(parts.scrim).opacity) || 1) : 1;
     element.runningAnimations = [parts.scrim.animate([{ opacity: scrimFrom }, { opacity: 0 }], options)];
     if (!reducedMotion() && parts.sheet) {
       element.runningAnimations.push(parts.sheet.animate(
@@ -3287,13 +3327,14 @@
     var sheet = $(sheetId);
     var overlay = $(overlayId);
     if (!sheet || !overlay) return;
+    var scrim = overlay.querySelector(".scrim");   // the dim follows the finger; the sheet never fades
     var handle = handleOnly ? sheet.querySelector(".sheet-grab") : null;
     var drag = null;
     var epoch = 0;              // a new press invalidates any spring still settling from the last one
 
     function clearInline() {
       sheet.style.transform = "";
-      overlay.style.opacity = "";
+      if (scrim) scrim.style.opacity = "";
     }
 
     function onDown(event) {
@@ -3317,6 +3358,7 @@
         if (dy <= 0 || Math.abs(dy) <= Math.abs(dx)) return;   // up, or mostly sideways: not ours
         if (dy < DRAG_START_PX) return;                        // not yet a drag, just a tap
         drag.moving = true;
+        markMoving(sheet, true);
         cancelOverlayMotion(overlay);        // the finger takes over from the open/close animation
         var active = document.activeElement;
         if (active && active.blur && active !== document.body) active.blur();   // keyboard goes with it
@@ -3329,7 +3371,7 @@
       sheet.style.transform = "translateY(" + dy + "px)";
       // The scrim thins out with the distance so the screen behind shows through, but never to nothing.
       var span = window.innerHeight || 667;
-      overlay.style.opacity = String(Math.max(0.3, 1 - (dy / span) * 0.85));
+      if (scrim) scrim.style.opacity = String(Math.max(0.3, 1 - (dy / span) * 0.85));
     }
 
     function springBack(from) {
@@ -3358,6 +3400,7 @@
       if (!drag || event.pointerId !== drag.id) return;
       var state = drag;
       drag = null;
+      markMoving(sheet, false);
       if (!state.moving) { clearInline(); return; }           // a tap that wobbled: nothing happened
       if (state.offset > DRAG_CLOSE_PX || state.velocity > DRAG_CLOSE_VELOCITY) {
         onDismiss(state.offset);      // the WAAPI close carries it down from where the finger let go
@@ -3411,12 +3454,12 @@
     $("monthCancel").addEventListener("click", closeMonthSheet);
     $("monthDone").addEventListener("click", applyMonthWheel);
     $("monthOverlay").addEventListener("click", function (event) {
-      if (event.target === this) closeMonthSheet(); // tapping outside dismisses, changes nothing
+      if (!event.target.closest || !event.target.closest(".sheet")) closeMonthSheet(); // outside the sheet
     });
     $("addBtn").addEventListener("click", openAddSheet);   // the raised "+" in the tab bar
     $("closeAddBtn").addEventListener("click", closeAddSheet);
     $("addOverlay").addEventListener("click", function (event) {
-      if (event.target === this) closeAddSheet(); // tapping outside dismisses
+      if (!event.target.closest || !event.target.closest(".sheet")) closeAddSheet(); // outside the sheet
     });
     attachSheetDrag("addSheet", "addOverlay", closeAddSheet, false);
     attachSheetDrag("txnSheet", "txnOverlay", closeSheet, false);
@@ -3443,7 +3486,7 @@
     });
     $("txnSheet").addEventListener("click", handleSheetClick);
     $("txnOverlay").addEventListener("click", function (event) {
-      if (event.target === this) closeSheet(); // tapping outside dismisses
+      if (!event.target.closest || !event.target.closest(".sheet")) closeSheet(); // outside the sheet
     });
     $("refreshBtn").addEventListener("click", function () {
       if (state.screen === "settings") { showScreen("home"); return; }
