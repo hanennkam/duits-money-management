@@ -43,25 +43,28 @@ def test_every_icon_is_public_and_short_lived(client: TestClient) -> None:
         assert response.content == (STATIC_DIR / ICONS[url][0]).read_bytes(), url
 
 
-def test_the_add_sheet_has_a_thumb_save_that_stays_in_step(client: TestClient) -> None:
-    """Both Saves are one function with one disabled state, so a double tap cannot post twice."""
+def test_the_add_sheet_has_one_save_and_no_pill(client: TestClient) -> None:
+    """The header Save is the only Save again, and it still cannot double-post."""
     page = client.get("/").text
-    assert 'class="btn-primary add-save" id="addSaveBtn"' in page, "the thumb-reach Save is missing"
-    # it sits under Scan Receipt and above the keypad
-    body = page[page.index('id="addOverlay"'):page.index('id="txnOverlay"')]
-    assert body.index('id="scanBtn"') < body.index('id="addSaveBtn"') < body.index('id="addKeypad"')
-    assert ".add-save {\n    flex: none; width: 100%; min-height: 52px;" in page, "52px pill expected"
-    # one state, two buttons
-    assert page.count('$("saveAddBtn").disabled = !canSave;') == 1
-    assert page.count('$("addSaveBtn").disabled = !canSave;') == 1
-    # and one save, wired twice
-    assert page.count('addEventListener("click", saveAdd)') == 2
-    # in flight: both are disabled and relabelled
-    assert 'pill.disabled = true;' in page and 'pill.textContent = "Saving' in page
+    # the pill is gone from the markup and from the stylesheet
+    assert "addSaveBtn" not in page, "the thumb-reach Save pill is back"
+    assert "add-save" not in page
+    assert page.count('addEventListener("click", saveAdd)') == 1, "one Save, wired once"
+    # and it is still the one state: disabled until there is an amount
+    assert page.count('$("saveAddBtn").disabled = !(Number(addAmount) > 0);') == 1
+    # the double-submit guard and its in-flight relabel are untouched
+    assert "if (addSaving) return;" in page
+    assert 'button.textContent = "Saving' in page
+    # the height steps are back to the two the sheet was tuned with before the pill,
+    # so the amount font and the keys get their full height back on a tall phone
+    assert "@container (max-height: 640px)" in page
+    assert "@container (max-height: 560px)" in page
+    assert "@container (max-height: 780px)" not in page
+    assert "@container (max-height: 650px)" not in page
 
 
-def test_the_detail_sheet_swipes_and_its_edit_pill(client: TestClient) -> None:
-    """The detail sheet's swipe surfaces, its scroll gate, and the edit-mode footer."""
+def test_the_detail_sheet_swipes_and_keeps_its_old_edit_buttons(client: TestClient) -> None:
+    """The swipe surfaces and the scroll gate stay; edit mode is back to its plain row of buttons."""
     page = client.get("/").text
     surfaces = page[page.index("var DRAG_SURFACES"):page.index("var DRAG_BLOCKERS")]
     for surface in (".kv", ".card-title", ".sheet-title", ".sheet-amount", ".sheet"):
@@ -71,11 +74,15 @@ def test_the_detail_sheet_swipes_and_its_edit_pill(client: TestClient) -> None:
     assert '$("txnSheet").scrollTop = 0;' in page, "a fresh or closed sheet must start at the top"
     # the surfaces the browser must not treat as a pan
     assert "#txnSheet .kv, #txnSheet .card-title { touch-action: none; }" in page
-    # and the edit pill, in a footer that stays in reach
-    assert 'class="sheet-foot"' in page
-    assert 'class="btn-primary save-changes" id="saveBtn"' in page
-    assert 'class="btn-ghost sheet-cancel-edit" id="cancelEditBtn"' in page
-    assert "position: sticky; bottom: calc(-1 * (20px + var(--sab)));" in page
+    # and the touch default is refused on those surfaces, which is what stops the pointercancel
+    assert 'sheet.addEventListener("touchstart", function (event) {' in page
+    assert "{ passive: false }" in page
+    # edit mode's buttons are the plain pair again, with no footer pill
+    assert '<div class="sheet-actions"><button class="btn-primary" id="saveBtn" type="button">Save</button>' in page
+    assert '<button class="btn-ghost" id="cancelEditBtn" type="button">Cancel</button></div>' in page
+    assert "sheet-foot" not in page
+    assert "save-changes" not in page
+    assert "sheet-cancel-edit" not in page
 
 
 def test_the_icons_are_documented_nowhere_as_api(client: TestClient) -> None:
