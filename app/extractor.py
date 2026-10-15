@@ -17,35 +17,60 @@ log = logging.getLogger(__name__)
 
 MAX_TOKENS = 2048
 TOOL_NAME = "record_transaction"
-IMAGE_UNREADABLE = "Receipt is unreadable. Retake it in better light, or type it in."
+IMAGE_UNREADABLE = "That image could not be read. Try a clearer one, or type the transaction in."
 
 # The tool schema is the Extraction model, so the two can never drift apart.
 TOOL: dict[str, Any] = {
     "name": TOOL_NAME,
-    "description": "Record the single transaction found in a receipt image or a short text note.",
+    "description": ("Record the single transaction found in a photo of a receipt, a bank or "
+                    "e-wallet screenshot, or a short text note."),
     "input_schema": Extraction.model_json_schema(),
 }
 
 _SYSTEM_PROMPT = """\
-You convert receipts and short free-text notes into one transaction for a Malaysian expense tracker.
+You convert an image or a short free-text note into one transaction for a Malaysian expense tracker.
+
+The image is either a photo of a paper receipt, or a **screenshot of a bank or e-wallet screen** \
+(Maybank MAE/M2U, DuitNow QR, Touch 'n Go eWallet, GrabPay and the like), typically headed \
+"Payment Successful", "Transfer Successful" or "Transaction Details".
 
 Always report the result by calling the `record_transaction` tool. Never reply with prose or JSON text.
 
-Field rules:
-- txn_date: the transaction date as YYYY-MM-DD. Malaysian receipts usually write dates as DD/MM/YYYY. \
-If the date is missing, use today's date ({today}).
-- amount: the TOTAL actually paid, as a plain number with no currency symbol. Not the subtotal. \
-Include tax and service charge.
-- currency: ISO code, default "MYR". Amounts are Malaysian Ringgit (RM/MYR) unless the receipt \
-clearly shows another currency.
-- merchant: shop or payee name, or null.
-- category: one of {categories}, or null.
-- type: "expense" or "income" (salary, refund, money received = income). Default "expense".
-- items: line items if the receipt lists them, otherwise null. Keep each item name as printed, but \
-drop any leading product or SKU code (e.g. "SKU 99123 Nasi Lemak" becomes "Nasi Lemak").
+1. What kind of document is it?
+- document_kind: "receipt" for a photo of paper, "bank_screenshot" for a phone screen showing a \
+completed transaction. Decide from the layout, not from the wording of the message.
 
-If you are unsure about a field, leave it null. Never invent data, and call the tool even when the \
-receipt is faded, creased, or partly cut off — report whatever you can read.
+2. Read these off the document:
+- merchant: for a receipt, the shop. For a screenshot, the **recipient or sender** name — what follows \
+"Transfer to", "Payment to", "Paid to", "DuitNow to", "Received from", "From". Null if unreadable.
+- amount: a plain number with no currency symbol. On a screenshot use the transaction amount — never a \
+balance, an available limit, a points total, or an amount shown elsewhere on the screen.
+- txn_date: YYYY-MM-DD. Malaysian documents usually write dates as DD/MM/YYYY. Today is {today}: use it \
+when the date is missing.
+- txn_time: "HH:MM" in 24-hour form when the screen prints a time ("14:32", "2:32 PM" -> "14:32"). Null \
+when there is none or it is unreadable.
+- reference: the reference, transaction or receipt number exactly as printed — a bank app screenshot \
+almost always shows one. Null when unreadable.
+- currency: ISO code, default "MYR".
+- category: one of {categories}, picked from the merchant when that is obvious (Kopitiam -> food, \
+TNB -> bills, Grab -> transport, Uniqlo -> shopping). Use "other" when it is not obvious; null only if \
+the document itself is unreadable.
+
+3. Which way did the money go? This decides the type:
+- expense: money left the account — "Transfer to", "Payment", "Paid", "DuitNow to", "Sent", a minus \
+sign, or an amount in red.
+- income: money arrived — "Received from", "Credit", "Refund", "Cash in", a plus sign.
+- If you cannot tell which, leave type null rather than guessing; do not default to expense on a \
+screenshot. On a paper receipt the money always left, so default to expense.
+
+4. Never do these:
+- Never return an account number, card number, phone number or balance — not in any field, and not \
+inside a note. They are not part of the transaction and we do not keep them.
+- Never invent a value. A field you cannot read is null, and that is the correct answer.
+- For a bank_screenshot leave items null: a screen has no line items.
+
+Call the tool even when the image is faded, creased, cropped or blurred. Report whatever you can read \
+and leave the rest null.
 """
 
 
@@ -141,12 +166,12 @@ def extract_from_image(image: bytes, media_type: str) -> Extraction:
                 "data": base64.standard_b64encode(image).decode("ascii"),
             },
         },
-        {"type": "text", "text": "Record this receipt with the tool."},
+        {"type": "text", "text": "Record the transaction on this receipt or bank/e-wallet screenshot."},
     ]
     try:
         return _extract(content)
     except ExtractionError as exc:
-        log.warning("Receipt could not be read: %s", exc)
+        log.warning("Image could not be read: %s", exc)
         raise ExtractionError(IMAGE_UNREADABLE) from exc
 
 

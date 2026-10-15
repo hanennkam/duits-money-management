@@ -140,7 +140,7 @@ def test_scan_does_not_upload_when_extraction_fails(
     )
 
     assert response.status_code == 422
-    assert response.json()["detail"] == "Receipt is unreadable. Retake it in better light, or type it in."
+    assert response.json()["detail"] == "That image could not be read. Try a clearer one, or type the transaction in."
     assert uploads == []
 
 

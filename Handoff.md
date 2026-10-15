@@ -25,6 +25,32 @@ SETTINGS, ADD NEW TRANSACTION). **All five screens are built and in use.**
 
 Completed since the last handoff (all verified, see §3):
 
+- **The scan flow now reads bank / e-wallet screenshots as well as paper receipts.**
+  - `Extraction` gained `document_kind` (`"receipt" | "bank_screenshot"`), `reference` and `txn_time`
+    (`HH:MM`, validated — anything else becomes null rather than being guessed at). The tool schema is
+    the model, so the prompt and the schema still cannot drift.
+  - The system prompt is rewritten around two document kinds: it says how to spot a bank/e-wallet screen
+    (MAE/M2U, DuitNow, TNG, GrabPay, "Payment/Transfer Successful"), where the merchant comes from
+    (recipient/sender after "Transfer to"/"Received from"), that the direction decides
+    expense-versus-income (unclear leaves `type` null and flags the row), that category is `other` when
+    not obvious, that balances/account/card numbers must never be returned, and that a screenshot has no
+    line items.
+  - `Source` gained `"bank_screenshot"`; `scan_receipt` sets it from `document_kind` and **skips the
+    Storage upload entirely** for screenshots (`receipt_path = NULL`), so no image is kept and no orphan
+    can be left behind. Paper still uploads exactly as before.
+  - `Extraction.needs_review` now also flags a screenshot whose direction could not be read; `raw()`
+    masks account-like values for screenshots before insert, so `raw_extraction` — the only thing kept
+    of a screenshot — carries no account, card or phone number.
+  - **Dedupe**: `dedupe_hash` prefers a screenshot's `ref|<reference>` (uppercased, whitespace stripped),
+    else `date|amount|merchant` plus a ten-minute time window for screenshots. `dedupe_hashes` returns
+    the row's own key plus the two neighbouring windows, and `_insert` probes them, so two scans four
+    minutes apart are caught even when they straddle a window boundary. Both duplicate paths now answer
+    `409 "Already recorded."` (the image-hash path and the dedupe path), and all existing callers of
+    `dedupe_hash` keep working because the new arguments are keyword-only with defaults.
+  - The phone's toast now names the merchant and amount (`"Ahmad \u00b7 RM 250"`) and appends
+    `\u00b7 needs review` when the row is flagged, instead of a bare "Receipt saved.".
+  - `schema.sql` documents the new source value, the storage rule and the dedupe key.
+
 - **Swipe-to-close extended to the detail sheet, and a thumb-reach Save in the Add sheet.**
   - `DRAG_SURFACES` gained `.kv` and `.card-title`, so the detail sheet can be dismissed from its info
     rows and section headings as well as its title/amount/empty space. Its edit mode narrows itself
@@ -406,7 +432,35 @@ Decisions worth knowing:
 
 ## 3. Validation (all executed this session)
 
-**This session — detail-sheet swipes and the thumb-reach Save (all re-run after the final edit):**
+**This session — bank / e-wallet screenshots (all re-run after the final edit):**
+
+- `./.venv/bin/python -m pytest -q` → **96 passed** (87 before; 9 new in `tests/test_bank_screenshot.py`:
+  money out — a MAE "Transfer to" screen lands as `source="bank_screenshot"`, `type="expense"`,
+  `receipt_path: null`, **zero** upload calls, and a raw extraction carrying `document_kind`, `reference`
+  and `txn_time` with `needs_review: false`; money in — "Received from" is `type="income"` with no image
+  kept; an unclear direction — `type` null on a screenshot is `needs_review: true` while the same missing
+  type on `document_kind="receipt"` is not a flag; an unreadable amount — 422 with the shared message and
+  **no** row and **no** upload; duplicates — the same reference twice is `409` with
+  `message == "Already recorded."` and the existing row id, and two scans four minutes apart (14:29 and
+  14:33, different ten-minute windows) also collide; paper is unchanged — `source="receipt_scan"`,
+  `receipt_path` set, exactly one upload; and a unit test for the key policy (reference key ignores
+  amount/merchant/time, the three window keys, receipts and text unchanged, the no-time fallback) plus the
+  account mask (8+ digit values and grouped card numbers redacted; ISO dates, timestamps, amounts and shop
+  names untouched).
+- Two existing tests were updated rather than left stale: both pinned the old unreadable-image message,
+  which was receipt-specific. It is now `"That image could not be read. Try a clearer one, or type the
+  transaction in."` — the same message for a paper photo and a screen. The two tests that pin
+  `409` messages were checked for the wording change and none pinned it.
+- `node /tmp/duits-ui-check.js` → **777 / 919 assertions, unchanged** — the frontend edit (the composed
+  toast) broke no pin, and the page still parses.
+- `/tmp/page.js` re-parsed after the frontend change.
+- **What I could not verify:** the endpoints were exercised through `TestClient` with the database and
+  Claude both monkeypatched, which is how the existing scan tests work — so the *plumbing* (source, no
+  upload, the mask, the keys, the 409s) is proven, while the *reading of a real screenshot* is a prompt
+  change that only a real key and real MAE/TNG/DuitNow images can validate. No live scan was run: that
+  needs `ANTHROPIC_API_KEY` and a real upload, and I did not spend the user's key on it. The prompt
+  changes are therefore unverified against the actual model, and no screenshot fixture exists in the repo
+  (they would contain account numbers, which is exactly what this change exists to avoid storing).
 
 - `./.venv/bin/python -m pytest -q` → **87 passed** (two new tests:
   `test_the_add_sheet_has_a_thumb_save_that_stays_in_step` — the pill exists between Scan Receipt and the
@@ -759,6 +813,22 @@ Decisions worth knowing:
   with and without the mark (`barHeightMoved=false`), `barOverflow=no`, refresh button still 34px.
 
 ## 4. Unresolved issues / risks
+
+- **The prompt change is unverified against the real model.** Everything the endpoint does with an
+  extraction is tested (source tagging, no upload for a screenshot, the account mask, the dedupe keys, the
+  409s), but whether Claude actually classifies a Maybank MAE screen as `bank_screenshot`, picks the
+  recipient as the merchant, and leaves `type` null when the direction is unclear can only be checked
+  with a real API key and real screenshots — which the repo has none of, deliberately: those images carry
+  account numbers.
+- **Two judgement calls worth reviewing.** (1) An unreadable *amount* still returns 422 rather than saving
+  a row with `needs_review` — `transactions.amount` is `NOT NULL`, and inventing a zero is exactly what
+  the brief forbids, so the row cannot exist. (2) A screenshot whose time cannot be read falls back to the
+  day-level key (amount+merchant+date, like a receipt), which trades a possible false positive for never
+  missing a duplicate; the alternative is storing nothing to dedupe on.
+- **`image_hash` is still stored for a screenshot** even though the image is not. It is a sha256 digest,
+  not the image, and it is what makes a re-scan bail before a second Claude call; but it is a stored
+  fingerprint of a file we do not keep, so if that is unwanted for a bank screenshot, the change is one
+  argument at the `_save` call site.
 
 - **A swipe starting on a `.kv` row still gets `pointercancel` in Chrome** (see §3 for the evidence: the
   computed `touch-action` is `none`, the hit element is that row, `scrollTop` is 0, the touch default is

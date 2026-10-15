@@ -165,7 +165,7 @@ def test_unreadable_receipt_asks_for_a_retake(claude: Callable[[list[Any]], Fake
     with pytest.raises(extractor.ExtractionError) as caught:
         extractor.extract_from_image(b"jpeg", "image/jpeg")
 
-    assert str(caught.value) == "Receipt is unreadable. Retake it in better light, or type it in."
+    assert str(caught.value) == "That image could not be read. Try a clearer one, or type the transaction in."
 
 
 def test_forced_tool_choice_downgrades_to_auto(claude: Callable[[list[Any]], FakeMessages]) -> None:

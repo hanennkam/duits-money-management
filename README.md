@@ -721,8 +721,11 @@ Response of `/transactions/scan` (abridged):
 }
 ```
 
-`amount` is always a JSON number. To decide whether a row needs a human look, read
-`raw_extraction.needs_review` (true when Claude could not read the amount or the merchant).
+`amount` is always a JSON number. `source` is `receipt_scan` for a photo of paper, `bank_screenshot`
+for a screen of a bank or e-wallet app, `text` for Smart Entry and `manual` for a hand-typed row. To
+decide whether a row needs a human look, read `raw_extraction.needs_review` — true when Claude could not
+read the amount or the merchant, or (on a screenshot) when it could not tell whether money left or
+arrived.
 
 
 ## Apple Shortcuts (iPhone)
@@ -748,20 +751,45 @@ Safari. Both write the same rows.
 
 - **Extraction** (`extractor.py`): Claude is asked for JSON only, with Malaysian-receipt rules
   (RM unless the receipt says otherwise, total actually paid rather than subtotal, DD/MM/YYYY
-  dates, today's date when the date is missing, `null` instead of guessing). The reply is
-  validated with Pydantic, retried once if it is not usable, then rejected with `422`.
-- **Dedupe**: only receipt scans with a readable merchant are deduped. `dedupe_hash` = sha256 of
-  `txn_date|amount(2dp)|lowercased merchant`; text notes and merchant-less receipts store
-  `dedupe_hash = NULL` (Postgres allows many NULLs under a unique index) and therefore always
-  insert — two text entries of RM12 on the same day are two different transactions, so
-  `/transactions/text` never returns `409`. Hand-typed rows through `POST /transactions` behave
+  dates, today's date when the date is missing, `null` instead of guessing). **A screenshot of a bank or
+  e-wallet screen is read as its own kind of document** (`document_kind = "bank_screenshot"`: Maybank
+  MAE/M2U, DuitNow QR, Touch 'n Go, GrabPay "Payment/Transfer Successful" screens): the recipient or
+  sender is the merchant, the direction of the money decides expense versus income ("Transfer to",
+  "Payment", a minus sign = expense; "Received from", "Credit", a plus sign = income; unclear leaves
+  `type` null and flags the row), and it adds the two fields a paper receipt does not have — the
+  `reference` number and the `txn_time`. Balances, account numbers and card numbers are never returned in
+  any field, and a category that is not obvious from the merchant becomes `other` rather than null. The
+  reply is validated with Pydantic, retried once if it is not usable, then rejected with `422`.
+- **Bank and e-wallet screenshots.** The scan endpoint takes more than paper: a screenshot of a
+  "Payment Successful" / "Transfer Successful" screen (Maybank MAE/M2U, DuitNow QR, Touch 'n Go,
+  GrabPay) is read as `document_kind = "bank_screenshot"`, and two rules follow from that.
+  - **The image is not kept.** `receipt_path` is `NULL` and nothing is uploaded to the `receipts`
+    bucket: a paper receipt is a document worth keeping, a screenshot is a copy of a screen the user
+    already has. Only the extracted fields are stored.
+  - **No account numbers.** The prompt is told never to return a balance, account number, card number or
+    phone number, and `raw_extraction` is passed through a mask before insert anyway: any value that is
+    entirely 8+ digits (optionally in groups) is replaced with `[redacted]`. An ISO date or timestamp is
+    never mistaken for one, so `txn_date` and `txn_time` survive intact.
+  - The phone shows the same success toast as any other save, now naming what was saved —
+    `"DuitNow to Ahmad · RM 250"` — and appending `· needs review` when the row is flagged, rather
+    than a bare "Receipt saved." that looks identical whether or not a field was readable.
+- **Dedupe**: only scans are deduped, and a screenshot prefers its reference number.
+  `dedupe_hash` = sha256 of `ref|<reference>` (uppercased, whitespace removed) when a screenshot shows
+  one; otherwise `txn_date|amount(2dp)|lowercased merchant`, plus `|<ten-minute window>` for a screenshot
+  that printed a time. That last case is why the lookup also probes the windows either side: 14:29 and
+  14:33 are four minutes apart but fall in different windows, and the pair still collides. Text notes and
+  merchant-less scans store `dedupe_hash = NULL` (Postgres allows many NULLs under a unique index) and
+  therefore always insert — two text entries of RM12 on the same day are two different transactions, so
+  `/transactions/text` never returns `409`. When a scan is a duplicate the API answers `409` with
+  `{"error": "duplicate", "message": "Already recorded.", "transaction": {…}}`. Hand-typed rows through `POST /transactions` behave
   the same way (`source = "manual"`), so two identical manual entries both insert; the `409`
   branch is still wired to the same `_duplicate()` guard the receipt scan uses, so the moment the
   dedupe policy covers another source the endpoint answers `409` with the existing row. When a
   hash is present the API looks it up first and
   returns `409` with the existing row instead of inserting. The unique index is the real
   guarantee: a rare concurrent double-submit would surface as a 500 but can never create a
-  duplicate row. The receipt image of a rejected duplicate stays in the bucket (harmless).
+  duplicate row. A receipt upload that turns out to be a duplicate (or fails to insert) is deleted
+  again, so Storage never keeps an orphan.
 - **Status codes**: `400` bad file, file type or `month`; `401` missing/wrong key; `409`
   duplicate; `413` over the 10 MB limit (`MAX_UPLOAD_BYTES`); `422` extraction failed; `502`
   Claude or Supabase Storage failure.

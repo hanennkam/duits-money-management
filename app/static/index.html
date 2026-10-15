@@ -2433,6 +2433,15 @@
   }
 
   // A new row can belong to a month the screen is not showing: follow it there, else refresh in place.
+  // The toast is the whole confirmation on a phone, so it says what was saved. A bank or e-wallet
+  // screenshot (and any other scan) can come back with a field nobody could read; that row is flagged
+  // in its raw_extraction, and the toast says so rather than looking like a clean save.
+  function savedMessage(transaction) {
+    var text = (transaction.merchant || "Transaction") + " · " + money(transaction.amount);
+    var raw = transaction.raw_extraction || {};
+    return raw.needs_review ? text + " · needs review" : text;
+  }
+
   // Every save path — keypad Save, Smart Entry, Scan Receipt — ends here. The flash waits for the
   // sheet to finish closing and for the lists to come back, then animates the row itself: a class
   // would be wiped by the next render, and a flash behind a closing sheet is a flash nobody sees.
@@ -2839,7 +2848,7 @@
       form.append("mode", addMode);
       var transaction = await api("/transactions/scan", { method: "POST", body: form });
       closeAddSheet(); // the new row is on the list behind the sheet, with a toast to confirm
-      afterAdd(transaction, "Receipt saved.");
+      afterAdd(transaction, savedMessage(transaction));   // e.g. "TNG · RM 12.50"
     } catch (error) {
       if (error instanceof ApiError && error.code === "duplicate" && error.transaction) {
         showAddNotice(resultCard(error.transaction, true));

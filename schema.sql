@@ -13,12 +13,19 @@ create table if not exists public.transactions (
   mode          text not null default 'personal' check (mode in ('personal', 'business')),
   items         jsonb,
   receipt_path  text,
+  -- 'receipt_scan' (photo of paper, image kept) | 'bank_screenshot' (image dropped) | 'text' | 'manual'
   source        text,
+  -- sha256 of the dedupe key: a bank reference, or date|amount|merchant(|ten-minute window). NULL rows
+  -- are never deduped (text notes, hand-typed rows, scans with no merchant and no reference).
   dedupe_hash   text unique,
   raw_extraction jsonb
 );
 
-comment on table public.transactions is 'One row per extracted transaction (receipt scan, text or manual).';
+comment on table public.transactions is
+  'One row per extracted transaction (receipt photo, bank/e-wallet screenshot, text or manual).';
+
+-- Storage holds paper receipts only. A bank or e-wallet screenshot is stored as its extracted fields
+-- with receipt_path NULL: the screenshot is evidence of a transaction, not a document we keep.
 
 -- Month listing and summary both filter on (mode, txn_date).
 create index if not exists transactions_mode_txn_date_idx

@@ -6,6 +6,7 @@ number on the wire via `Amount`, which is what Apple Shortcuts expects.
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal, get_args
@@ -28,11 +29,35 @@ Category = Literal[
 CATEGORIES: tuple[str, ...] = get_args(Category)
 
 TxnType = Literal["expense", "income"]
+# What the image turned out to be. Absent means the model could not tell.
+DocumentKind = Literal["receipt", "bank_screenshot"]
 Mode = Literal["personal", "business"]
-Source = Literal["receipt_scan", "text", "manual"]
+# receipt_scan: a photo of a paper receipt (the image is kept).
+# bank_screenshot: a Maybank MAE/M2U, DuitNow, TNG or GrabPay screen — the fields are kept, the image is not.
+Source = Literal["receipt_scan", "bank_screenshot", "text", "manual"]
 
 # Decimal internally (exact money maths), JSON number on the wire (Shortcuts friendly).
 Amount = Annotated[Decimal, PlainSerializer(float, return_type=float, when_used="json")]
+
+
+# An account, card or phone number: 8 or more digits, optionally grouped with spaces or hyphens. Only a
+# whole value is considered, and an ISO date or timestamp is never one of them.
+_ACCOUNT_LIKE = re.compile(r"(?:\d[ -]?){7,}\d")
+_DATE_OR_TIME = re.compile(r"\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?)?")
+
+
+def _mask_account_numbers(value: Any) -> Any:
+    """Replace account-shaped values with a marker, keeping the shape of the data intact."""
+    if isinstance(value, str):
+        text = value.strip()
+        if _ACCOUNT_LIKE.fullmatch(text) and not _DATE_OR_TIME.fullmatch(text):
+            return "[redacted]"
+        return value
+    if isinstance(value, dict):
+        return {key: _mask_account_numbers(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_mask_account_numbers(item) for item in value]
+    return value
 
 
 class LineItem(BaseModel):
@@ -57,14 +82,31 @@ class Extraction(BaseModel):
     category: Category | None = None
     type: TxnType | None = None
     items: list[LineItem] | None = None
+    # A bank or e-wallet screenshot is a different kind of document: no line items, but a reference
+    # number and a time that a paper receipt does not have.
+    document_kind: DocumentKind | None = None
+    reference: str | None = None
+    txn_time: str | None = None   # "HH:MM", 24-hour, as printed on the screen
 
-    @field_validator("merchant", "category", "type", mode="before")
+    @field_validator("merchant", "category", "type", "document_kind", "reference", "txn_time",
+                     mode="before")
     @classmethod
     def _blank_to_none(cls, value: Any) -> Any:
         """Claude sometimes answers "" instead of null."""
         if isinstance(value, str) and not value.strip():
             return None
         return value
+
+    @field_validator("txn_time", mode="after")
+    @classmethod
+    def _time_is_hh_mm(cls, value: str | None) -> str | None:
+        """Keep only a real HH:MM; anything else is treated as unread, never guessed at."""
+        if value is None:
+            return None
+        match = re.fullmatch(r"(\d{1,2}):(\d{2})", value.strip())
+        if not match or int(match.group(1)) > 23 or int(match.group(2)) > 59:
+            return None
+        return f"{int(match.group(1)):02d}:{match.group(2)}"
 
     @field_validator("currency", mode="before")
     @classmethod
@@ -75,12 +117,26 @@ class Extraction(BaseModel):
 
     @property
     def needs_review(self) -> bool:
-        """Basic confidence signal: we could not read the amount or the merchant."""
-        return self.amount is None or self.merchant is None
+        """Confidence signal: a field we could not read, or an unclear direction on a bank screen.
+
+        On a paper receipt the amount only ever goes one way, so a missing `type` means nothing. On a
+        screenshot it decides expense versus income, so an unread one is a flag for a human.
+        """
+        if self.amount is None or self.merchant is None:
+            return True
+        return self.document_kind == "bank_screenshot" and self.type is None
 
     def raw(self) -> dict[str, Any]:
-        """Everything we keep for debugging, including the confidence flag."""
-        return {"needs_review": self.needs_review, "extraction": self.model_dump(mode="json")}
+        """Everything we keep for debugging, including the confidence flag.
+
+        For a bank or e-wallet screenshot this dict is *all* that is kept — the image is never stored —
+        so anything account-shaped is masked before it goes in. The pattern only matches a value that is
+        entirely digits (optionally in groups), so a date, a time or a shop name is never touched.
+        """
+        extraction = self.model_dump(mode="json")
+        if self.document_kind == "bank_screenshot":
+            extraction = _mask_account_numbers(extraction)
+        return {"needs_review": self.needs_review, "extraction": extraction}
 
     def to_row(
         self,
@@ -110,7 +166,14 @@ class Extraction(BaseModel):
             "receipt_path": receipt_path,
             "image_hash": image_hash,
             "source": source,
-            "dedupe_hash": dedupe_hash(source, self.txn_date, self.amount, self.merchant),
+            "dedupe_hash": dedupe_hash(
+                source,
+                self.txn_date,
+                self.amount,
+                self.merchant,
+                reference=self.reference,
+                txn_time=self.txn_time,
+            ),
             "raw_extraction": self.raw(),
         }
 

@@ -208,30 +208,38 @@ async def scan_receipt(
     image_hash = hashlib.sha256(image).hexdigest()
     scanned = db.find_by_image_hash(image_hash)
     if scanned is not None:
-        raise _duplicate(scanned, "This receipt has already been scanned.")
+        raise _duplicate(scanned, "Already recorded.")
 
-    # Claude first: an unreadable receipt must never leave an image in Storage.
+    # Claude first: an unreadable image must never leave a file in Storage.
     extraction = extractor.extract_from_image(image, media_type)
 
-    receipt_path = f"{date.today():%Y/%m}/{uuid.uuid4().hex}{IMAGE_EXTENSIONS[media_type]}"
-    try:
-        db.upload_receipt(receipt_path, image, media_type)
-    except Exception as exc:  # any storage failure is an upstream problem, not a client error
-        logger.exception("Receipt upload to Supabase Storage failed")
-        raise HTTPException(
-            status.HTTP_502_BAD_GATEWAY, f"Receipt upload failed: {exc}"
-        ) from exc
+    # A screenshot of a bank or e-wallet screen is evidence of a transaction, not a document worth
+    # keeping: we store what it said and drop the image. Only a photo of paper goes to Storage.
+    source: Source = (
+        "bank_screenshot" if extraction.document_kind == "bank_screenshot" else "receipt_scan"
+    )
+    receipt_path = None
+    if source == "receipt_scan":
+        receipt_path = f"{date.today():%Y/%m}/{uuid.uuid4().hex}{IMAGE_EXTENSIONS[media_type]}"
+        try:
+            db.upload_receipt(receipt_path, image, media_type)
+        except Exception as exc:  # any storage failure is an upstream problem, not a client error
+            logger.exception("Receipt upload to Supabase Storage failed")
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY, f"Receipt upload failed: {exc}"
+            ) from exc
 
     try:
         return _save(
             extraction,
             mode=mode,
-            source="receipt_scan",
+            source=source,
             receipt_path=receipt_path,
             image_hash=image_hash,
         )
     except Exception:
-        db.delete_receipt(receipt_path)  # a rejected duplicate or a failed insert leaves no orphan
+        if receipt_path:  # a rejected duplicate or a failed insert leaves no orphan
+            db.delete_receipt(receipt_path)
         raise
 
 
@@ -354,24 +362,38 @@ def _save(
     receipt_path: str | None = None,
     image_hash: str | None = None,
 ) -> Transaction:
-    """Turn an extraction into a row and store it."""
+    """Turn an extraction into a row and store it, with every key a duplicate lookup should probe."""
+    row = extraction.to_row(
+        mode=mode, source=source, receipt_path=receipt_path, image_hash=image_hash
+    )
+    assert extraction.amount is not None  # to_row rejects an amount-less extraction
     return _insert(
-        extraction.to_row(
-            mode=mode, source=source, receipt_path=receipt_path, image_hash=image_hash
-        )
+        row,
+        db.dedupe_hashes(
+            source,
+            extraction.txn_date,
+            extraction.amount,
+            extraction.merchant,
+            reference=extraction.reference,
+            txn_time=extraction.txn_time,
+        ),
     )
 
 
-def _insert(row: dict[str, Any]) -> Transaction:
+def _insert(row: dict[str, Any], dedupe_keys: list[str] | None = None) -> Transaction:
     """Insert a row, or answer 409 with the row that already exists.
 
-    Rows with no dedupe hash (text notes, hand-typed rows, merchant-less receipts) always
-    insert, so only receipt scans can ever come back as duplicates.
+    Rows with no dedupe hash (text notes, hand-typed rows, merchant-less scans) always insert, so only
+    scans can come back as duplicates. A bank screenshot without a reference number also probes the
+    ten-minute windows either side of its own, which is what makes "within ten minutes" work when the
+    two scans fall on opposite sides of a window boundary.
     """
     dedupe = row["dedupe_hash"]
     existing = db.find_by_dedupe_hash(dedupe) if dedupe else None
+    if existing is None and dedupe_keys and len(dedupe_keys) > 1:
+        existing = db.find_by_dedupe_hashes(dedupe_keys[1:])
     if existing is not None:
-        raise _duplicate(existing, "This transaction is already recorded.")
+        raise _duplicate(existing, "Already recorded.")
     return Transaction.model_validate(db.insert_transaction(row))
 
 
