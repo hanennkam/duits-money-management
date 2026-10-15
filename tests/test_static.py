@@ -43,6 +43,41 @@ def test_every_icon_is_public_and_short_lived(client: TestClient) -> None:
         assert response.content == (STATIC_DIR / ICONS[url][0]).read_bytes(), url
 
 
+def test_the_add_sheet_has_a_thumb_save_that_stays_in_step(client: TestClient) -> None:
+    """Both Saves are one function with one disabled state, so a double tap cannot post twice."""
+    page = client.get("/").text
+    assert 'class="btn-primary add-save" id="addSaveBtn"' in page, "the thumb-reach Save is missing"
+    # it sits under Scan Receipt and above the keypad
+    body = page[page.index('id="addOverlay"'):page.index('id="txnOverlay"')]
+    assert body.index('id="scanBtn"') < body.index('id="addSaveBtn"') < body.index('id="addKeypad"')
+    assert ".add-save {\n    flex: none; width: 100%; min-height: 52px;" in page, "52px pill expected"
+    # one state, two buttons
+    assert page.count('$("saveAddBtn").disabled = !canSave;') == 1
+    assert page.count('$("addSaveBtn").disabled = !canSave;') == 1
+    # and one save, wired twice
+    assert page.count('addEventListener("click", saveAdd)') == 2
+    # in flight: both are disabled and relabelled
+    assert 'pill.disabled = true;' in page and 'pill.textContent = "Saving' in page
+
+
+def test_the_detail_sheet_swipes_and_its_edit_pill(client: TestClient) -> None:
+    """The detail sheet's swipe surfaces, its scroll gate, and the edit-mode footer."""
+    page = client.get("/").text
+    surfaces = page[page.index("var DRAG_SURFACES"):page.index("var DRAG_BLOCKERS")]
+    for surface in (".kv", ".card-title", ".sheet-title", ".sheet-amount", ".sheet"):
+        assert surface in surfaces, surface + " must be able to start a swipe"
+    # the gate: a sheet that scrolls keeps its own gesture until it is back at the top
+    assert "if (sheet.scrollTop > 0) return;" in page
+    assert '$("txnSheet").scrollTop = 0;' in page, "a fresh or closed sheet must start at the top"
+    # the surfaces the browser must not treat as a pan
+    assert "#txnSheet .kv, #txnSheet .card-title { touch-action: none; }" in page
+    # and the edit pill, in a footer that stays in reach
+    assert 'class="sheet-foot"' in page
+    assert 'class="btn-primary save-changes" id="saveBtn"' in page
+    assert 'class="btn-ghost sheet-cancel-edit" id="cancelEditBtn"' in page
+    assert "position: sticky; bottom: calc(-1 * (20px + var(--sab)));" in page
+
+
 def test_the_icons_are_documented_nowhere_as_api(client: TestClient) -> None:
     paths = client.get("/openapi.json").json()["paths"]
     assert not [path for path in ICONS if path in paths]

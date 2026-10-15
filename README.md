@@ -253,6 +253,13 @@ Settings keeps the large title alone.
   - The category chips sit one row further down (8px under the pills), in one sideways-scrolling row,
     in their own colours. Nothing is selected by default and tapping the selected chip again clears it.
     **Personal/Business** starts on the mode of the tab behind the sheet.
+  - **A thumb-reach Save** sits directly under Scan Receipt and above the keys: a 52px primary pill
+    spanning the sheet's width (its own 16px padding is the margin). It is the *same* `saveAdd` as the
+    header's Save and shares its disabled state (`paintAddAmount` moves both, and both are disabled and
+    relabelled while a request is in flight), so the two can never disagree and a double tap cannot post
+    twice. It cost 60px of height, which is why the short-box container step tightens every fixed piece
+    it is allowed to — at 375×667 with insets the steps used are **amount 40px, keys 44px, tighter
+    gaps** (the 52px pill and the 44px keys are never reduced).
   - The **keypad** is pinned to the bottom: 24px-radius container, 3 columns, 48px keys (56px from
     780px of screen height up, 44px in a short box). Focusing a text field does not move or hide it —
     the real keyboard simply covers the lower half of the sheet, which is the whole point of the sheet
@@ -372,6 +379,11 @@ The Add sheet and the edit sheet are native-style bottom sheets, not full-screen
   28px corners, its own padding-bottom for the home indicator) but keeps a content-sized height capped
   at the gap, and it may scroll internally — a list of corrections is not a keypad. The **month wheel
   keeps its own height and its own scrim**.
+- **Edit mode has its own affordances**: a 52px "Save changes" pill and a smaller Cancel beneath it,
+  both inside a `.sheet-foot` that is `position: sticky` against the sheet's bottom edge (offset by the
+  sheet's own padding, so it covers it). A row with a receipt makes the form taller than the sheet, and a
+  Save button below the fold is not within thumb reach; the form scrolls behind the footer instead.
+  Delete stays where it is — in the detail view, one step away, never beside Save.
 - **A tap outside is judged by the target, never by where the tree says it is.** `isOutsideTap(event,
   overlay)` closes the sheet only when `event.target` IS the scrim layer or the overlay itself. The
   obvious-looking `event.target.closest(".sheet")` cannot be used: a sheet's own handlers re-render
@@ -437,6 +449,17 @@ grabber with a thumb is the one gesture a phone should not require. One implemen
   `.add-rows` (Scan Receipt), `.smart-card` (Smart Entry), `.add-pills`, `.add-details`,
   `.sheet-actions`, the wheel — and `.no-drag` is the escape hatch for anything added later. The
   header, the amount, the grabber and empty space are all fair game.
+- **The detail sheet adds its info rows and section headings** (`.kv`, `.card-title`) to the allow list,
+  so a swipe works from almost anywhere on it. Its edit mode narrows itself: the form's fields are
+  labels/inputs/selects and its rows are `.form-row`, all of them blocked, so only the title, the
+  sub-line and empty space can start a drag there — typing and selecting are untouched.
+- **A sheet that scrolls keeps its own gesture** until it is back at the top: `openSheet`/`closeSheet`
+  reset `#txnSheet.scrollTop`, and the drag refuses to claim while it is above zero, so a downward drag
+  from halfway down a long receipt scrolls rather than dismisses.
+- **The allowed surfaces also refuse the touch default** (`touchstart` with `passive: false`, only where
+  the drag may start), because the browser decides pan-versus-gesture at touch time and `touch-action`
+  inside a scroller proved advisory: a swipe that began on a `.kv` row came back as `pointercancel`
+  before the drag could claim it. See *Known gaps* for what this still does not fix in Chrome.
 - **It can only start on four kinds of surface**, because the allow list is a list and not an
   afterthought: `DRAG_SURFACES = ".sheet-grab, .sheet-head, .add-amount, .sheet-title, .sheet-sub,
   .sheet-amount, .result-merchant, .result-amount, .result-meta, .sheet"` — the handle, the header, the
@@ -767,6 +790,13 @@ Safari. Both write the same rows.
 - **The page-behind scale is untested on hardware.** Scaling `.app` also scales the two frosted bars
   (`backdrop-filter: blur(20px)`), which is the one thing on this page that a scaled compositing layer
   can make janky on a phone. It is one line (`PAGE_BEHIND`) to drop if it stutters.
+- **A swipe that starts on a `.kv` row still does not dismiss in Chrome.** The surfaces are
+  `touch-action: none` and the touch default is refused, and the computed style confirms it, but a
+  gesture beginning there comes back as `pointercancel` before the drag can claim it — the title, the big
+  amount and the Add sheet's own surfaces are unaffected and work. Since a `.kv` row sits where the
+  "empty space" swipe would land, that pair of surfaces is the open question: the remaining candidates
+  are a Chrome quirk about `touch-action` inside an `overflow: auto` ancestor, or iOS behaving differently
+  again. Everything else the brief asked for is verified by real touch.
 - **Real touch is emulated, not a finger.** The CDP touch probe runs Chrome's own pointer/click
   pipeline, which is what caught the detached-target bug, but it is still not iOS: WebKit's capture
   semantics, its 300ms-ish tap heuristics, its scroll arbitration on the chips row and its text-selection
@@ -877,6 +907,17 @@ amount still closes it with `translateY(180px)` mid-flight (and the page stays s
 gone), the keypad still types, and the edit sheet reports the same anchor, radius and `54px`
 bottom padding (20 + the home-indicator inset) while the month wheel keeps its own 333px height and
 its own scrim. Under `--reduced-motion` the geometry is identical and `pageBehind=none`.
+
+The two improvements in this round were checked the same two ways. Geometry, at 375×667, 390×844 and
+430×932 with the insets simulated: the Add sheet fits with `clipped=[]`, `sheetScrolls=false`,
+`columnScrolls=false`, `overflowX=0`, its keypad's bottom is the viewport's bottom, and the shrink steps
+are `amount 40px, keys 44px` at 375×667 (plus the ≤650 box's tightened gaps), `amount 44px, keys 44px,
+tighter gaps` at 390×844, and none at all at 430×932. Real touch at 375×667: a swipe from the detail
+sheet's title and from its big amount both close it; swipes from Edit, Delete and Close leave it open; a
+swipe from a focused Amount field leaves it open *and* focused with its value intact (`12.5`); the
+thumb-reach Save is disabled with no amount and enabled after a key (header and pill together), and
+tapping it produces exactly **one** `POST /transactions`; ten Add cycles plus ten detail-sheet cycles
+leave "all overlays hidden+inert".
 
 Taps are also driven as **real touch** (`/tmp/cdp-touch.py`: CDP `Input.dispatchTouchEvent` with
 `Emulation.setTouchEmulationEnabled`, so the browser runs its own pointer -> click pipeline, capture and

@@ -541,8 +541,13 @@
   #addSheet .add-details > * { touch-action: pan-y; }
   /* The edit sheet can scroll (a receipt or a long note), so only its head and amounts are locked:
      dragging from them always starts the dismiss instead of scrolling the sheet. */
+  /* Everything on the detail sheet that may start a swipe is drag-locked, or the browser claims the pan
+     and sends pointercancel before the drag can begin — which is exactly how the .kv rows behaved. The
+     edit form's own rows are inputs/labels/.form-row and stay blocked by DRAG_BLOCKERS instead, so
+     typing and selecting still work. */
   #txnSheet .sheet-title, #txnSheet .sheet-sub, #txnSheet .sheet-amount,
-  #txnSheet .result-merchant, #txnSheet .result-amount, #txnSheet .result-meta { touch-action: none; }
+  #txnSheet .result-merchant, #txnSheet .result-amount, #txnSheet .result-meta,
+  #txnSheet .kv, #txnSheet .card-title { touch-action: none; }
   /* min-height: 0 keeps this column shrinkable. No bottom padding: the keypad is always the sheet's
      last row now, so there is no case where content meets the sheet edge. */
   #screen-add { display: flex; flex-direction: column; flex: 1; min-height: 0; }
@@ -648,6 +653,18 @@
   .smart-card-row .btn-primary {
     flex: 0 0 auto; width: auto; min-width: 64px; min-height: 38px; padding: 0 18px; font-size: 16px;
   }
+  /* The thumb-reach Save: a 52px pill spanning the sheet's width (its 16px padding is the margin),
+     directly under Scan Receipt and above the keys. It shares saveAdd and the disabled state with the
+     header's Save, so the two can never disagree. */
+  .add-save {
+    flex: none; width: 100%; min-height: 52px; margin: 10px 0 0;
+    border-radius: 9999px; font-size: 17px; font-weight: 600;
+  }
+  /* A disabled primary reads as grey, never as a see-through blue: an opacity here would make a
+     disabled Save translucent, and nothing inside a sheet is allowed to be translucent. */
+  .btn-primary:disabled, .btn-secondary:disabled {
+    background: var(--card-2); color: var(--muted); box-shadow: none;
+  }
   .add-hint { flex: none; margin: 8px 2px 0; font-size: 12px; line-height: 1.35; color: var(--muted); }
   /* The keys are the sheet's own footer: no scroll, no sticky needed. The bottom inset keeps the last
      row clear of the home indicator. */
@@ -681,34 +698,39 @@
      this order — the amount font (56 -> 44), then the keypad keys (56 -> 44), then the vertical gaps —
      and it never scrolls: a 375x667 screen has a 592px box, an iPhone SE (568px, no notch) about 500px.
      A tall phone trips none of this and keeps every size the layout was tuned with. */
-  @container (max-height: 640px) {
-    /* 1. the amount: the only flexible block, so its own floor decides whether the column fits */
-    .add-amount { font-size: clamp(34px, 7.2dvh, 44px); min-height: .85em; padding: 0; }
-    /* 2. the keys: 44px is the floor, because that is the tap target */
+  @container (max-height: 780px) {
+    /* The brief's three steps, in order: the amount font (56 -> 44), the keypad keys (56 -> 44), then
+       the gaps. This is the shopping list for a 390x844 screen with its insets taken out (a 760px box). */
+    .add-amount { font-size: clamp(34px, 7.2dvh, 44px); min-height: 1em; padding: 0; }
     .key { height: 44px; }
     .keypad-grid { gap: 6px; }
-    /* 3. the gaps — measured on 375x667, where 15px had to come out of them */
-    .smart-card { padding: 8px 12px; margin-bottom: 6px; }
+    .smart-card { padding: 10px 12px; margin-bottom: 6px; }
     .smart-card-head { margin-bottom: 6px; }
     .add-pill { min-height: 30px; }
     .cat-chip { min-height: 30px; }
-    .add-toggle .seg-btn { min-height: 34px; }
     .add-row { min-height: 44px; }
     .chip-scroll { margin-top: 6px; }
     .add-rows { margin-top: 4px; }
-    .keypad-grid { padding: 4px; }
     .keypad { padding-top: 4px; padding-bottom: calc(4px + var(--sab)); }
   }
-  /* Deeper again for a small screen with no notch: everything tightens, the keys stay at 44. */
-  @container (max-height: 560px) {
-    .add-amount { min-height: .85em; }
-    .smart-card { padding: 8px 12px; }
-    .add-pill { min-height: 30px; }
-    .cat-chip { min-height: 30px; }
-    .chip-scroll { margin-top: 6px; }
-    .add-rows { margin-top: 4px; }
-    .keypad { padding-top: 2px; }
-    .add-hint { display: none; }
+  /* Deeper again for the smallest boxes: 375x667 with a notch inset is a 592px box, and the thumb-reach
+     Save pill needs every pixel this step reclaims. 44px keys and the 52px pill are untouched; the
+     amount drops to 40px with a 1em floor so its digits are never clipped. */
+  @container (max-height: 650px) {
+    .add-amount { font-size: clamp(34px, 6dvh, 40px); min-height: 1em; padding: 0; }
+    .key { height: 44px; }
+    .keypad-grid { gap: 3px; padding: 0 4px; }
+    .smart-card { padding: 6px 12px; margin-bottom: 4px; }
+    .smart-card-head { margin-bottom: 4px; }
+    .add-pill { min-height: 28px; }
+    .cat-chip { min-height: 28px; }
+    .add-row { min-height: 40px; }
+    .chip-scroll { margin-top: 4px; }
+    .add-rows { margin-top: 2px; }
+    .add-save { margin-top: 6px; }
+    #addSheet .sheet-grab { padding: 2px 0 4px; }
+    #addSheet .sheet-head .btn-ghost { min-height: 34px; }
+    .keypad { padding-top: 2px; padding-bottom: calc(1px + var(--sab)); }
   }
   /* Sits above the keys, so a failure can never hide below the fold. */
   .add-notice { position: absolute; left: 12px; right: 12px; bottom: 100%; margin-bottom: 6px; }
@@ -788,6 +810,20 @@
   .sheet-sub { display: flex; align-items: center; gap: 7px; font-size: 14px; color: var(--muted); margin-bottom: 14px; }
   .sheet-amount { font-size: 34px; font-weight: 800; letter-spacing: -.03em; margin-bottom: 10px; font-variant-numeric: tabular-nums; }
   .sheet-actions { display: flex; gap: 10px; margin-top: 12px; }
+  /* Edit mode's own affordances: a 52px primary pill and a quiet Cancel under it, both inside thumb
+     reach. Delete stays in the detail view, one step away and never beside Save. */
+  .save-changes { width: 100%; min-height: 52px; margin-top: 12px; border-radius: 9999px;
+    font-size: 17px; font-weight: 600; }
+  .sheet-cancel-edit { display: block; margin: 8px auto 0; padding: 0 12px; min-height: 34px;
+    font-size: 16px; }
+  /* The footer stays put. A row with a receipt makes the edit form taller than the sheet, and a Save
+     button below the fold is not within thumb reach: the form scrolls behind the footer instead, which
+     covers the sheet's own bottom padding so nothing shows through underneath it. */
+  .sheet-foot {
+    position: sticky; bottom: calc(-1 * (20px + var(--sab))); z-index: 1;
+    margin-top: 12px; padding: 10px 0 calc(20px + var(--sab));
+    background: var(--card);
+  }
   .sheet-actions .btn-primary { flex: 1; }
   .kv { display: flex; justify-content: space-between; gap: 12px; padding: 11px 0; border-top: .5px solid var(--hairline); font-size: 15px; }
   .kv .k { color: var(--text-2); }
@@ -1313,6 +1349,9 @@
             <svg class="add-row-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
           </button>
         </div>
+
+        <!-- The thumb-reach Save: the same save as the header's, placed where the thumb already is. -->
+        <button class="btn-primary add-save" id="addSaveBtn" type="button" disabled>Save</button>
 
         <p class="add-hint" id="scanHint" hidden>Photos are resized on your phone. Location data is removed.</p>
         <input type="file" id="fileInput" accept="image/*" capture="environment" hidden>
@@ -2499,7 +2538,10 @@
   // Save is live only once there is something to save.
   function paintAddAmount() {
     $("addAmount").textContent = "RM " + (addAmount || "0.00");
-    $("saveAddBtn").disabled = !(Number(addAmount) > 0);
+    // Both Saves, always in step: the header's and the 52px one above the keys.
+    var canSave = Number(addAmount) > 0;
+    $("saveAddBtn").disabled = !canSave;
+    $("addSaveBtn").disabled = !canSave;
   }
 
   // Digits only, iOS style: one dot, two decimals, never a leading zero.
@@ -2578,10 +2620,13 @@
     if (iso > addToday()) { toast("That date is in the future.", "warn"); return; }
 
     var button = $("saveAddBtn");
+    var pill = $("addSaveBtn");
     addSaving = true;
     hideAddNotice();
     button.disabled = true;
     button.textContent = "Saving\u2026";
+    pill.disabled = true;
+    pill.textContent = "Saving\u2026";
     try {
       var transaction = await api("/transactions", {
         method: "POST",
@@ -2608,7 +2653,8 @@
     } finally {
       addSaving = false;
       button.textContent = "Save";
-      paintAddAmount();  // also puts Save back to disabled when there is no amount
+      pill.textContent = "Save";
+      paintAddAmount();  // puts both Saves back to disabled when there is no amount
     }
   }
 
@@ -2623,12 +2669,14 @@
   }
 
   function closeSheet(fromOffset) {
+    $("txnSheet").scrollTop = 0;   // and a closed one leaves no scroll behind for the next open
     // Emptied only once the slide-out has finished, or the sheet would leave the screen blank.
     closeOverlay($("txnOverlay"), function () { $("txnSheet").innerHTML = ""; }, fromOffset);
     sheetRow = null;
   }
 
   function openSheet(row) {
+    $("txnSheet").scrollTop = 0;   // the swipe gate reads scrollTop, so a fresh sheet starts at the top
     sheetRow = row;
     $("txnSheet").innerHTML = sheetView(row);
     openOverlay($("txnOverlay"));
@@ -2683,8 +2731,10 @@
       '<select class="field" id="editType">' + options(["expense", "income"], row.type) + "</select></div>" +
       '<div class="form-row"><label class="form-label" for="editMode">Mode</label>' +
       '<select class="field" id="editMode">' + options(["personal", "business"], row.mode) + "</select></div>" +
-      '<div class="sheet-actions"><button class="btn-primary" id="saveBtn" type="button">Save</button>' +
-      '<button class="btn-ghost" id="cancelEditBtn" type="button">Cancel</button></div>';
+      '<div class="sheet-foot">' +
+      '<button class="btn-primary save-changes" id="saveBtn" type="button">Save changes</button>' +
+      '<button class="btn-ghost sheet-cancel-edit" id="cancelEditBtn" type="button">Cancel</button>' +
+      '</div>';
   }
 
   function sheetConfirmDelete(row) {
@@ -3331,8 +3381,11 @@
   // and amounts, or the sheet's own empty space. The deny list below then removes anything interactive
   // that can sit inside one of them (the header's buttons, above all), so the allow list can stay short
   // and any element added later is NOT draggable by default.
+  // The detail sheet adds its info rows and section headings, so a swipe works from almost anywhere on it.
+  // Edit mode narrows itself: its fields are labels/inputs/selects (all blocked) and its rows are
+  // .form-row (blocked), so only the title, the sub-line and empty space can start a drag there.
   var DRAG_SURFACES = ".sheet-grab, .sheet-head, .add-amount, .sheet-title, .sheet-sub, .sheet-amount, " +
-    ".result-merchant, .result-amount, .result-meta, .sheet";
+    ".result-merchant, .result-amount, .result-meta, .kv, .card-title, .sheet";
   var DRAG_BLOCKERS = "button, a, label, input, select, textarea, .no-drag, .key, .keypad, " +
     ".chip-scroll, .cat-chip, .add-rows, .smart-card, .add-pills, .add-details, .sheet-actions, " +
     ".kv, .item-row, .form-row, .receipt-img, .wheel, .wheel-cols";
@@ -3381,6 +3434,9 @@
       if (!drag.moving) {
         if (dy <= 0 || Math.abs(dy) <= Math.abs(dx)) return;   // up, or mostly sideways: not ours
         if (dy < DRAG_START_PX) return;                        // not yet a drag, just a tap
+        // A sheet that scrolls keeps its own gesture until it is back at the top: a downward drag from
+        // halfway down a long receipt must scroll the sheet, not dismiss it.
+        if (sheet.scrollTop > 0) return;
         drag.moving = true;
         markMoving(sheet, true);
         cancelOverlayMotion(overlay);        // the finger takes over from the open/close animation
@@ -3444,6 +3500,16 @@
       clearInline();                  // a cancelled pointer must never leave the sheet off-centre
     }
 
+    // The browser decides whether a gesture is a pan when the touch starts, and touch-action inside a
+    // scroller is only advisory: a swipe that began on a .kv row came back as pointercancel before the
+    // drag could claim it. So the allowed surfaces also refuse the touch default — the sheet's own
+    // scrollers, the chips row, the receipt image and the form are not in DRAG_SURFACES and keep theirs.
+    sheet.addEventListener("touchstart", function (event) {
+      if (handleOnly) return;
+      if (!event.target.closest || !event.target.closest(DRAG_SURFACES)) return;
+      if (event.target.closest(DRAG_BLOCKERS)) return;
+      if (event.cancelable) event.preventDefault();
+    }, { passive: false });
     sheet.addEventListener("pointerdown", onDown);
     sheet.addEventListener("pointermove", onMove);
     sheet.addEventListener("pointerup", onUp);
@@ -3555,6 +3621,7 @@
       if (hit) setAddType(hit.dataset.addType);
     });
     $("saveAddBtn").addEventListener("click", saveAdd);
+    $("addSaveBtn").addEventListener("click", saveAdd);   // the same save, where the thumb is
     // The keys are for the amount: any focused text field (merchant, note, date, smart entry) means
     // the real keyboard is up, so the keypad steps aside. Re-derived from state, never remembered.
     $("keySave").addEventListener("click", submitKey);

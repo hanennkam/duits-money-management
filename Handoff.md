@@ -25,6 +25,31 @@ SETTINGS, ADD NEW TRANSACTION). **All five screens are built and in use.**
 
 Completed since the last handoff (all verified, see §3):
 
+- **Swipe-to-close extended to the detail sheet, and a thumb-reach Save in the Add sheet.**
+  - `DRAG_SURFACES` gained `.kv` and `.card-title`, so the detail sheet can be dismissed from its info
+    rows and section headings as well as its title/amount/empty space. Its edit mode narrows itself
+    (fields are labels/inputs/selects, rows are `.form-row` — all blocked). The surfaces a swipe may
+    start on also get `touch-action: none`, and — because the browser decides pan-versus-gesture at
+    touch time and `touch-action` inside a scroller proved advisory — an explicit `touchstart` guard
+    (`passive: false`, allowed surfaces only) refuses the touch default.
+  - New scroll gate: `if (sheet.scrollTop > 0) return;` on the claim, with `openSheet`/`closeSheet`
+    resetting `#txnSheet.scrollTop`, so a sheet that scrolls keeps its own gesture until it is at the top.
+  - **Add sheet**: a 52px full-width primary pill `#addSaveBtn` under Scan Receipt and above the keypad,
+    sharing `saveAdd` and the disabled state with the header's Save (`paintAddAmount` moves both; both
+    are disabled and relabelled while a request is in flight). It cost 60px, so the container steps were
+    retuned: the first step now triggers at a **780px** box (so a 390×844 screen with insets takes
+    `amount 44px, keys 44px, tighter gaps`), and a deeper **650px** step covers 375×667-with-insets
+    (`amount 40px, keys 44px` + tightened gaps; the 44px keys and the 52px pill are never reduced). The
+    amount's floor is now `1em` at both steps, because a 44px glyph in a 35px box was being clipped by
+    the block's own `overflow: hidden`.
+  - **Edit mode**: a 52px "Save changes" pill and a smaller Cancel in a `.sheet-foot` that is
+    `position: sticky` against the sheet's bottom (offset by the sheet's own padding so it covers it) —
+    a row with a receipt makes the form taller than the sheet, and a Save below the fold is not within
+    thumb reach. Delete stays in the detail view.
+  - **Disabled primaries are grey, not transparent** (`background: var(--card-2); color: var(--muted)`) —
+    an `opacity` there made the disabled pill translucent, which tripped the "nothing in a sheet is
+    translucent" invariant from the previous round.
+
 - **The real cause of both phone symptoms: an outside-tap guard that re-queried a detached node.**
   `!event.target.closest(".sheet")` was used to decide whether a click landed on the scrim. A sheet's own
   handlers re-render their content — tapping a category chip redraws the whole chips row, tapping Edit or
@@ -381,7 +406,42 @@ Decisions worth knowing:
 
 ## 3. Validation (all executed this session)
 
-**This session — chip taps and edit/delete on the phone (all re-run after the final edit):**
+**This session — detail-sheet swipes and the thumb-reach Save (all re-run after the final edit):**
+
+- `./.venv/bin/python -m pytest -q` → **87 passed** (two new tests:
+  `test_the_add_sheet_has_a_thumb_save_that_stays_in_step` — the pill exists between Scan Receipt and the
+  keypad, both `disabled` lines move together, `saveAdd` is wired twice, the in-flight relabel exists —
+  and `test_the_detail_sheet_swipes_and_its_edit_pill` — `.kv`/`.card-title` are drag surfaces, the
+  scroll gate and the two `scrollTop` resets exist, the `touch-action` rule is there, and the edit
+  footer/pill/Cancel markup plus the sticky offset are pinned).
+- `node /tmp/duits-ui-check.js` → **777 assertions** / **919 in total** (+22: the pill's markup/position,
+  both disabled lines, the double `saveAdd` wiring, a behavioural check that a keypad key enables *and*
+  the backspace disables both buttons, the new surfaces, the gate, the touchstart guard, and the edit
+  footer's markup + sticky rule; the `preventDefault` count pin moved 2 → 3 and the container-query pins
+  to the new 780/650 thresholds). `closeSheet` was added to the exposed surface.
+- **Geometry** with insets simulated: at **375×667** the sheet reports `clipped=[]`,
+  `sheetScrolls=false`, `columnScrolls=false`, `overflowX=0`, the keypad's `bottom` = the viewport's
+  bottom, and the steps used are **`amount 40px, keys 44px`** (plus the ≤650 box's tightened gaps); at
+  **390×844** `amount 44px, keys 44px, tighter gaps`; at **430×932** nothing fires and it still fits.
+- **Real touch** (`/tmp/cdp-touch.py`, touch emulation), 375×667: a swipe from the detail sheet's
+  `#txnSheet .sheet-title` closes it and so does one from `#txnSheet .sheet-amount`; swipes from
+  `#editBtn`, `#deleteBtn` and `#closeSheetBtn` all leave it open; a swipe from a focused `#editAmount`
+  leaves it open **and focused** with the value intact (`focused before=editAmount after=editAmount |
+  field value=12.5`); the pill is `disabled` with no amount and enabled after a key for both buttons;
+  tapping it produced exactly one `POST /transactions` and closed the sheet; ten Add cycles + ten
+  detail-sheet cycles → **"all overlays hidden+inert"**. The earlier fixes were re-checked in the same
+  run: ten chip taps `selections=10 closes=0`, a chip tap after scrolling the row, Edit → form → Save →
+  one `PATCH` → sheet closed.
+- Regressions: button cycles `10/10` with nothing stuck; drag surfaces (header/amount/empty space close,
+  a slow drag springs back); the sheet-opacity frame check back to **`translucentFrames=0`** after the
+  disabled pill stopped using `opacity`.
+- **Not fixed, and not guessed at:** a swipe that *starts on a `.kv` row* still returns `pointercancel`
+  in Chrome. `#txnSheet .kv` computes to `touch-action: none`, `elementFromPoint` at the swipe point
+  resolves to that `.kv` (also `none`), `scrollTop` is 0 and the sheet does not even scroll for that row,
+  and the new `touchstart` guard refuses the touch default — and it still cancels. Since a `.kv` row is
+  where the "empty space" swipe lands, that pair is the one surface pair left unproven.
+
+**Previous session — chip taps and edit/delete on the phone (all re-run after the final edit):**
 
 - `./.venv/bin/python -m pytest -q` → **85 passed** (two new tests pin the fix on the served page:
   `test_the_sheet_tap_guards_are_target_based` — the helper exists, the guard is the target comparison,
@@ -699,6 +759,22 @@ Decisions worth knowing:
   with and without the mark (`barHeightMoved=false`), `barOverflow=no`, refresh button still 34px.
 
 ## 4. Unresolved issues / risks
+
+- **A swipe starting on a `.kv` row still gets `pointercancel` in Chrome** (see §3 for the evidence: the
+  computed `touch-action` is `none`, the hit element is that row, `scrollTop` is 0, the touch default is
+  refused, and it still cancels). Title, big amount and every Add-sheet surface work. Because a `.kv` row
+  is also where the "empty space" swipe lands, that pair of surfaces is the one item in the brief that is
+  not proven. The remaining candidates are a Chrome quirk about `touch-action` inside an `overflow: auto`
+  ancestor and iOS behaving differently again; the next step is to instrument the drag on a device rather
+  than to guess.
+- **375×667 with a notch inset is now a tight fit.** The thumb-reach Save needed 60px, so the deeper
+  container step reclaims it from paddings, gaps, the handle, the header's ghost buttons and the amount
+  (40px with a 1em floor). It measures `overflow=0`, but there is no slack: a longer label or a larger
+  font would tip it into clipping, because the column does not scroll by design.
+- **The sticky edit footer is new on a real device.** `position: sticky` inside `#txnSheet` (which is
+  itself `overflow-y: auto`) is what keeps Save in reach on a long form; WebKit's sticky-plus-scroller
+  behaviour is unverified from here, as is whether the footer's own background covers the form cleanly at
+  the sheet's rounded bottom corners.
 
 - **The tap fix is verified with emulated touch, not a finger.** The CDP touch probe runs Chrome's own
   pointer → click pipeline (capture, target resolution, scroll arbitration), which is what reproduced the
