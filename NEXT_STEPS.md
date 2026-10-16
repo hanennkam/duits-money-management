@@ -463,6 +463,11 @@ place, with a backup taken — subtler than data loss and just as final. It cost
 staging `--apply` was always optional verification, and the live run does its own `--apply` where every
 path already belongs to a real owner and no such ambiguity exists.
 
+**Release condition — either answer lifts the gate.** *Ours:* the rows stay, the path is no longer needed
+as evidence, `--apply` proceeds. *Not ours:* the rows and accounts are deleted by explicit id with counts
+before and after, and `--apply` proceeds with fewer legacy rows. Record the release in this section when
+it happens, so the freeze does not linger as another stale doc rule.
+
 The instruction was revised to **hold**, and the evidence backs that up. They are **not** my accounts —
 mine are `duits-staging-a/b@example.com`. Two things make them worth treating as real until you have
 checked:

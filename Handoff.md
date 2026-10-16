@@ -3,6 +3,9 @@
 Current state only. Rules for agents are in `AGENTS.md`. Older session logs (with their now-removed
 features and unreproducible `/tmp` measurements) are in `docs/handoff-archive.md`.
 
+**Status: this file is secondary.** Where it conflicts with `NEXT_STEPS.md`, `NEXT_STEPS.md` is
+authoritative — parts of this file were written before the multi-user work and have not been re-checked.
+
 Update this file after each coding task: keep it factual, don't paste source, and don't claim a test
 passed unless you ran it in that session.
 
@@ -30,7 +33,8 @@ passed unless you ran it in that session.
      app needs `ALLOW_LEGACY_API_KEY=true` and `LEGACY_USER_ID=<owner's id>`, and the iOS Shortcut depends on the
      same flag. Personal access tokens for the Shortcut are not built.
   4. **Sign-up is still open** in the live project. Close it in the Supabase dashboard before any second user exists.
-- `./.venv/bin/python -m pytest -q` → **167 passed** on `multi-user` (step 2). Last recorded on `main`: 98 passed.
+- `./.venv/bin/python -m pytest -q` — the full suite must pass; read the count from the summary it prints,
+  never from a number written in a doc (this one included).
 - **No automated UI test exists in the repo.** `tests/test_static.py` pins strings in the page; it does not
   run the page. See §5.
 
