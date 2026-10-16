@@ -544,7 +544,8 @@ full detail; this is the summary.
      untouched). uvicorn does not timestamp access lines, so it cannot be dated; the only anchor is that it
      is the first request logged by that server process. The server has been restarted several times, so
      earlier logs are gone. (The export's own log scan missed this line by construction — it filtered to
-     phone writes, `192.168.1.4` only.)
+     phone writes, `192.168.1.4` only — and the shell-directory copy of that process's log is now gone too,
+     so the export copy under `~/Backups/duits-staging-2026-10-16/logs/` is the only surviving one.)
    - Row counts move continuously from phone testing and from test runs creating and deleting rows, so the
      delta is inside normal noise.
    - The migration is excluded: it provably does not delete rows (6 → 6 → 6 → 6 locally, and 30 → 30
