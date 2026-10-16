@@ -30,6 +30,7 @@ README.md
 requirements.txt   # production runtime deps (what the Dockerfile installs)
 requirements-dev.txt  # `-r requirements.txt` plus pytest + httpx, for local tests
 Dockerfile         # production image: non-root user, no secrets baked in
+render.yaml        # Render blueprint: sets PORT=10000 and the health check. No secrets in it
 .dockerignore      # keeps .env, .venv, tests and caches out of the build context
 .gcloudignore      # UNUSED (old Google Cloud Run setup); Render does not read it, safe to delete
 pyproject.toml     # pytest config
@@ -97,9 +98,12 @@ Production runs on **Render** as a free **web service** built from the repo's `D
   the per-IP throttle described below.
 
 Deploy steps: create the web service from the GitHub repo, choose **Docker** as the runtime (the `Dockerfile`
-is used as-is; nothing is passed as build args), add the variables below, then deploy. The service already
-runs on Render, so check the `PORT` env var in the dashboard if you need to confirm it; do not change the
-`Dockerfile` default.
+is used as-is; nothing is passed as build args), add the variables below, then deploy.
+
+**`PORT` is set by `render.yaml` to `10000`.** The image's start command is
+`exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}`, so it binds whatever `PORT` says and falls
+back to `8000` when the variable is absent (local runs). Keep the `Dockerfile` default at `8000`; the
+platform supplies the real value. Verified locally with `PORT=10000`.
 
 The `.gcloudignore` file is **unused**. It came from an earlier Google Cloud Run setup and Render does not
 read it. It can be deleted.
@@ -125,7 +129,7 @@ store); never commit them, never bake them into the image or pass them as build 
 | `RECEIPTS_BUCKET` | no | defaults to `receipts` |
 | `MAX_UPLOAD_BYTES` | no | defaults to `10485760` (10 MB) |
 | `ENVIRONMENT` | no | set to `production` to switch `/docs`, `/redoc` and `/openapi.json` off |
-| `PORT` | no | port uvicorn binds inside the container, defaults to `8000` |
+| `PORT` | no | port uvicorn binds inside the container. `render.yaml` sets it to `10000`; the `Dockerfile` default is `8000` |
 
 If a required variable is missing or blank, startup aborts with a message naming exactly which
 ones — never their values. The rest of "Setup" above still applies (Supabase project, `schema.sql`,

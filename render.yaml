@@ -1,0 +1,21 @@
+# Render blueprint. The service is a Docker web service; the image is the repo's Dockerfile.
+#
+# PORT is set here on purpose. The image's start command is
+#   exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
+# so it binds whatever PORT says and falls back to 8000 when the variable is absent (local runs).
+# Render's own default is 10000; pinning it here means the dashboard and the container agree.
+#
+# Secrets are deliberately NOT listed below. They are set by hand in the Render dashboard
+# (Environment tab) and never appear in this file or in the image. See README.md for the full list.
+
+services:
+  - type: web
+    name: duits
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: "10000"
