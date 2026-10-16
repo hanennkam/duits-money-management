@@ -151,6 +151,28 @@ def test_sign_in_uses_the_rest_auth_endpoints_not_a_sdk(client: TestClient) -> N
     assert "<script src=" not in page, "no external script may be loaded"
 
 
+def test_recover_sends_a_redirect_target_that_matches_the_allow_list(client: TestClient) -> None:
+    """The recovery link has to come back to a URL that is allow-listed in the Supabase project.
+
+    That is the origin plus "/", not the pathname: a page opened as /index.html would otherwise send a
+    redirect_to that the allow-list rejects and the link would never land back on the app.
+    """
+    page = client.get("/").text
+    assert 'redirect_to: redirectTarget()' in page, "the recover call must send redirect_to"
+    assert 'return window.location.origin + "/";' in page
+    assert "window.location.origin + window.location.pathname" not in page
+
+
+def test_recover_answers_with_one_generic_message(client: TestClient) -> None:
+    """Sent or not, the answer is the same, so the form cannot be used to test which addresses exist."""
+    page = client.get("/").text
+    assert 'If that address has an account, a link is on its way.' in page
+    body = page[page.index('if (authView === "forgot")'):page.index('if (authView === "forgot")') + 700]
+    # Both outcomes share one call and one message: `sent.ok ? generic : generic`.
+    assert body.count('setAuthView("forgot", sent.ok') == 1
+    assert "sent.ok" in body and "authError(sent)" in body
+
+
 def test_refreshes_are_serialised_so_only_one_runs_at_a_time(client: TestClient) -> None:
     page = client.get("/").text
     assert "var refreshInFlight = null;" in page

@@ -2103,8 +2103,10 @@
   }
 
   function redirectTarget() {
-    // Where Supabase sends the invite or recovery link back to. It must be allow-listed in the project.
-    return window.location.origin + window.location.pathname;
+    // Where Supabase sends the recovery link back to. It must match the allow-listed URL exactly, so it
+    // is the origin plus "/" — never window.location.pathname, which would be "/index.html" if the page
+    // were opened that way and would then fail Supabase's allow-list.
+    return window.location.origin + "/";
   }
 
   function readAuthRedirect() {
