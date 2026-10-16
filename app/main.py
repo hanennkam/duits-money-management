@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
+import re
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -29,7 +31,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from app import db, extractor
 from app.auth import require_api_key
@@ -118,15 +120,35 @@ async def upstream_error_handler(_request: Request, exc: extractor.UpstreamError
     )
 
 
+BUILD_PLACEHOLDER = "{{BUILD}}"
+COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
+
+
+def build_stamp() -> str:
+    """The Build row's text: the short commit Render deployed, or "dev" when it is not running on Render.
+
+    RENDER_GIT_COMMIT is the full SHA, set by Render at runtime. Anything that is not a full SHA is dropped
+    rather than written into the page.
+    """
+    commit = os.environ.get("RENDER_GIT_COMMIT", "").strip().lower()
+    short = commit[:7] if COMMIT_SHA.fullmatch(commit) else "dev"
+    return f"{short} · fullscreen"
+
+
 @app.get("/", include_in_schema=False)
-async def index() -> FileResponse:
+async def index() -> HTMLResponse:
     """The mobile-first UI. Public, but every API call it makes needs X-API-Key.
 
     ``no-store``: the page is never written to a cache at all. It carries the icon links and all of the
     CSS and JS inline, so a stale copy is a page with the wrong behaviour — and a Home Screen shortcut
     is exactly where one would survive. Freshness wins over the cost of re-sending the page.
+
+    The Build row's placeholder is filled with the deployed commit on every request.
     """
-    return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-store"})
+    page = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    return HTMLResponse(
+        page.replace(BUILD_PLACEHOLDER, build_stamp()), headers={"Cache-Control": "no-store"}
+    )
 
 
 # The app icon: iOS probes apple-touch-icon(-120x120|-152x152).png by name, and Safari wants a plain

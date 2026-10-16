@@ -97,6 +97,33 @@ def test_the_page_is_never_stored(client: TestClient) -> None:
     assert "max-age" not in home.headers["Cache-Control"]
 
 
+DEPLOYED_SHA = "8f39d7e4b1c2a09e6d5f4a3b2c1d0e9f8a7b6c5d"
+
+
+def test_the_build_row_shows_the_deployed_commit(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """On Render, GET / carries the short SHA in both places the Build row reads it, and stays uncached."""
+    monkeypatch.setenv("RENDER_GIT_COMMIT", DEPLOYED_SHA)
+    response = client.get("/")
+    assert response.headers["Cache-Control"] == "no-store"
+    assert response.headers["content-type"].startswith("text/html")
+    page = response.text
+    assert "{{BUILD}}" not in page
+    assert page.count("8f39d7e · fullscreen") == 2  # the default span and the BUILD constant
+
+
+def test_the_build_row_is_dev_without_render(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Local runs have no RENDER_GIT_COMMIT, so the row says dev; anything but a full SHA is never injected."""
+    monkeypatch.delenv("RENDER_GIT_COMMIT", raising=False)
+    response = client.get("/")
+    assert response.headers["Cache-Control"] == "no-store"
+    assert "{{BUILD}}" not in response.text
+    assert response.text.count("dev · fullscreen") == 2
+
+    monkeypatch.setenv("RENDER_GIT_COMMIT", "<script>alert(1)</script>")
+    assert "dev · fullscreen" in client.get("/").text
+    assert "<script>alert(1)" not in client.get("/").text
+
+
 def test_the_sheet_tap_guards_are_target_based(client: TestClient) -> None:
     """A tap must be dismissed only when it IS the scrim, never by re-querying a detached node.
 
