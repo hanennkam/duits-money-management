@@ -33,6 +33,9 @@ class Settings(BaseModel):
     claude_fallback_model: str = DEFAULT_CLAUDE_FALLBACK_MODEL
     receipts_bucket: str = DEFAULT_RECEIPTS_BUCKET
     max_upload_bytes: int = DEFAULT_MAX_UPLOAD_BYTES
+    # The browser signs in with this. It is public by design (Supabase publishable/anon key), and the only
+    # key that ever reaches the page. Blank means the web UI cannot sign in; the API and Shortcut still work.
+    supabase_publishable_key: str = ""
     # Temporary fallback for the single-owner period: X-API-Key acts as legacy_user_id. Off by default.
     allow_legacy_api_key: bool = False
     legacy_user_id: UUID | None = None
@@ -110,4 +113,5 @@ def get_settings() -> Settings:
         claude_fallback_model=env_value("CLAUDE_FALLBACK_MODEL") or DEFAULT_CLAUDE_FALLBACK_MODEL,
         receipts_bucket=env_value("RECEIPTS_BUCKET") or DEFAULT_RECEIPTS_BUCKET,
         max_upload_bytes=max_upload_bytes(),
+        supabase_publishable_key=env_value("SUPABASE_PUBLISHABLE_KEY") or "",
     )

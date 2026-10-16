@@ -117,7 +117,8 @@ store); never commit them, never bake them into the image or pass them as build 
 | `ALLOW_LEGACY_API_KEY` | no | temporary single-owner fallback, **off by default**. When `true`, `X-API-Key: <API_KEY>` acts as `LEGACY_USER_ID` |
 | `LEGACY_USER_ID` | only with the flag | the owner's `auth.users` id (a UUID). The app refuses to start with the flag on and this unset or invalid |
 | `SUPABASE_URL` | yes | your project URL |
-| `SUPABASE_SERVICE_KEY` | yes | `service_role` key — server-side only, it bypasses RLS |
+| `SUPABASE_SERVICE_KEY` | yes | `service_role` key — server-side only, it bypasses RLS. Never sent to the page |
+| `SUPABASE_PUBLISHABLE_KEY` | for the web UI | the publishable (anon) key the **browser** signs in with; injected into the page at serve time. Public by design. Empty means the web UI cannot sign in (the API and the Apple Shortcut are unaffected) |
 | `ANTHROPIC_API_KEY` | yes | Claude API key |
 | `CLAUDE_MODEL` | no | defaults to `claude-sonnet-4-5` |
 | `CLAUDE_FALLBACK_MODEL` | no | defaults to `claude-sonnet-5-5`. Check the model ID against Anthropic's docs |
@@ -303,8 +304,26 @@ Settings keeps the large title alone.
 
   Opening `app/static/index.html` from disk shows `{{BUILD}}`; only the served page is filled in.
 
-The API key is asked for on first load and kept in `localStorage` under `apiKey`; it is never
-in the HTML or in this repo. A `401` clears it and re-prompts. Add to Home Screen works like an
+**Signing in.** The page has an email + password screen (invite only, no sign-up) that talks to Supabase
+Auth over its REST endpoints — no SDK, no CDN, no build step. The session (access and refresh tokens) is
+kept in `localStorage` under `duits.session`, and every API call sends it as `Authorization: Bearer`. A
+`401` triggers one token refresh (serialised, so a burst of 401s costs one refresh request) and, if that
+fails, returns to the sign-in screen **without clearing unsaved input in the Add sheet**. Invite and
+password-reset links are handled on the page: the token in the link's hash is read once and the address bar
+is rewritten immediately, so a token never lingers in a URL. Settings shows an *Account* card (email,
+Sign out) instead of the old API key row; sign out clears the session **and** every rendered list. The
+publishable key and the project URL are injected into the page by `GET /` at serve time (like `{{BUILD}}`);
+the **service key never reaches the page**.
+
+**Content-Security-Policy.** `GET /` sends a strict policy with a fresh per-response nonce:
+`default-src 'self'`, `script-src 'self' 'nonce-…'` (no `unsafe-inline`, so an injected script cannot run),
+`style-src 'self' 'unsafe-inline'`, `img-src 'self' blob: <project>`, `connect-src 'self' <project>`,
+`font-src 'self'`, `object-src 'none'`, `base-uri 'none'`, `form-action 'self'`, `frame-ancestors 'none'`.
+Two allowances were necessary: `style-src 'unsafe-inline'` for the page's two inline `<style>` blocks and the
+twelve `style="…"` attributes its templates write (colour and stagger values, all escaped or from constant
+maps), and `blob:` for the in-memory preview built while a photo is downscaled. There are no `data:` URIs.
+
+Add to Home Screen works like an
 app: PWA meta tags plus four icon links — `apple-touch-icon.png` (180), `-152x152`, `-120x120` and
 `logo.png` as the favicon — each with a `?v=` cache-buster and served publicly with
 `Cache-Control: public, max-age=600` (deliberately *not* immutable; the `?v=` is what invalidates
@@ -628,7 +647,7 @@ All of these except `/health` need `Authorization: Bearer <Supabase access token
 | GET | `/transactions/{id}` | – | 200 one transaction (404 unknown, 422 non-UUID id) |
 | PATCH | `/transactions/{id}` | JSON, any of `txn_date`, `amount`, `merchant`, `category`, `type`, `mode` | 200 updated transaction (422 bad value or unknown field) |
 | DELETE | `/transactions/{id}` | – | 204 empty body — deletes the row **and** its receipt object |
-| GET | `/transactions/{id}/receipt-url` | – | 200 `{"url": "…", "expires_in": 60}` (404 if the row has no receipt) |
+| GET | `/transactions/{id}/receipt-url` | – | 200 `{"url": "https://…", "expires_in": 60}` (404 if the row has no receipt). `url` is absolute and ready to open |
 
 
 ### curl

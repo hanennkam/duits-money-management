@@ -998,6 +998,28 @@
     transition-delay: calc(var(--i, 0) * 60ms);
   }
   .donut.is-drawn .donut-seg { stroke-dashoffset: 0; }
+  /* ---------- sign in ---------- */
+  /* A gate over the app, not a sheet: fixed, safe-area padded, and it never scales the page behind it. */
+  .auth {
+    position: fixed; inset: 0; z-index: 40;
+    background: var(--bg);
+    display: flex; align-items: center; justify-content: center;
+    padding: max(var(--sat), 20px) 20px calc(24px + var(--sab));
+    overflow-y: auto; -webkit-overflow-scrolling: touch;
+    touch-action: manipulation;
+  }
+  .auth-card { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 12px; }
+  .auth-logo {
+    width: 72px; height: 72px; border-radius: 17px; align-self: center;
+    box-shadow: var(--shadow); border: .5px solid var(--line);
+  }
+  .auth-title { margin: 4px 0 0; text-align: center; }
+  .auth-note { margin: 0 0 2px; text-align: center; color: var(--text-2); }
+  .auth-note:empty { display: none; }
+  .auth-foot { margin: 10px 0 0; text-align: center; color: var(--text-2); }
+  .auth-submit { width: 100%; }
+  .auth-card .btn-ghost { width: 100%; }
+
   .field, .chip, .btn-primary, .btn-danger, .pill { max-width: 100%; }
 </style>
 </head>
@@ -1195,18 +1217,24 @@
     </div>
 
     <div class="settings-section">
-      <h3 class="form-label settings-heading">Security</h3>
+      <h3 class="form-label settings-heading">Account</h3>
       <div class="list-card">
-        <button class="setting-row" id="changeKeyBtn" type="button">
+        <div class="setting-row">
           <span class="setting-icon" style="background:var(--accent-soft);color:var(--accent)">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.6" cy="12" r="3.6"/><path d="M11.2 12H21M16.6 12v2.8M19.4 12v3.6"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.6"/><path d="M5.5 19.2c1.4-3 3.7-4.4 6.5-4.4s5.1 1.4 6.5 4.4"/></svg>
           </span>
-          <span class="setting-label">API key</span>
-          <span class="setting-value" id="keyStatus">Saved on this device</span>
-          <svg class="txn-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
+          <span class="setting-label">Signed in</span>
+          <span class="setting-value" id="accountEmail">Not signed in</span>
+        </div>
+        <div class="row-divider"></div>
+        <button class="setting-row" id="signOutBtn" type="button">
+          <span class="setting-icon" style="background:var(--danger-soft);color:var(--danger)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 17v1.5a2.5 2.5 0 0 1-2.5 2.5h-6A2.5 2.5 0 0 1 4 18.5v-13A2.5 2.5 0 0 1 6.5 3h6A2.5 2.5 0 0 1 15 5.5V7"/><path d="M19 12H9m10 0-3.2-3.2M19 12l-3.2 3.2"/></svg>
+          </span>
+          <span class="setting-label">Sign out</span>
         </button>
       </div>
-      <p class="footnote">Stored only in this browser (localStorage).</p>
+      <p class="footnote">Your session stays in this browser until you sign out.</p>
     </div>
 
     <div class="settings-section">
@@ -1337,19 +1365,25 @@
   <div class="sheet" id="txnSheet"></div>
 </div>
 
-<div class="overlay" id="keyOverlay" aria-hidden="true">
-  <!-- The dim is its own layer so the only animated opacity in an overlay is this one; the
-       sheet above it can never be tinted by it. -->
-  <div class="scrim" aria-hidden="true"></div>
-  <div class="sheet">
-    <h2>API key</h2>
-    <p class="sheet-note" id="keyHint">Paste the <code>API_KEY</code> from your <code>.env</code>. It stays in this browser.</p>
-    <input class="field" id="keyInput" type="password" placeholder="API key" autocomplete="off"
+<!-- Sign in is a gate over the whole app, not a sheet: there is nothing behind it to dismiss to, so it has
+     no scrim, no drag and no close. It is the one layer allowed to fade on its own opacity (it holds no
+     sheet, so nothing can go translucent inside it). -->
+<div class="auth" id="authScreen" hidden>
+  <div class="auth-card">
+    <img class="auth-logo" src="/logo.png?v=2" alt="Duits">
+    <h2 class="auth-title" id="authTitle">Sign in</h2>
+    <p class="auth-note" id="authNote"></p>
+    <label class="form-label" for="authEmail">Email</label>
+    <input class="field" id="authEmail" type="email" autocomplete="email" inputmode="email"
            autocapitalize="off" autocorrect="off" spellcheck="false">
-    <div class="sheet-actions">
-      <button class="btn-primary" id="keySave" type="button">Save</button>
-      <button class="btn-ghost" id="keyCancel" type="button">Cancel</button>
-    </div>
+    <label class="form-label" for="authPassword" id="authPasswordLabel">Password</label>
+    <input class="field" id="authPassword" type="password" autocomplete="current-password">
+    <label class="form-label" for="authPassword2" id="authPassword2Label" hidden>Confirm password</label>
+    <input class="field" id="authPassword2" type="password" autocomplete="new-password" hidden>
+    <button class="btn-primary auth-submit" id="authSubmit" type="button">Sign in</button>
+    <button class="btn-ghost" id="authForgot" type="button">Forgot password?</button>
+    <button class="btn-ghost" id="authBack" type="button">Back to sign in</button>
+    <p class="auth-foot">Duits is invite only. Ask for an invite to get started.</p>
   </div>
 </div>
 
@@ -1382,12 +1416,14 @@
 (function () {
   "use strict";
 
-  var KEY_SLOT = "apiKey"; // browser-only; never shipped in this file
+  // Sign-in settings, filled in by the server at serve time (see GET /). The service key never reaches
+  // this file; `key` is the public publishable key.
+  var AUTH = {{AUTH_CONFIG}};
+  var SESSION_SLOT = "duits.session";
   var state = { month: "", mode: "personal", screen: "home", rows: [], reviewOnly: false,
     search: "", filter: "all", summary: null,
     period: "month", insightCatsExpanded: false, insightCategoryCount: 0,
     earliestYear: null };   // oldest year seen in a reply; the month wheel cannot offer less
-  var keyResolver = null;
   var toastTimer = null;
 
   function $(id) { return document.getElementById(id); }
@@ -1806,46 +1842,102 @@
     }
   }
 
-  /* ---------- api key ---------- */
+  /* ---------- session (Supabase Auth over REST; no SDK, no CDN) ---------- */
 
-  function getKey() {
-    try { return window.localStorage.getItem(KEY_SLOT) || ""; } catch (error) { return ""; }
+  // Tokens live in browser storage, so nothing here is ever logged, printed or put in a URL. Supabase's
+  // invite and recovery links do put one in the URL hash: it is read once, then the address bar is rewritten.
+  function authBase() { return String(AUTH.url || "").replace(/\/$/, ""); }
+
+  function authHeaders() { return { "apikey": AUTH.key, "Content-Type": "application/json" }; }
+
+  function readSession() {
+    try {
+      var raw = window.localStorage.getItem(SESSION_SLOT);
+      return raw ? JSON.parse(raw) : null;
+    } catch (error) { return null; }   // private mode, or a corrupt entry
   }
 
-  function storeKey(value) {
-    try { window.localStorage.setItem(KEY_SLOT, value); } catch (error) { /* private mode */ }
+  function writeSession(session) {
+    try {
+      if (session) window.localStorage.setItem(SESSION_SLOT, JSON.stringify(session));
+      else window.localStorage.removeItem(SESSION_SLOT);
+    } catch (error) { /* private mode: the session lasts for this page load only */ }
   }
 
-  function dropKey() {
-    try { window.localStorage.removeItem(KEY_SLOT); } catch (error) { /* private mode */ }
+  function sessionExpired(session) {
+    if (!session || !session.expires_at) return false;
+    return Number(session.expires_at) * 1000 - Date.now() < 60 * 1000;   // 60s of clock skew
   }
 
-  function renderKeyStatus() {
-    $("keyStatus").textContent = getKey() ? "Saved on this device" : "Not set";
+  function clearCaches() {
+    // Sign out must leave nothing of the previous user behind: not in state, and not on screen. The lists
+    // are not re-rendered by a tab you are not on, so clearing the state alone leaves the old rows visible.
+    state.rows = [];
+    state.summary = null;
+    state.earliestYear = null;
+    ["totalSpent", "insightTotal"].forEach(function (id) {
+      var node = $(id);
+      if (node) node.textContent = "RM 0.00";
+    });
+    if ($("heroSplit")) $("heroSplit").hidden = true;
+    ["txnList", "categoryList", "txnGroups", "insightDonut", "insightCats", "insightDays",
+     "insightHighlights", "homeError", "txnError", "insightError"].forEach(function (id) {
+      var node = $(id);
+      if (node) node.innerHTML = "";
+    });
   }
 
-  function askForKey(hint) {
-    $("keyHint").textContent = hint;
-    $("keyInput").value = "";
-    openOverlay($("keyOverlay"));
-    setTimeout(function () { $("keyInput").focus(); }, 50);
-    return new Promise(function (resolve) { keyResolver = resolve; });
+  // One refresh at a time. Ten calls that all get 401 together must not send ten refresh requests:
+  // they share this one promise and each retries with the same new token.
+  var refreshInFlight = null;
+
+  function refreshSession(session) {
+    if (!session || !session.refresh_token) return Promise.resolve(null);
+    if (refreshInFlight) return refreshInFlight;
+    refreshInFlight = (async function () {
+      try {
+        var response = await fetch(authBase() + "/auth/v1/token?grant_type=refresh_token", {
+          method: "POST",
+          headers: authHeaders(),
+          body: JSON.stringify({ refresh_token: session.refresh_token })
+        });
+        if (!response.ok) return null;
+        var body = await response.json();
+        var next = {
+          access_token: body.access_token,
+          refresh_token: body.refresh_token || session.refresh_token,
+          expires_at: body.expires_at || (Math.floor(Date.now() / 1000) + (body.expires_in || 3600)),
+          email: (body.user && body.user.email) || session.email || ""
+        };
+        writeSession(next);
+        return next;
+      } catch (error) {
+        return null;                    // offline: the caller decides, nothing is logged
+      } finally {
+        refreshInFlight = null;
+      }
+    })();
+    return refreshInFlight;
   }
 
-  function closeKeyDialog(value) {
-    closeOverlay($("keyOverlay"));
-    $("keyInput").value = "";
-    var resolve = keyResolver;
-    keyResolver = null;
-    if (resolve) resolve(value);
+  async function authRequest(method, path, payload, token) {
+    var headers = authHeaders();
+    if (token) headers.Authorization = "Bearer " + token;
+    var response = await fetch(authBase() + path, {
+      method: method,
+      headers: headers,
+      body: payload ? JSON.stringify(payload) : undefined
+    });
+    var body = null;
+    try { body = await response.json(); } catch (error) { /* empty body */ }
+    return { ok: response.ok, status: response.status, body: body };
   }
 
-  function submitKey() {
-    var value = $("keyInput").value.trim();
-    if (!value) { toast("Enter the API key first.", "warn"); return; }
-    storeKey(value);
-    renderKeyStatus();
-    closeKeyDialog(value);
+  function authError(result) {
+    var body = result.body || {};
+    var message = body.error_description || body.msg || body.message || body.error ||
+      "Could not reach the sign-in service. Try again.";
+    return String(message);
   }
 
   /* ---------- fetch ---------- */
@@ -1863,30 +1955,31 @@
     return "Can't reach the server. Check your connection and try again.";
   }
 
-  function send(path, options, key) {
+  // Every API call carries the session's access token. Never the API key, never in a query string.
+  async function send(path, options) {
+    var session = readSession();
+    if (!session) return { status: 401 };
     var opts = options || {};
-    var headers = Object.assign({}, opts.headers || {}, { "X-API-Key": key });
+    var headers = Object.assign({}, opts.headers || {}, { "Authorization": "Bearer " + session.access_token });
+    var response = await fetch(path, Object.assign({}, opts, { headers: headers }));
+    if (response.status !== 401) return response;
+
+    // One refresh, then one retry. Serialised, so a burst of 401s costs exactly one refresh request.
+    var fresh = await refreshSession(session);
+    if (!fresh) return response;
+    headers = Object.assign({}, opts.headers || {}, { "Authorization": "Bearer " + fresh.access_token });
     return fetch(path, Object.assign({}, opts, { headers: headers }));
   }
 
   async function api(path, options) {
-    var key = getKey();
-    if (!key) {
-      key = await askForKey("Paste the API_KEY from your .env. It stays in this browser.");
-      if (!key) throw new ApiError("no-key", "No API key set yet \u2014 add one in Settings.");
-    }
-    var response = await send(path, options, key);
+    var response = await send(path, options);
     if (response.status === 401) {
-      dropKey();
-      renderKeyStatus();
-      key = await askForKey("That key was rejected. Paste the current API_KEY from your .env.");
-      if (!key) throw new ApiError("unauthorised", "API key rejected. Add it again in Settings.");
-      response = await send(path, options, key);
-      if (response.status === 401) {
-        dropKey();
-        renderKeyStatus();
-        throw new ApiError("unauthorised", "API key rejected. Check the value in your .env.");
-      }
+      // The refresh failed: drop the session and show the sign-in screen over whatever is on screen.
+      // Nothing is reset, so unsaved input in the Add sheet survives the round trip to the login card.
+      writeSession(null);
+      clearCaches();
+      showAuth("signin", "Your session has expired. Sign in again to continue.");
+      throw new ApiError("unauthorised", "Your session has expired. Sign in again.");
     }
     if (!response.ok) throw await toApiError(response);
     if (response.status === 204) return null; // DELETE has no body
@@ -1912,6 +2005,176 @@
     if (response.status >= 500 && !message) message = "The server had a problem. Try again.";
 
     return new ApiError(response.status === 409 ? "duplicate" : "http", message || "Something went wrong (" + response.status + ").", transaction);
+  }
+
+  /* ---------- sign in ---------- */
+  // Three views over one card: sign in, request a reset link, and set a password from an invite or a
+  // recovery link. There is no sign-up: accounts arrive by invite.
+
+  var authView = "signin";
+  var pendingToken = null;   // the token an invite/recovery link hands us, used once to set the password
+
+  function renderAccount() {
+    var session = readSession();
+    var email = $("accountEmail");
+    if (email) email.textContent = (session && session.email) || "Not signed in";
+  }
+
+  function setAuthView(view, note) {
+    authView = view;
+    $("authTitle").textContent = view === "setpassword" ? "Set a new password"
+      : view === "forgot" ? "Reset password" : "Sign in";
+    $("authNote").textContent = note || (view === "forgot"
+      ? "Enter your email and we'll send a link to set a new one." : "");
+    var settingPassword = view === "setpassword";
+    var emailOnly = view === "forgot";
+    $("authPassword2").hidden = !settingPassword;
+    $("authPassword2Label").hidden = !settingPassword;
+    $("authPassword").hidden = emailOnly;
+    $("authPasswordLabel").hidden = emailOnly;
+    // The link already proved who they are, so the address is not editable on that screen.
+    $("authEmail").disabled = settingPassword;
+    $("authSubmit").textContent = settingPassword ? "Save password"
+      : emailOnly ? "Send reset link" : "Sign in";
+    $("authForgot").hidden = view !== "signin";
+    $("authBack").hidden = view === "signin";
+  }
+
+  function showAuth(view, note) {
+    setAuthView(view || "signin", note);
+    var screen = $("authScreen");
+    if (!screen) return;
+    screen.hidden = false;
+    screen.setAttribute("aria-hidden", "false");
+  }
+
+  function hideAuth() {
+    var screen = $("authScreen");
+    if (!screen || screen.hidden) return;
+    screen.hidden = true;
+    screen.setAttribute("aria-hidden", "true");
+    $("authPassword").value = "";
+    $("authPassword2").value = "";
+    renderAccount();
+  }
+
+  function redirectTarget() {
+    // Where Supabase sends the invite or recovery link back to. It must be allow-listed in the project.
+    return window.location.origin + window.location.pathname;
+  }
+
+  function readAuthRedirect() {
+    // Supabase puts invite and recovery links in the URL hash. Read it once, then rewrite the address bar
+    // so a token never lingers in the URL: it would leak through history, screenshots and referers.
+    var hash = window.location.hash.replace(/^#/, "");
+    if (!hash) return false;
+    var params = {};
+    hash.split("&").forEach(function (pair) {
+      var bits = pair.split("=");
+      params[decodeURIComponent(bits[0] || "")] = decodeURIComponent((bits[1] || "").replace(/\+/g, " "));
+    });
+    var type = params.type || "";
+    if (type !== "invite" && type !== "recovery") return false;
+    pendingToken = params.access_token || null;
+    if (params.access_token && params.refresh_token) {
+      writeSession({
+        access_token: params.access_token,
+        refresh_token: params.refresh_token,
+        expires_at: Number(params.expires_at) || null,
+        email: ""
+      });
+    }
+    if (window.history && window.history.replaceState) {
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    }
+    return true;
+  }
+
+  async function afterSignIn(session) {
+    writeSession(session);
+    hideAuth();
+    clearCaches();   // never let the previous user's rows show while the new ones load
+    // Reload every data screen, not just the active one. Home's list is only re-rendered when Home is
+    // loaded, so a stale list would keep showing the previous user's rows on a tab nobody revisited.
+    await Promise.all([loadHome(), loadTransactions(), loadInsights()]);
+    renderAccount();
+  }
+
+  async function submitAuth() {
+    var button = $("authSubmit");
+    var email = $("authEmail").value.trim();
+    var password = $("authPassword").value;
+
+    if (!AUTH.key) {
+      setAuthView(authView, "Sign-in is not configured on this server.");
+      return;
+    }
+    button.disabled = true;
+    try {
+      if (authView === "forgot") {
+        if (!email) { setAuthView("forgot", "Enter your email first."); return; }
+        var sent = await authRequest("POST", "/auth/v1/recover",
+          { email: email, redirect_to: redirectTarget() });
+        // The same answer whether or not the address has an account: no account enumeration.
+        setAuthView("forgot", sent.ok
+          ? "If that address has an account, a link is on its way."
+          : authError(sent));
+        return;
+      }
+
+      if (authView === "setpassword") {
+        if (password.length < 8) { setAuthView("setpassword", "Use at least 8 characters."); return; }
+        if (password !== $("authPassword2").value) {
+          setAuthView("setpassword", "Those two passwords do not match.");
+          return;
+        }
+        if (!pendingToken) { showAuth("signin", "That link has expired. Sign in, or request a new one."); return; }
+        var saved = await authRequest("PUT", "/auth/v1/user", { password: password }, pendingToken);
+        if (!saved.ok) { setAuthView("setpassword", authError(saved)); return; }
+        pendingToken = null;
+        var session = readSession();
+        if (!session) { showAuth("signin", "Password saved. Sign in with it now."); return; }
+        await afterSignIn(session);
+        toast("Password saved.");
+        return;
+      }
+
+      if (!email || !password) { setAuthView("signin", "Enter your email and password."); return; }
+      var result = await authRequest("POST", "/auth/v1/token?grant_type=password",
+        { email: email, password: password });
+      if (!result.ok || !result.body || !result.body.access_token) {
+        setAuthView("signin", authError(result));
+        return;
+      }
+      var body = result.body;
+      await afterSignIn({
+        access_token: body.access_token,
+        refresh_token: body.refresh_token,
+        expires_at: body.expires_at || (Math.floor(Date.now() / 1000) + (body.expires_in || 3600)),
+        email: (body.user && body.user.email) || email
+      });
+    } catch (error) {
+      setAuthView(authView, "Can't reach the sign-in service. Check your connection and try again.");
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function signOut() {
+    var session = readSession();
+    try {
+      if (session && session.access_token) {
+        await fetch(authBase() + "/auth/v1/logout", {
+          method: "POST",
+          headers: Object.assign(authHeaders(), { Authorization: "Bearer " + session.access_token })
+        });
+      }
+    } catch (error) { /* offline: the local sign-out stands either way */ }
+    writeSession(null);
+    pendingToken = null;
+    clearCaches();
+    renderAccount();
+    showAuth("signin");
   }
 
   /* ---------- home ---------- */
@@ -3303,7 +3566,7 @@
   function reloadScreen() {
     if (state.screen === "transactions") return loadTransactions();
     if (state.screen === "insights") return loadInsights();
-    if (state.screen === "settings") { renderKeyStatus(); return Promise.resolve(); }
+    if (state.screen === "settings") { renderAccount(); return Promise.resolve(); }
     return loadHome();
   }
 
@@ -3589,13 +3852,14 @@
     $("saveAddBtn").addEventListener("click", saveAdd);
     // The keys are for the amount: any focused text field (merchant, note, date, smart entry) means
     // the real keyboard is up, so the keypad steps aside. Re-derived from state, never remembered.
-    $("keySave").addEventListener("click", submitKey);
-    $("keyCancel").addEventListener("click", function () { closeKeyDialog(null); });
-    $("keyInput").addEventListener("keydown", function (event) {
-      if (event.key === "Enter") { event.preventDefault(); submitKey(); }
-    });
-    $("changeKeyBtn").addEventListener("click", function () {
-      askForKey("Paste the API_KEY from your .env. It replaces the saved one.");
+    $("authSubmit").addEventListener("click", submitAuth);
+    $("authForgot").addEventListener("click", function () { setAuthView("forgot"); });
+    $("authBack").addEventListener("click", function () { setAuthView("signin"); });
+    $("signOutBtn").addEventListener("click", signOut);
+    ["authEmail", "authPassword", "authPassword2"].forEach(function (id) {
+      $(id).addEventListener("keydown", function (event) {
+        if (event.key === "Enter") { event.preventDefault(); submitAuth(); }
+      });
     });
     wireTheme();   // last: the theme control is in Settings and needs nothing else wired first
   }
@@ -3681,15 +3945,27 @@
     state.month = currentMonth();
     paintMonth();
     setScanBusy(false); // paints the camera icon on the scan row
-    renderKeyStatus();
-    if (!getKey()) {
-      // The key dialog is the next thing the user has to touch, and it is behind the splash: hand the
-      // screen over now instead of holding it until they have pasted a key.
-      splashSettled();
-      await askForKey("Paste the API_KEY from your .env. It stays in this browser only.");
-    }
-    await loadHome();
+    renderAccount();
+    await restoreSession();   // the session check the splash waits for
     splashSettled();
+  }
+
+  // The splash stays up until this has settled, then the user sees either the sign-in card or their own
+  // data. An invite or recovery link wins over a stored session: it is there to set a password.
+  async function restoreSession() {
+    if (readAuthRedirect()) { showAuth("setpassword"); return; }
+    var session = readSession();
+    if (!session) { showAuth("signin"); return; }
+    if (sessionExpired(session)) {
+      var fresh = await refreshSession(session);
+      if (!fresh) {
+        writeSession(null);
+        showAuth("signin", "Your session has expired. Sign in again to continue.");
+        return;
+      }
+    }
+    hideAuth();
+    await reloadScreen();
   }
 
   start().then(splashSettled, splashSettled);   // a boot that throws still shows the app

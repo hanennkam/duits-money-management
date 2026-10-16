@@ -7,9 +7,11 @@ with Claude, store it in Supabase. Built to be called from Apple Shortcuts.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import re
+import secrets
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -69,6 +71,11 @@ NO_STORE_PREFIXES = ("/transactions", "/summary")
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Fail fast: a container with missing configuration must not start serving."""
     settings = get_settings()  # raises with the missing NAME(s), never the values
+    if not settings.supabase_publishable_key:
+        logger.warning(
+            "SUPABASE_PUBLISHABLE_KEY is not set: the web UI cannot sign in "
+            "(the API and the Apple Shortcut are unaffected)."
+        )
     logger.info(
         "Duits starting: environment=%s, model=%s, bucket=%s",
         "production" if IS_PRODUCTION else "development",
@@ -118,6 +125,7 @@ async def upstream_error_handler(_request: Request, exc: extractor.UpstreamError
 
 
 BUILD_PLACEHOLDER = "{{BUILD}}"
+AUTH_PLACEHOLDER = "{{AUTH_CONFIG}}"
 COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
 
 
@@ -132,19 +140,70 @@ def build_stamp() -> str:
     return f"{short} · fullscreen"
 
 
+def auth_config(settings: Settings) -> str:
+    """The page's sign-in settings as a JSON object, ready to paste into one script.
+
+    Only the project URL and the publishable key. The service key is server-side only and never reaches
+    the page. ``<`` is escaped so a hostile value cannot close the script tag.
+    """
+    payload = {"url": settings.supabase_url.rstrip("/"), "key": settings.supabase_publishable_key}
+    return json.dumps(payload, separators=(",", ":")).replace("<", "\\u003c")
+
+
+def content_security_policy(nonce: str, settings: Settings) -> str:
+    """A strict policy for a single-file page with no third-party code.
+
+    What it has to allow, and why:
+    - ``script-src 'self' 'nonce-…'``: the page's two inline <script> blocks carry the nonce. There is no
+      ``'unsafe-inline'``, so an injected <script> or event handler cannot run.
+    - ``style-src 'self' 'unsafe-inline'``: two inline <style> blocks, and twelve ``style="…"``
+      attributes written by the page's own templates (category colours, row stagger, bar heights). Those
+      values are escaped or drawn from constant colour maps. This is the one real loosening.
+    - ``img-src 'self' blob: <project>``: local icons, the in-memory ``blob:`` preview built while a photo
+      is downscaled, and the receipt photos Supabase signs (there are no ``data:`` URIs in the page).
+    - ``connect-src 'self' <project>``: the API is same-origin; Supabase Auth is called over the project URL.
+    """
+    project = settings.supabase_url.rstrip("/")
+    return "; ".join(
+        [
+            "default-src 'self'",
+            f"script-src 'self' 'nonce-{nonce}'",
+            "style-src 'self' 'unsafe-inline'",
+            f"img-src 'self' blob: {project}",
+            f"connect-src 'self' {project}",
+            "font-src 'self'",
+            "object-src 'none'",
+            "base-uri 'none'",
+            "form-action 'self'",
+            "frame-ancestors 'none'",
+        ]
+    )
+
+
 @app.get("/", include_in_schema=False)
-async def index() -> HTMLResponse:
-    """The mobile-first UI. Public, but every API call it makes needs X-API-Key.
+async def index(settings: Annotated[Settings, Depends(get_settings)]) -> HTMLResponse:
+    """The mobile-first UI. Public, but every API call it makes needs a Bearer token.
 
     ``no-store``: the page is never written to a cache at all. It carries the icon links and all of the
     CSS and JS inline, so a stale copy is a page with the wrong behaviour — and a Home Screen shortcut
     is exactly where one would survive. Freshness wins over the cost of re-sending the page.
 
-    The Build row's placeholder is filled with the deployed commit on every request.
+    Three values are filled in per request: the Build stamp, the sign-in settings, and a fresh CSP nonce
+    (the nonce is per response, so the page and its policy always agree).
     """
+    nonce = secrets.token_urlsafe(18)
     page = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    page = page.replace(BUILD_PLACEHOLDER, build_stamp())
+    page = page.replace(AUTH_PLACEHOLDER, auth_config(settings))
+    page = page.replace("<script>", f'<script nonce="{nonce}">').replace(
+        "<style>", f'<style nonce="{nonce}">'
+    )
     return HTMLResponse(
-        page.replace(BUILD_PLACEHOLDER, build_stamp()), headers={"Cache-Control": "no-store"}
+        page,
+        headers={
+            "Cache-Control": "no-store",
+            "Content-Security-Policy": content_security_policy(nonce, settings),
+        },
     )
 
 

@@ -22,6 +22,7 @@ SETTINGS = Settings(
     api_key="test-api-key",
     supabase_url="https://example.supabase.co",
     supabase_service_key="service-role-key",
+    supabase_publishable_key="pk_test_dummy",
     anthropic_api_key="sk-ant-test",
 )
 ISSUER = f"{SETTINGS.supabase_url}/auth/v1"
