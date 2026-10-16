@@ -34,7 +34,7 @@ from fastapi import (
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from app import db, extractor
-from app.auth import require_api_key
+from app.auth import CurrentUser
 from app.config import Settings, get_settings, is_production
 from app.models import (
     Extraction,
@@ -86,9 +86,6 @@ app = FastAPI(
     redoc_url=None if IS_PRODUCTION else "/redoc",
     openapi_url=None if IS_PRODUCTION else "/openapi.json",
 )
-
-PROTECTED = [Depends(require_api_key)]
-
 
 @app.middleware("http")
 async def security_headers(
@@ -202,14 +199,14 @@ async def health() -> dict[str, str]:
     "/transactions/scan",
     response_model=Transaction,
     status_code=status.HTTP_201_CREATED,
-    dependencies=PROTECTED,
 )
 async def scan_receipt(
+    user_id: CurrentUser,
     settings: Annotated[Settings, Depends(get_settings)],
     file: Annotated[UploadFile, File(description="Receipt image: jpg, png or webp")],
     mode: Annotated[Mode, Form()] = "personal",
 ) -> Transaction:
-    """Upload a receipt image, extract it with Claude, save the transaction."""
+    """Upload a receipt image, extract it with Claude, save the transaction for the caller."""
     media_type = (file.content_type or "").lower()
     if media_type not in IMAGE_EXTENSIONS:
         raise HTTPException(
@@ -228,7 +225,7 @@ async def scan_receipt(
 
     # Same bytes = same photo, so bail out before spending Storage space or a Claude call.
     image_hash = hashlib.sha256(image).hexdigest()
-    scanned = db.find_by_image_hash(image_hash)
+    scanned = db.find_by_image_hash(image_hash, user_id=user_id)
     if scanned is not None:
         raise _duplicate(scanned, "Already recorded.")
 
@@ -242,9 +239,12 @@ async def scan_receipt(
     )
     receipt_path = None
     if source == "receipt_scan":
-        receipt_path = f"{date.today():%Y/%m}/{uuid.uuid4().hex}{IMAGE_EXTENSIONS[media_type]}"
+        # The owner's folder comes first: user_id/YYYY/MM/<uuid>.ext
+        receipt_path = (
+            f"{user_id}/{date.today():%Y/%m}/{uuid.uuid4().hex}{IMAGE_EXTENSIONS[media_type]}"
+        )
         try:
-            db.upload_receipt(receipt_path, image, media_type)
+            db.upload_receipt(receipt_path, image, media_type, user_id=user_id)
         except Exception as exc:  # any storage failure is an upstream problem, not a client error
             logger.exception("Receipt upload to Supabase Storage failed")
             raise HTTPException(
@@ -258,10 +258,11 @@ async def scan_receipt(
             source=source,
             receipt_path=receipt_path,
             image_hash=image_hash,
+            user_id=user_id,
         )
     except Exception:
         if receipt_path:  # a rejected duplicate or a failed insert leaves no orphan
-            db.delete_receipt(receipt_path)
+            db.delete_receipt(receipt_path, user_id=user_id)
         raise
 
 
@@ -269,44 +270,50 @@ async def scan_receipt(
     "/transactions/text",
     response_model=Transaction,
     status_code=status.HTTP_201_CREATED,
-    dependencies=PROTECTED,
 )
-async def create_from_text(payload: TextTransactionRequest) -> Transaction:
+async def create_from_text(payload: TextTransactionRequest, user_id: CurrentUser) -> Transaction:
     """Extract a transaction from a short text note, e.g. "makan tengah hari 12 ringgit"."""
-    return _save(extractor.extract_from_text(payload.text), mode=payload.mode, source="text")
+    return _save(
+        extractor.extract_from_text(payload.text), mode=payload.mode, source="text", user_id=user_id
+    )
 
 
 @app.post(
     "/transactions",
     response_model=Transaction,
     status_code=status.HTTP_201_CREATED,
-    dependencies=PROTECTED,
 )
-async def create_transaction(payload: TransactionCreate) -> Transaction:
+async def create_transaction(payload: TransactionCreate, user_id: CurrentUser) -> Transaction:
     """Save one transaction typed in by hand: no receipt, no Claude, no dedupe by default."""
-    return _insert(payload.to_row())
+    return _insert(payload.to_row(), user_id=user_id)
 
 
-@app.get("/transactions", response_model=list[Transaction], dependencies=PROTECTED)
+@app.get("/transactions", response_model=list[Transaction])
 async def list_transactions(
+    user_id: CurrentUser,
     month: Annotated[str, Query(description="Month to list, as YYYY-MM")],
     mode: Mode = "personal",
 ) -> list[Transaction]:
-    """Transactions in that month for that mode, newest first."""
+    """The caller's transactions in that month for that mode, newest first."""
     start, end = _month_bounds(month)
-    return [Transaction.model_validate(row) for row in db.list_transactions(start, end, mode)]
+    return [
+        Transaction.model_validate(row)
+        for row in db.list_transactions(start, end, mode, user_id=user_id)
+    ]
 
 
-@app.get("/transactions/{transaction_id}", response_model=Transaction, dependencies=PROTECTED)
-async def get_transaction(transaction_id: UUID) -> Transaction:
-    """One transaction."""
-    return Transaction.model_validate(_existing(transaction_id))
+@app.get("/transactions/{transaction_id}", response_model=Transaction)
+async def get_transaction(transaction_id: UUID, user_id: CurrentUser) -> Transaction:
+    """One of the caller's transactions. Another user's id answers 404."""
+    return Transaction.model_validate(_existing(transaction_id, user_id))
 
 
-@app.patch("/transactions/{transaction_id}", response_model=Transaction, dependencies=PROTECTED)
-async def update_transaction(transaction_id: UUID, payload: TransactionUpdate) -> Transaction:
-    """Correct a transaction by hand. A manual edit clears the needs-review flag."""
-    row = _existing(transaction_id)
+@app.patch("/transactions/{transaction_id}", response_model=Transaction)
+async def update_transaction(
+    transaction_id: UUID, payload: TransactionUpdate, user_id: CurrentUser
+) -> Transaction:
+    """Correct one of the caller's transactions by hand. A manual edit clears the needs-review flag."""
+    row = _existing(transaction_id, user_id)
     patch = payload.changes()
     if not patch:
         return Transaction.model_validate(row)
@@ -321,49 +328,51 @@ async def update_transaction(transaction_id: UUID, payload: TransactionUpdate) -
         merged.get("merchant"),
     )
 
-    updated = db.update_transaction(str(transaction_id), patch)
-    return Transaction.model_validate(updated or _existing(transaction_id))
+    updated = db.update_transaction(str(transaction_id), patch, user_id=user_id)
+    return Transaction.model_validate(updated or _existing(transaction_id, user_id))
 
 
 @app.delete(
     "/transactions/{transaction_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
-    dependencies=PROTECTED,
 )
-async def delete_transaction(transaction_id: UUID) -> None:
-    """Delete the row, and its receipt object if it has one."""
-    row = _existing(transaction_id)
+async def delete_transaction(transaction_id: UUID, user_id: CurrentUser) -> None:
+    """Delete one of the caller's rows, and its receipt object if it has one."""
+    row = _existing(transaction_id, user_id)
     receipt_path = row.get("receipt_path")
     if receipt_path:
-        db.delete_receipt(receipt_path)
-    db.delete_transaction(str(transaction_id))
+        db.delete_receipt(receipt_path, user_id=user_id)
+    db.delete_transaction(str(transaction_id), user_id=user_id)
 
 
-@app.get(
-    "/transactions/{transaction_id}/receipt-url", response_model=ReceiptUrl, dependencies=PROTECTED
-)
-async def receipt_url(transaction_id: UUID) -> ReceiptUrl:
-    """Short-lived signed URL for the private receipt image."""
-    row = _existing(transaction_id)
+@app.get("/transactions/{transaction_id}/receipt-url", response_model=ReceiptUrl)
+async def receipt_url(transaction_id: UUID, user_id: CurrentUser) -> ReceiptUrl:
+    """Short-lived signed URL for one of the caller's private receipt images."""
+    row = _existing(transaction_id, user_id)
     receipt_path = row.get("receipt_path")
     if not receipt_path:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "This transaction has no receipt image.")
-    return ReceiptUrl(url=db.create_receipt_url(receipt_path, RECEIPT_URL_TTL), expires_in=RECEIPT_URL_TTL)
+    url = db.create_receipt_url(receipt_path, RECEIPT_URL_TTL, user_id=user_id)
+    return ReceiptUrl(url=url, expires_in=RECEIPT_URL_TTL)
 
 
-@app.get("/summary", response_model=Summary, dependencies=PROTECTED)
+@app.get("/summary", response_model=Summary)
 async def summary(
+    user_id: CurrentUser,
     month: Annotated[str, Query(description="Month to summarise, as YYYY-MM")],
     mode: Mode = "personal",
 ) -> Summary:
-    """Total expense, total income and total per category for that month."""
+    """Total expense, total income and total per category for the caller in that month."""
     start, end = _month_bounds(month)
-    return Summary.model_validate(db.summarize(start, end, mode) | {"month": month, "mode": mode})
+    return Summary.model_validate(
+        db.summarize(start, end, mode, user_id=user_id) | {"month": month, "mode": mode}
+    )
 
 
-def _existing(transaction_id: UUID) -> dict[str, Any]:
-    row = db.get_transaction(str(transaction_id))
+def _existing(transaction_id: UUID, user_id: UUID) -> dict[str, Any]:
+    """The caller's row, or 404. Another owner's row is indistinguishable from a missing one."""
+    row = db.get_transaction(str(transaction_id), user_id=user_id)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No transaction with that id.")
     return row
@@ -381,6 +390,7 @@ def _save(
     *,
     mode: Mode,
     source: Source,
+    user_id: UUID,
     receipt_path: str | None = None,
     image_hash: str | None = None,
 ) -> Transaction:
@@ -399,24 +409,28 @@ def _save(
             reference=extraction.reference,
             txn_time=extraction.txn_time,
         ),
+        user_id=user_id,
     )
 
 
-def _insert(row: dict[str, Any], dedupe_keys: list[str] | None = None) -> Transaction:
-    """Insert a row, or answer 409 with the row that already exists.
+def _insert(
+    row: dict[str, Any], dedupe_keys: list[str] | None = None, *, user_id: UUID
+) -> Transaction:
+    """Insert a row for the caller, or answer 409 with the caller's row that already exists.
 
+    Duplicate lookups are scoped to the owner, so the 409 body can only ever carry the caller's own row.
     Rows with no dedupe hash (text notes, hand-typed rows, merchant-less scans) always insert, so only
     scans can come back as duplicates. A bank screenshot without a reference number also probes the
     ten-minute windows either side of its own, which is what makes "within ten minutes" work when the
     two scans fall on opposite sides of a window boundary.
     """
     dedupe = row["dedupe_hash"]
-    existing = db.find_by_dedupe_hash(dedupe) if dedupe else None
+    existing = db.find_by_dedupe_hash(dedupe, user_id=user_id) if dedupe else None
     if existing is None and dedupe_keys and len(dedupe_keys) > 1:
-        existing = db.find_by_dedupe_hashes(dedupe_keys[1:])
+        existing = db.find_by_dedupe_hashes(dedupe_keys[1:], user_id=user_id)
     if existing is not None:
         raise _duplicate(existing, "Already recorded.")
-    return Transaction.model_validate(db.insert_transaction(row))
+    return Transaction.model_validate(db.insert_transaction(row, user_id=user_id))
 
 
 def _duplicate(existing: dict[str, Any], message: str) -> HTTPException:

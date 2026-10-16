@@ -1,4 +1,9 @@
-"""Supabase (Postgres + Storage) client and query/insert helpers."""
+"""Supabase (Postgres + Storage) client and query/insert helpers.
+
+Every helper that reads, writes or signs a transaction or a receipt takes a required, keyword-only `user_id`.
+There is no default and no optional form, so a call without an owner is a TypeError, not an unfiltered query.
+The service-role client bypasses RLS, so this module is the only place that talks to Supabase.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +14,7 @@ from datetime import date
 from decimal import Decimal
 from functools import lru_cache
 from typing import Any
+from uuid import UUID
 
 from supabase import Client, create_client
 
@@ -124,89 +130,92 @@ def month_bounds(month: str) -> tuple[date, date]:
 
 @lru_cache(maxsize=1)
 def get_supabase() -> Client:
-    """Service-role client. Bypasses RLS, so it stays server-side only."""
+    """Service-role client. Bypasses RLS: only this module may use it, and every call is owner-scoped."""
     settings = get_settings()
     return create_client(settings.supabase_url, settings.supabase_service_key)
 
 
-def find_by_dedupe_hashes(hashes: list[str]) -> dict[str, Any] | None:
-    """Any existing row carrying one of these hashes (the neighbouring time windows)."""
+def _table() -> Any:
+    return get_supabase().table("transactions")
+
+
+def _bucket() -> Any:
+    return get_supabase().storage.from_(get_settings().receipts_bucket)
+
+
+def _owned(query: Any, user_id: UUID) -> Any:
+    """Every transactions query goes through here: a row is seen or changed only by its owner."""
+    return query.eq("user_id", str(user_id))
+
+
+def _owned_path(path: str, user_id: UUID) -> str:
+    """Receipts live under the owner's folder (user_id/YYYY/MM/<uuid>.ext). Any other path is refused."""
+    if not path.startswith(f"{user_id}/"):
+        raise ValueError("receipt path is outside the owner's folder")
+    return path
+
+
+def find_by_dedupe_hashes(hashes: list[str], *, user_id: UUID) -> dict[str, Any] | None:
+    """Any of this owner's rows carrying one of these hashes (the neighbouring time windows)."""
     if not hashes:
         return None
-    rows = (
-        get_supabase().table("transactions").select("*").in_("dedupe_hash", hashes).limit(1)
-        .execute().data
-    ) or []
+    rows = _owned(_table().select("*").in_("dedupe_hash", hashes), user_id).limit(1).execute().data or []
     return rows[0] if rows else None
 
 
-def find_by_dedupe_hash(dedupe: str) -> dict[str, Any] | None:
-    """Existing row with this dedupe hash, if any."""
-    rows = (
-        get_supabase().table("transactions").select("*").eq("dedupe_hash", dedupe).limit(1).execute().data
-    ) or []
+def find_by_dedupe_hash(dedupe: str, *, user_id: UUID) -> dict[str, Any] | None:
+    """This owner's row with this dedupe hash, if any."""
+    rows = _owned(_table().select("*").eq("dedupe_hash", dedupe), user_id).limit(1).execute().data or []
     return rows[0] if rows else None
 
 
-def find_by_image_hash(image_hash: str) -> dict[str, Any] | None:
-    """Existing row for this exact uploaded file, if any."""
-    rows = (
-        get_supabase()
-        .table("transactions")
-        .select("*")
-        .eq("image_hash", image_hash)
-        .limit(1)
-        .execute()
-        .data
-    ) or []
+def find_by_image_hash(image_hash: str, *, user_id: UUID) -> dict[str, Any] | None:
+    """This owner's row for this exact uploaded file, if any."""
+    rows = _owned(_table().select("*").eq("image_hash", image_hash), user_id).limit(1).execute().data or []
     return rows[0] if rows else None
 
 
-def get_transaction(transaction_id: str) -> dict[str, Any] | None:
-    """One row by id, or None."""
-    rows = (
-        get_supabase().table("transactions").select("*").eq("id", transaction_id).limit(1).execute().data
-    ) or []
+def get_transaction(transaction_id: str, *, user_id: UUID) -> dict[str, Any] | None:
+    """One of this owner's rows by id, or None (another owner's id is None, never a row)."""
+    rows = _owned(_table().select("*").eq("id", transaction_id), user_id).limit(1).execute().data or []
     return rows[0] if rows else None
 
 
-def update_transaction(transaction_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
-    """Apply `patch` to one row and return it as stored, or None if it is gone."""
-    rows = (
-        get_supabase().table("transactions").update(patch).eq("id", transaction_id).execute().data
-    ) or []
+def update_transaction(transaction_id: str, patch: dict[str, Any], *, user_id: UUID) -> dict[str, Any] | None:
+    """Apply `patch` to one of this owner's rows and return it as stored, or None if it is not theirs."""
+    if "user_id" in patch:
+        raise ValueError("a transaction's owner cannot be changed")
+    rows = _owned(_table().update(patch).eq("id", transaction_id), user_id).execute().data or []
     return rows[0] if rows else None
 
 
-def delete_transaction(transaction_id: str) -> bool:
-    """Delete one row; True if a row was actually removed."""
-    rows = get_supabase().table("transactions").delete().eq("id", transaction_id).execute().data
+def delete_transaction(transaction_id: str, *, user_id: UUID) -> bool:
+    """Delete one of this owner's rows; True if a row was actually removed."""
+    rows = _owned(_table().delete().eq("id", transaction_id), user_id).execute().data
     return bool(rows)
 
 
-def insert_transaction(row: dict[str, Any]) -> dict[str, Any]:
-    """Insert one row and return it as stored."""
-    return get_supabase().table("transactions").insert(row).execute().data[0]
+def insert_transaction(row: dict[str, Any], *, user_id: UUID) -> dict[str, Any]:
+    """Insert one row for `user_id`, and return it as stored. The owner is set here, never taken from `row`."""
+    return _table().insert({**row, "user_id": str(user_id)}).execute().data[0]
 
 
-def list_transactions(start: date, end: date, mode: str) -> list[dict[str, Any]]:
-    """Transactions with `start <= txn_date < end` for `mode`, newest first."""
-    return (
-        get_supabase()
-        .table("transactions")
+def list_transactions(start: date, end: date, mode: str, *, user_id: UUID) -> list[dict[str, Any]]:
+    """This owner's transactions with `start <= txn_date < end` for `mode`, newest first."""
+    query = (
+        _table()
         .select("*")
         .gte("txn_date", start.isoformat())
         .lt("txn_date", end.isoformat())
         .eq("mode", mode)
         .order("txn_date", desc=True)
         .order("created_at", desc=True)
-        .execute()
-        .data
-    ) or []
+    )
+    return _owned(query, user_id).execute().data or []
 
 
-def summarize(start: date, end: date, mode: str) -> dict[str, Any]:
-    """Totals for the period covered by [start, end).
+def summarize(start: date, end: date, mode: str, *, user_id: UUID) -> dict[str, Any]:
+    """Totals for this owner's rows in [start, end).
 
     ponytail: adds up one month of rows in Python; move to a Postgres view/RPC if a
     month ever holds more than a few thousand rows.
@@ -214,7 +223,7 @@ def summarize(start: date, end: date, mode: str) -> dict[str, Any]:
     total_expense = Decimal("0")
     total_income = Decimal("0")
     by_category: dict[str, Decimal] = {}
-    for row in list_transactions(start, end, mode):
+    for row in list_transactions(start, end, mode, user_id=user_id):
         amount = Decimal(str(row["amount"]))
         if row["type"] == "income":
             total_income += amount
@@ -225,28 +234,30 @@ def summarize(start: date, end: date, mode: str) -> dict[str, Any]:
     return {"total_expense": total_expense, "total_income": total_income, "by_category": by_category}
 
 
-def upload_receipt(path: str, content: bytes, content_type: str) -> str:
-    """Upload a receipt image to the storage bucket; returns its path."""
-    get_supabase().storage.from_(get_settings().receipts_bucket).upload(
-        path, content, {"content-type": content_type, "upsert": "false"}
+def upload_receipt(path: str, content: bytes, content_type: str, *, user_id: UUID) -> str:
+    """Upload a receipt image under the owner's folder; returns its path."""
+    _bucket().upload(
+        _owned_path(path, user_id), content, {"content-type": content_type, "upsert": "false"}
     )
     return path
 
 
-def delete_receipt(path: str) -> None:
-    """Best-effort cleanup so a failed insert does not leave an orphan in Storage."""
+def delete_receipt(path: str, *, user_id: UUID) -> None:
+    """Best-effort cleanup so a failed insert does not leave an orphan in Storage.
+
+    The ownership check sits outside the try: a foreign path is a bug and must surface, not be swallowed.
+    """
+    path = _owned_path(path, user_id)
     try:
-        get_supabase().storage.from_(get_settings().receipts_bucket).remove([path])
+        _bucket().remove([path])
     except Exception:  # cleanup must never mask the original error
         logger.warning("Could not delete orphaned receipt %s", path, exc_info=True)
 
 
-def create_receipt_url(path: str, expires_in: int) -> str:
-    """Short-lived signed URL for a private receipt object."""
-    signed = get_supabase().storage.from_(get_settings().receipts_bucket).create_signed_url(
-        path, expires_in
-    )
+def create_receipt_url(path: str, expires_in: int, *, user_id: UUID) -> str:
+    """Short-lived signed URL for one of the owner's private receipt objects."""
+    signed = _bucket().create_signed_url(_owned_path(path, user_id), expires_in)
     url = signed.get("signedURL") or signed.get("signedUrl")
     if not url:
-        raise RuntimeError(f"Supabase returned no signed URL for {path}")
+        raise RuntimeError("Supabase returned no signed URL for this receipt")
     return url

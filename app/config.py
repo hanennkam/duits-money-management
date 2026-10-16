@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
+from uuid import UUID
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, ConfigDict
@@ -32,6 +33,9 @@ class Settings(BaseModel):
     claude_fallback_model: str = DEFAULT_CLAUDE_FALLBACK_MODEL
     receipts_bucket: str = DEFAULT_RECEIPTS_BUCKET
     max_upload_bytes: int = DEFAULT_MAX_UPLOAD_BYTES
+    # Temporary fallback for the single-owner period: X-API-Key acts as legacy_user_id. Off by default.
+    allow_legacy_api_key: bool = False
+    legacy_user_id: UUID | None = None
 
 
 REQUIRED_ENV = ("API_KEY", "SUPABASE_URL", "SUPABASE_SERVICE_KEY", "ANTHROPIC_API_KEY")
@@ -66,6 +70,18 @@ def max_upload_bytes() -> int:
         raise RuntimeError("MAX_UPLOAD_BYTES must be a whole number of bytes.") from exc
 
 
+def legacy_settings() -> tuple[bool, UUID | None]:
+    """ALLOW_LEGACY_API_KEY (off unless 1/true/yes) and LEGACY_USER_ID, which it requires."""
+    allowed = (env_value("ALLOW_LEGACY_API_KEY") or "").lower() in {"1", "true", "yes"}
+    if not allowed:
+        return False, None
+    raw = env_value("LEGACY_USER_ID")
+    try:
+        return True, UUID(raw) if raw else None
+    except ValueError:
+        return True, None  # reported below by name, never by value
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """Build settings from the environment. Cached; call `get_settings.cache_clear()` to reload."""
@@ -77,7 +93,15 @@ def get_settings() -> Settings:
             + ". Set them in the environment and restart."
         )
 
+    allow_legacy, legacy_user_id = legacy_settings()
+    if allow_legacy and legacy_user_id is None:
+        raise RuntimeError(
+            "ALLOW_LEGACY_API_KEY is on, so LEGACY_USER_ID must be set to a valid user id (UUID)."
+        )
+
     return Settings(
+        allow_legacy_api_key=allow_legacy,
+        legacy_user_id=legacy_user_id,
         api_key=env_value("API_KEY") or "",
         supabase_url=env_value("SUPABASE_URL") or "",
         supabase_service_key=env_value("SUPABASE_SERVICE_KEY") or "",

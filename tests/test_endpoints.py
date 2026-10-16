@@ -13,13 +13,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import db
-from conftest import HEADERS
+from conftest import HEADERS, TEST_USER
 
 ROW_ID = "11111111-1111-1111-1111-111111111111"
-RECEIPT_PATH = "2026/10/abc123.jpg"
+RECEIPT_PATH = f"{TEST_USER}/2026/10/abc123.jpg"
 
 ROW: dict[str, Any] = {
     "id": ROW_ID,
+    "user_id": TEST_USER,
     "created_at": "2026-10-11T12:00:00+00:00",
     "txn_date": "2026-10-11",
     "amount": 15.08,
@@ -42,30 +43,37 @@ def stored(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, Any]]:
     """An in-memory stand-in for the transactions table plus the storage bucket."""
     state: dict[str, Any] = {"row": dict(ROW), "patches": [], "removed": [], "signed": []}
 
-    monkeypatch.setattr(
-        "app.db.get_transaction",
-        lambda transaction_id: state["row"] if state["row"] and transaction_id == ROW_ID else None,
-    )
+    def owned(user_id: Any) -> bool:
+        return state["row"] is not None and state["row"]["user_id"] == str(user_id)
 
-    def update(transaction_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
+    def get(transaction_id: str, *, user_id: Any) -> dict[str, Any] | None:
+        return state["row"] if owned(user_id) and transaction_id == ROW_ID else None
+
+    def update(transaction_id: str, patch: dict[str, Any], *, user_id: Any) -> dict[str, Any] | None:
         state["patches"].append(patch)
-        if not state["row"]:
+        if not owned(user_id):
             return None
         state["row"] = {**state["row"], **patch}
         return state["row"]
 
-    def delete(transaction_id: str) -> bool:
-        existed = state["row"] is not None and transaction_id == ROW_ID
-        state["row"] = None
+    def delete(transaction_id: str, *, user_id: Any) -> bool:
+        existed = owned(user_id) and transaction_id == ROW_ID
+        if existed:
+            state["row"] = None
         return existed
 
+    def delete_receipt(path: str, *, user_id: Any) -> None:
+        state["removed"].append(path)
+
+    def create_receipt_url(path: str, ttl: int, *, user_id: Any) -> str:
+        state["signed"].append((path, ttl))
+        return f"https://signed.example/{path}"
+
+    monkeypatch.setattr("app.db.get_transaction", get)
     monkeypatch.setattr("app.db.update_transaction", update)
     monkeypatch.setattr("app.db.delete_transaction", delete)
-    monkeypatch.setattr("app.db.delete_receipt", lambda path: state["removed"].append(path))
-    monkeypatch.setattr(
-        "app.db.create_receipt_url",
-        lambda path, ttl: state["signed"].append((path, ttl)) or f"https://signed.example/{path}",
-    )
+    monkeypatch.setattr("app.db.delete_receipt", delete_receipt)
+    monkeypatch.setattr("app.db.create_receipt_url", create_receipt_url)
     yield state
 
 
@@ -74,12 +82,20 @@ def created(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """Capture what POST /transactions inserts, with the dedupe lookup mocked out."""
     state: dict[str, Any] = {"rows": [], "lookups": []}
 
-    def find(dedupe: str) -> dict[str, Any] | None:
+    def find(dedupe: str, *, user_id: Any) -> dict[str, Any] | None:
         state["lookups"].append(dedupe)
-        return next((row for row in state["rows"] if row["dedupe_hash"] == dedupe), None)
+        return next(
+            (row for row in state["rows"] if row["dedupe_hash"] == dedupe and row["user_id"] == str(user_id)),
+            None,
+        )
 
-    def insert(row: dict[str, Any]) -> dict[str, Any]:
-        stored = {**row, "id": str(len(state["rows"])), "created_at": "2026-10-13T09:00:00+00:00"}
+    def insert(row: dict[str, Any], *, user_id: Any) -> dict[str, Any]:
+        stored = {
+            **row,
+            "user_id": str(user_id),
+            "id": str(len(state["rows"])),
+            "created_at": "2026-10-13T09:00:00+00:00",
+        }
         state["rows"].append(stored)
         return stored
 
@@ -184,7 +200,7 @@ def test_create_transaction_answers_409_with_the_existing_row(
     """
     existing = {"id": ROW_ID, "txn_date": "2026-10-11", "amount": 12.5, "merchant": "Kopitiam Ali"}
     monkeypatch.setattr("app.models.dedupe_hash", lambda *_args: "a" * 64)  # models imported it by name
-    monkeypatch.setattr("app.db.find_by_dedupe_hash", lambda _dedupe: existing)
+    monkeypatch.setattr("app.db.find_by_dedupe_hash", lambda _dedupe, **_kw: existing)
 
     response = client.post(
         "/transactions",
@@ -229,7 +245,7 @@ def test_get_one_transaction(client: TestClient, stored: dict[str, Any]) -> None
 def test_get_one_transaction_is_404_when_missing(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("app.db.get_transaction", lambda _transaction_id: None)
+    monkeypatch.setattr("app.db.get_transaction", lambda _transaction_id, **_kw: None)
 
     assert client.get(f"/transactions/{ROW_ID}", headers=HEADERS).status_code == 404
 
@@ -308,7 +324,7 @@ def test_patch_rejects_unknown_fields(client: TestClient, stored: dict[str, Any]
 
 
 def test_patch_is_404_when_missing(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("app.db.get_transaction", lambda _transaction_id: None)
+    monkeypatch.setattr("app.db.get_transaction", lambda _transaction_id, **_kw: None)
 
     response = client.patch(f"/transactions/{ROW_ID}", headers=HEADERS, json={"amount": 1})
 
@@ -333,7 +349,7 @@ def test_delete_without_a_receipt_skips_storage(client: TestClient, stored: dict
 
 
 def test_delete_is_404_when_missing(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("app.db.get_transaction", lambda _transaction_id: None)
+    monkeypatch.setattr("app.db.get_transaction", lambda _transaction_id, **_kw: None)
 
     assert client.delete(f"/transactions/{ROW_ID}", headers=HEADERS).status_code == 404
 
@@ -358,7 +374,7 @@ def test_receipt_url_is_404_without_a_receipt(client: TestClient, stored: dict[s
 def test_receipt_url_is_404_when_the_row_is_missing(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("app.db.get_transaction", lambda _transaction_id: None)
+    monkeypatch.setattr("app.db.get_transaction", lambda _transaction_id, **_kw: None)
 
     assert client.get(f"/transactions/{ROW_ID}/receipt-url", headers=HEADERS).status_code == 404
 

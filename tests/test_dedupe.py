@@ -68,12 +68,12 @@ def test_two_text_entries_same_amount_same_day_both_insert(
     rows: list[dict[str, Any]] = []
     lookups: list[str] = []
 
-    def fake_find(dedupe: str) -> dict[str, Any] | None:
+    def fake_find(dedupe: str, *, user_id: object) -> dict[str, Any] | None:
         lookups.append(dedupe)
         return next((row for row in rows if row["dedupe_hash"] == dedupe), None)
 
-    def fake_insert(row: dict[str, Any]) -> dict[str, Any]:
-        stored = {**row, "id": str(len(rows)), "created_at": "2026-03-04T12:00:00+00:00"}
+    def fake_insert(row: dict[str, Any], *, user_id: object) -> dict[str, Any]:
+        stored = {**row, "user_id": str(user_id), "id": str(len(rows)), "created_at": "2026-03-04T12:00:00+00:00"}
         rows.append(stored)
         return stored
 
@@ -98,10 +98,10 @@ def test_duplicate_receipt_still_returns_409(
     """A receipt with a merchant is still deduped, even from a different photo."""
     existing = {"id": "existing-id", "txn_date": "2026-03-04", "amount": 12.5}
     deleted: list[str] = []
-    monkeypatch.setattr("app.db.find_by_image_hash", lambda _image_hash: None)
-    monkeypatch.setattr("app.db.upload_receipt", lambda path, _content, _content_type: path)
-    monkeypatch.setattr("app.db.delete_receipt", lambda path: deleted.append(path))
-    monkeypatch.setattr("app.db.find_by_dedupe_hash", lambda dedupe: existing if dedupe else None)
+    monkeypatch.setattr("app.db.find_by_image_hash", lambda _image_hash, **_kw: None)
+    monkeypatch.setattr("app.db.upload_receipt", lambda path, _content, _content_type, **_kw: path)
+    monkeypatch.setattr("app.db.delete_receipt", lambda path, **_kw: deleted.append(path))
+    monkeypatch.setattr("app.db.find_by_dedupe_hash", lambda dedupe, **_kw: existing if dedupe else None)
     monkeypatch.setattr(
         "app.extractor.extract_from_image",
         lambda _image, _media_type: Extraction.model_validate(
@@ -129,8 +129,8 @@ def test_scan_does_not_upload_when_extraction_fails(
     def unreadable(*_args: object) -> Extraction:
         raise extractor.ExtractionError(extractor.IMAGE_UNREADABLE)
 
-    monkeypatch.setattr("app.db.find_by_image_hash", lambda _image_hash: None)
-    monkeypatch.setattr("app.db.upload_receipt", lambda path, _c, _t: uploads.append(path) or path)
+    monkeypatch.setattr("app.db.find_by_image_hash", lambda _image_hash, **_kw: None)
+    monkeypatch.setattr("app.db.upload_receipt", lambda path, _c, _t, **_kw: uploads.append(path) or path)
     monkeypatch.setattr("app.extractor.extract_from_image", unreadable)
 
     response = client.post(
@@ -153,11 +153,11 @@ def test_same_image_twice_returns_409_without_calling_claude(
     claude_calls: list[bytes] = []
     uploads: list[str] = []
 
-    def fake_find_image(image_hash: str) -> dict[str, Any] | None:
+    def fake_find_image(image_hash: str, *, user_id: object) -> dict[str, Any] | None:
         return next((row for row in rows if row["image_hash"] == image_hash), None)
 
-    def fake_insert(row: dict[str, Any]) -> dict[str, Any]:
-        stored = {**row, "id": str(len(rows)), "created_at": "2026-03-04T12:00:00+00:00"}
+    def fake_insert(row: dict[str, Any], *, user_id: object) -> dict[str, Any]:
+        stored = {**row, "user_id": str(user_id), "id": str(len(rows)), "created_at": "2026-03-04T12:00:00+00:00"}
         rows.append(stored)
         return stored
 
@@ -169,11 +169,11 @@ def test_same_image_twice_returns_409_without_calling_claude(
         )
 
     monkeypatch.setattr("app.db.find_by_image_hash", fake_find_image)
-    monkeypatch.setattr("app.db.find_by_dedupe_hash", lambda _dedupe: None)
+    monkeypatch.setattr("app.db.find_by_dedupe_hash", lambda _dedupe, **_kw: None)
     monkeypatch.setattr("app.db.insert_transaction", fake_insert)
     monkeypatch.setattr(
         "app.db.upload_receipt",
-        lambda path, _content, _content_type: uploads.append(path) or path,
+        lambda path, _content, _content_type, **_kw: uploads.append(path) or path,
     )
     monkeypatch.setattr("app.extractor.extract_from_image", fake_extract)
 

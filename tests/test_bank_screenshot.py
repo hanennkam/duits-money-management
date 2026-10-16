@@ -36,23 +36,23 @@ def _fake_db(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """Rows in memory, plus a record of every Storage call, so the rule can be asserted on."""
     state: dict[str, Any] = {"rows": [], "uploads": [], "deletes": []}
 
-    def fake_find(dedupe: str) -> dict[str, Any] | None:
+    def fake_find(dedupe: str, *, user_id: object) -> dict[str, Any] | None:
         return next((row for row in state["rows"] if row.get("dedupe_hash") == dedupe), None)
 
-    def fake_find_many(hashes: list[str]) -> dict[str, Any] | None:
+    def fake_find_many(hashes: list[str], *, user_id: object) -> dict[str, Any] | None:
         return next((row for row in state["rows"] if row.get("dedupe_hash") in hashes), None)
 
-    def fake_insert(row: dict[str, Any]) -> dict[str, Any]:
-        stored = {**row, "id": str(len(state["rows"]) + 1), "created_at": "2026-10-14T12:00:00+00:00"}
+    def fake_insert(row: dict[str, Any], *, user_id: object) -> dict[str, Any]:
+        stored = {**row, "user_id": str(user_id), "id": str(len(state["rows"]) + 1), "created_at": "2026-10-14T12:00:00+00:00"}
         state["rows"].append(stored)
         return stored
 
-    monkeypatch.setattr("app.db.find_by_image_hash", lambda _hash: None)
+    monkeypatch.setattr("app.db.find_by_image_hash", lambda _hash, **_kw: None)
     monkeypatch.setattr("app.db.find_by_dedupe_hash", fake_find)
     monkeypatch.setattr("app.db.find_by_dedupe_hashes", fake_find_many)
     monkeypatch.setattr("app.db.insert_transaction", fake_insert)
-    monkeypatch.setattr("app.db.upload_receipt", lambda path, _c, _t: state["uploads"].append(path))
-    monkeypatch.setattr("app.db.delete_receipt", lambda path: state["deletes"].append(path))
+    monkeypatch.setattr("app.db.upload_receipt", lambda path, _c, _t, **_kw: state["uploads"].append(path))
+    monkeypatch.setattr("app.db.delete_receipt", lambda path, **_kw: state["deletes"].append(path))
     return state
 
 

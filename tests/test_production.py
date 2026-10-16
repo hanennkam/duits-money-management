@@ -71,10 +71,10 @@ def test_a_bad_numeric_setting_fails_without_echoing_it(
 def test_api_responses_are_not_cacheable(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("app.db.list_transactions", lambda *_args: [])
+    monkeypatch.setattr("app.db.list_transactions", lambda *_args, **_kw: [])
     monkeypatch.setattr(
         "app.db.summarize",
-        lambda *_args: {"total_expense": 0, "total_income": 0, "by_category": {}},
+        lambda *_args, **_kw: {"total_expense": 0, "total_income": 0, "by_category": {}},
     )
 
     for path in ("/transactions?month=2026-10", "/summary?month=2026-10"):
