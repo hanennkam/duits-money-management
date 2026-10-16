@@ -7,16 +7,17 @@ Prepared after the auth-screen polish on branch `multi-user`. Read this before t
 | | |
 | --- | --- |
 | Task 1 — verify polish spec | **Done.** Every spec item is present in the code. Nothing was missing, so no code changed. |
-| Task 2 — safety checks | **Done, with 2 failures** (see Known issues). |
+| Task 2 — safety checks | **Done, 1 failure left** (forgot-password email delivery). |
 | Task 3 — commit and push | **Done.** `multi-user` is pushed. **Not** merged to `main`, **not** deployed to live. |
 | Task 5 — this file | **Done.** |
+| Verification pass 2 (invite flow) | **Done.** Sign-up is now refused, and the invite flow works end to end. |
 
 ## Current branch + last commit
 
 - Branch: `multi-user`, tracking `origin/multi-user`, pushed.
-- Last commit: `f33651a` — `style(ui): restyle the sign-in screen to the 45% centred column`.
+- Last commit: `59a8018` — `fix(auth): send redirect_to as origin + / on password recovery`.
 - `main` is untouched and was **not** pushed.
-- `pytest`: **192 passed, 15 skipped**. Staging suite: **15 passed**.
+- `pytest`: **194 passed, 15 skipped**. Staging suite: **15 passed**.
 
 ## Staging URL (iPhone, same Wi-Fi)
 
@@ -63,6 +64,19 @@ The polish itself is commit `f33651a`. No files changed in this verification ses
   and receipt URLs all answer 404, dedupe is per owner, creates stamp the caller, and RLS is enforced
   through PostgREST **and** Storage (B cannot read A's receipt object).
 - **No sign-up in the UI.** The page has no registration screen and never calls `/auth/v1/signup`.
+- **`redirect_to` on recovery** is `window.location.origin + "/"` (commit `59a8018`), pinned by two page
+  tests. It was previously built from `pathname`, which would break the allow-list if the page were opened
+  as `/index.html`.
+- **Sign-up is now refused** (staging). `POST /auth/v1/signup` → **HTTP 422**, message
+  **`Signups not allowed for this instance`**, `error_code: signup_disabled`, for both a weak and a valid
+  password. No account is created. `disable_signup` now reports `true`.
+- **Invite flow works end to end** (staging, real link from `generate_link`):
+  - the link lands on the app's **Set a new password** screen;
+  - the confirm field is shown and the email field is locked (the link proved identity);
+  - **the token is cleared from the URL** immediately (`#...` is gone, address bar is `/`);
+  - after saving, the new user is signed in and **Home is empty**: 0 rows, `RM 0.00`,
+    "Nothing recorded this month yet.", and no row from A or B anywhere on the page.
+  - Confirmed in the database too: the new account owns **0** rows.
 
 ### Failed / gaps
 
@@ -72,13 +86,17 @@ The polish itself is commit `f33651a`. No files changed in this verification ses
    - **Account enumeration at the Supabase level**: the status code differs for a known and an unknown
      address. Our UI hides this behind one message, but the API itself leaks it.
    The likely cause is the project's email provider rejecting `example.com` recipients. This is a Supabase
-   setting, not app code.
-2. **Sign-up is not invite-only at the Supabase level.** `disable_signup` is **false**, and
-   `/auth/v1/signup` accepts registrations — a weak password returns
-   `422 Password should be at least 6 characters` rather than "signups not allowed". Anyone holding the
-   publishable key can create an account. The app has no sign-up UI, so the path is only the raw endpoint.
+   setting, not app code. *(Still open.)*
+2. **Settings shows "Not signed in" after an invite sign-in.** `readAuthRedirect()` stores the session with
+   an empty email, and `renderAccount()` falls back to "Not signed in". Cosmetic, and specific to the
+   invite/recovery path; signing in with a password shows the address correctly.
+3. **Three unexpected accounts exist on staging** — `suhaib@gmail.com`, `adeeb@gmail.com`,
+   `madsu04@gmail.com` — created while sign-up was open (10:14–13:15 today). They own 5 rows between them
+   (4 manual, 1 receipt scan). These are **not** mine and have been left untouched. They may be your own
+   test sign-ups; if not, they are direct evidence of the exposure that closing sign-up has now removed.
+   Decide whether to delete them.
 
-Both are Supabase project settings and need the dashboard. They are on the cutover checklist below.
+Resolves the earlier "Sign-up is not invite-only" gap (item 2 of the previous pass).
 
 ---
 
@@ -125,7 +143,8 @@ full detail; this is the summary.
 
 **A. Configuration (Supabase dashboard, live project `viorpltdkpexswvofeul`)**
 - [ ] **Close sign-up**: Authentication → Providers → Email → "Allow new users to sign up" = off. Then
-      verify `POST /auth/v1/signup` is refused. (Currently open — see Known issues.)
+      verify `POST /auth/v1/signup` is refused. **Done and verified on staging** (422
+      `Signups not allowed for this instance`); repeat the same check on the live project.
 - [ ] **Fix the email sender** so invite and reset links actually send, and confirm a reset link arrives.
 - [ ] Add the live URL to **Redirect URLs** (and the LAN URL if you test from a phone):
       `https://duits-money-tracking.onrender.com/`.
@@ -175,8 +194,13 @@ full detail; this is the summary.
 
 1. **Forgot-password emails do not send** for the staging accounts (Supabase: `400 Email address is
    invalid`). The UI is correct; the delivery is not. Also leaks account existence by status code.
-2. **Public sign-up is open** on the Supabase project (`disable_signup: false`). The app has no sign-up
-   UI, but the raw endpoint accepts registrations. Must be closed before live.
+2. **Sign-up is closed on staging** (`disable_signup: true`, `/auth/v1/signup` → 422 `signup_disabled`).
+   It was open earlier today, and three accounts that are not ours were created through it. **The same
+   setting must still be turned off on the live project** before cutover — see the checklist.
+3. **Settings shows "Not signed in"** after signing in through an invite link (empty `email` in the
+   session). Cosmetic.
+4. **Three accounts on staging are not ours** (`suhaib@gmail.com`, `adeeb@gmail.com`,
+   `madsu04@gmail.com`), owning 5 rows. Left untouched; decide whether to remove them.
 3. **Not verified on a real iPhone.** Everything was checked in desktop Chrome. Notably unverified:
    whether `100dvh` shrinks when the iOS keyboard opens (the design assumes the box can scroll), whether
    `justify-content: safe center` is supported in Safari (the plain `center` fallback would let the title
