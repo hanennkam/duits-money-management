@@ -9,9 +9,12 @@
 - Where a command needs a credential only you hold (the database connection string), it is marked **MINE**
   and the exact command is given to paste.
 
-**Projects.** Live is `viorpltdkpexswvofeul`. Staging is `tddigsmukmhkjrwiqdec`. Every command below names
-its project; the scripts refuse the live project unless `--allow-live` is passed. **Check the ref in every
-console before you run anything.**
+**Projects.** Live is `viorpltdkpexswvofeul`. Staging is `tddigsmukmhkjrwiqdec`. Only commands that take a
+`--project-ref` name their project — that is `migrate_receipts.py` in step 9 — and they refuse the live
+project unless `--allow-live` is also passed. The other two commands, `backup_receipts.py` (step 3) and
+`audit_live.py` (step 4), take no project argument: they follow whatever project `.env` points at. Both now
+print that project's URL as their **first output line**, so check it there. For the rest, **check the ref in
+every console before you run anything.**
 
 **Rules.** Stop on any unexpected result. Do not fix forward. Take the backups before step 7 — the migration
 is the only irreversible-feeling step and it is the one with a rollback.
@@ -23,9 +26,11 @@ is the only irreversible-feeling step and it is the one with a rollback.
 - **Do:** Supabase dashboard → project `viorpltdkpexswvofeul` → **Authentication → Users**.
 - **Expected:** only the accounts you expect. For a project that has never been open to the internet, that is
   your own account and nothing else.
-- **STOP if** there are accounts you do not recognise. Three unknown Gmail accounts appeared on **staging**
-  while sign-up was open there, and they created rows. If live has the same, note the addresses and decide
-  what to do with them **before** step 7 (the migration will assign all existing rows to one owner).
+- **STOP if** there are accounts you do not recognise. On **staging**, three Gmail accounts appeared while
+  sign-up was open there and created rows; they were later confirmed to be the household's, but this check
+  remains because **live's** account list is the real question. If live has accounts you do not recognise,
+  note the addresses and decide what to do with them **before** step 7 (the migration will assign all
+  existing rows to one owner).
 - **Roll back from here:** nothing to undo — this step is read-only.
 
 ## 2. Back up the database with pg_dump — MINE
@@ -46,26 +51,49 @@ The free Supabase plan may have **no dashboard backups**, so this is the only sa
 - **STOP if** `pg_dump` errors, the file is empty, or you cannot reach the database.
 - **Roll back from here:** nothing to undo. Keep the file; it is the restore path for every later step.
 
-## 3. Back up the receipts bucket — YOURS
+## 3. Pre-check the project, then back up the receipts bucket — YOURS
+
+**3a. Confirm which project `.env` points at — before either script below runs.**
 
 ```bash
 cd /Users/Apple/Dev/Duits-money-management
+./.venv/bin/python -c "from app.config import get_settings; print(get_settings().supabase_url)"
+```
+
+- **Expected:** `https://viorpltdkpexswvofeul.supabase.co`. This command takes no project argument, and
+  neither do the two scripts in steps 3b and 4; all three follow `.env`. Both scripts print this same URL as
+  their **first output line**, so the ref is visible in their own output too.
+- **STOP if** the ref is anything else — `tddigsmukmhkjrwiqdec` (staging) most of all. A wrong `.env` does
+  not error: steps 3 and 4 would back up and audit the wrong project, and every count after them would be
+  measured against a bad baseline. Fix `.env`, then re-run.
+- **Roll back from here:** nothing to undo — this prints one value and reads nothing.
+
+**3b. Back up the receipts bucket.**
+
+```bash
 ./.venv/bin/python scripts/backup_receipts.py
 ```
 
-- **Expected:** `downloaded N files, … bytes`, exit 0, and the files land in
-  `~/Backups/duits-<date>/receipts/`. The script reads `.env` (the live project) and is read-only.
+- **Expected:** first line `project: https://viorpltdkpexswvofeul.supabase.co`, then
+  `downloaded N files, … bytes`, exit 0, and the files land in `~/Backups/duits-<date>/receipts/`. The script
+  reads `.env` and is read-only.
 - **Check:** the file count equals the object count from step 4. The script refuses to overwrite an existing
   folder, so a re-run is safe.
-- **STOP if** the exit code is non-zero or any object failed (the script prints a `failed:` count).
+- **STOP if** the first line is not the live project (step 3a), the exit code is non-zero, or any object
+  failed (the script prints a `failed:` count).
 - **Roll back from here:** nothing to undo. Keep the folder; it is the restore path for receipt objects.
 
 ## 4. Baseline audit — YOURS
+
+This script takes no project argument either — run step 3a first if you have not.
 
 ```bash
 ./.venv/bin/python scripts/audit_live.py
 ```
 
+- **Check first:** the first output line is `project: https://viorpltdkpexswvofeul.supabase.co`.
+  **STOP if it is not** — you are baselining the wrong project, and every later step is compared against it
+  (see step 3a).
 - **Expected:** transaction row count **N**, receipts object count **O**, plus the table columns. Write both
   numbers down; every later step is checked against them.
 - **STOP if** the column list does not match `docs/multi-user-audit.md`, or either count is surprising.
@@ -103,7 +131,8 @@ cd /Users/Apple/Dev/Duits-money-management
 **Do this before the cutover window opens, not during it.** While sign-up is open, anyone with the
 publishable key can create an account and write rows; a row created during the migration would be
 backfilled to the owner and muddy every count from there on. On staging this exposure produced three
-accounts and five rows.
+accounts and five rows — later confirmed to be the household's, but the mechanism is real, and it is why
+this closes before step 7.
 
 - **Do:** Supabase → **Authentication → Providers → Email** → turn **"Allow new users to sign up"** off.
 - **Expected:** this is refused with `signup_disabled`.
@@ -253,7 +282,10 @@ curl -s -D - -o /dev/null $BASE/ | grep -iE '^(HTTP|cache-control|content-securi
 Rehearsed on a real Postgres with the exact files, and on staging:
 
 - `schema.sql` (now including `image_hash`) creates a database matching production.
-- `0002 up` → `verify` → `0002 down` → `0002 up` again. **Row counts: 6 → 6 → 6 → 6**, never fewer.
+- `0002 up` → `verify` → `0002 down` → `0002 up` again, never dropping a row: **6 → 6 → 6 → 6** on the local
+  Postgres rehearsal, and **30 → 30 → 30 → 30** on staging. Staging reads **29** today, after Pass 9's
+  deliberate delete of one leftover throwaway row. Live is baselined fresh in steps 3–4 and is never
+  compared against either number.
 - `0002` **refuses to run without `app.owner_id`**.
 - The rollback **refuses** while two owners share a hash.
 - Per-owner uniqueness: a cross-owner duplicate hash is accepted; a same-owner duplicate is refused.
@@ -261,5 +293,6 @@ Rehearsed on a real Postgres with the exact files, and on staging:
 - Sign-up refusal (`422`, `signup_disabled`) and the full invite flow, on staging.
 
 **Not rehearsed:** anything against the live project. `pg_dump` needs your connection string. The custom SMTP
-path has never sent a successful message. Whether the free plan offers dashboard backups is unknown, which is
-why step 2 uses `pg_dump`.
+path has never sent a successful message **on the live project** — it has on staging (pass 8: a real message
+was delivered, and `recover` returned 200 with an empty body), so only the per-project copy is unproven.
+Whether the free plan offers dashboard backups is unknown, which is why step 2 uses `pg_dump`.

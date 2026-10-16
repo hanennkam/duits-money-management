@@ -6,7 +6,8 @@ It only lists and downloads: nothing in Supabase is uploaded, moved or deleted.
 An existing backup folder for today is never overwritten; the script stops instead.
 
 Run from the repo root:  ./.venv/bin/python scripts/backup_receipts.py
-Only the file count and total size are printed.
+The project URL, the file count and the total size are printed: the URL first, so a `.env` pointed at the
+wrong project is visible in the output rather than silent.
 """
 
 from __future__ import annotations
@@ -48,8 +49,9 @@ def object_paths(bucket, prefix: str = "") -> Iterator[str]:
 
 
 def main() -> int:
-    bucket_name = get_settings().receipts_bucket
-    bucket = get_supabase().storage.from_(bucket_name)
+    settings = get_settings()
+    print(f"project: {settings.supabase_url.rstrip('/')}")
+    bucket = get_supabase().storage.from_(settings.receipts_bucket)
 
     backup_root = Path.home() / "Backups" / f"duits-{date.today():%Y-%m-%d}"
     target = backup_root / "receipts"

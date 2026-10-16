@@ -19,6 +19,49 @@ Prepared after the auth-screen polish on branch `multi-user`. Read this before t
 | Pass 8 — SMTP fixed | **Done.** Password reset delivers, and the account-enumeration leak is closed. |
 | Pass 9 — phone pass recorded + receipt paths | **Done.** The phone checklist came back clean. `migrate_receipts.py` now re-homes a path left under another owner. |
 | Pass 10 — household decision, `--apply`, byte reconciliation | **Done.** The three accounts are ours; the receipt re-homing ran (`legacy_rows: 0`); both re-homed objects are identified; the isolation suite ran clean. |
+| Pass 11 — runbook read-through against the tools | **Done.** Every tool-agreeing claim verified against code; four stale-prose fixes; steps 3–4 now self-report the project ref. |
+
+## Pass 11 — the runbook read-through, and the four fixes it produced
+
+**The last pre-flight is done: `docs/CUTOVER_RUNBOOK.md` read line by line against the current tools.** Every
+claim that had to agree with code was checked, and all agreed: the STOP list (`missing_source` /
+`unexpected_format` are the only stops, `shared_object` is a skip that exits 0), every counter name, both
+migration refusal messages, the `transactions_user_dedupe_key` / `transactions_user_image_key` names, the 4
+transaction + 3 storage policies, `GET /health`, the `no-store` + per-response CSP nonce on `/`, and the
+printed output of `backup_receipts.py`, `audit_live.py` and `verify_after_up.sql`. Four things did not:
+
+1. **The header claimed a guard that two of the three scripts do not have.** "the scripts refuse the live
+   project unless `--allow-live` is passed" holds for `migrate_receipts.py` only; `backup_receipts.py` and
+   `audit_live.py` take no arguments, follow `.env`, and printed no project ref — so the runbook's own
+   mitigation ("check the ref in every console") could not be done from their output, and a wrong `.env`
+   would have baselined the wrong project silently, poisoning every later comparison. Fixed on both sides:
+   the header sentence is scoped to `migrate_receipts.py`; step 3 gained a numbered pre-check (**3a**) that
+   prints the ref from `.env` and carries its own STOP line; step 4's first check is the same ref. And both
+   scripts now print their project URL as their **first output line** (`scripts/backup_receipts.py`,
+   `scripts/audit_live.py`), so the pre-check is verifiable from the output rather than trusted.
+2. **"The custom SMTP path has never sent a successful message."** False unqualified — pass 8 delivered a
+   real message on staging and `recover` returned 200 with an empty body. Qualified to **on the live
+   project**, which is the only part actually unproven.
+3. **The staging three accounts were still written up as intruders** in steps 1 and 6. Pass 10 confirmed they
+   are the household's. One clause added in each place; the check itself stays, because live's account list
+   is the real question.
+4. **"Row counts: 6 → 6 → 6 → 6"** was attributed to a sentence covering both the local Postgres rehearsal
+   and staging. Now labelled: **6 → 6 → 6 → 6** on the local Postgres, **30 → 30 → 30 → 30** on staging, and
+   **29** today.
+
+**How the new first line was verified without touching live.** `backup_receipts.py` was run with today's
+backup folder pre-created, so it printed `project: https://viorpltdkpexswvofeul.supabase.co` and then
+stopped at the folder guard: no network, no download, exit 1. The folder was removed afterwards and
+`~/Backups` is back to its two entries. `audit_live.py` was run against an unresolvable host to prove the
+line prints before any request; its real output against live is still unexercised. Suite: **206 passed,
+15 skipped**, unchanged.
+
+**One finding that is not the runbook's.** `a2d55e96`, cited twice in this file (Pass 9 and Known issue 7) as
+the thing behind staging's 30 → 29 delete, resolves to **no object in this repo** — `git cat-file -t` refuses
+it and it is absent from `git log --all`. The event is recorded in Pass 9 as a delete "by explicit id", and
+Known issue 7 names a *different* id (`b31b4f8f`) as the throwaway row in the logs, so it is not clear whether
+`a2d55e96` was meant as a row id or a commit. The runbook therefore cites **Pass 9** rather than the hash, so
+a third unresolvable citation is not added. Left open — flagged rather than rewritten.
 
 ## Pass 10 — the household decision, the receipt re-homing, and the byte reconciliation
 
@@ -511,7 +554,8 @@ closed. What is left is live-side, and yours:
    minute between them or the second is silently dropped.
 2. **Close sign-up on live**, and do it **before** the cutover window opens, not during it. Verify
    `POST /auth/v1/signup` answers 422 `signup_disabled`.
-3. Then cutover (`docs/CUTOVER_RUNBOOK.md`).
+3. Then cutover (`docs/CUTOVER_RUNBOOK.md`). The runbook was read through against the tools in Pass 11 and is
+   trusted: every claim that had to agree with code does, and the four stale-prose fixes it produced are in.
 
 **Deferred by choice, not blocking:** deleting the household rows, whenever you want — and the three
 accounts too, if you decide they go. Staging's `--apply` has already run, so an app delete now takes each

@@ -12,6 +12,7 @@ What the Supabase APIs can and cannot show:
   the SQL editor.
 
 Run from the repo root:  ./.venv/bin/python scripts/audit_live.py
+The project URL is printed first, so the console shows which project was actually read.
 """
 
 from __future__ import annotations
@@ -53,6 +54,7 @@ def object_count(bucket, prefix: str = "") -> tuple[int, int]:
 def main() -> int:
     settings = get_settings()
     base = settings.supabase_url.rstrip("/")
+    print(f"project: {base}")
     key_headers = {"apikey": settings.supabase_service_key, "Authorization": f"Bearer {settings.supabase_service_key}"}
     client = get_supabase()
 
