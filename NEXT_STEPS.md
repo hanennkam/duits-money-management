@@ -20,7 +20,7 @@ Prepared after the auth-screen polish on branch `multi-user`. Read this before t
 | Pass 9 — phone pass recorded + receipt paths | **Done.** The phone checklist came back clean. `migrate_receipts.py` now re-homes a path left under another owner. |
 | Pass 10 — household decision, `--apply`, byte reconciliation | **Done.** The three accounts are ours; the receipt re-homing ran (`legacy_rows: 0`); both re-homed objects are identified; the isolation suite ran clean. |
 | Pass 11 — runbook read-through against the tools | **Done.** Every tool-agreeing claim verified against code; four stale-prose fixes; steps 3–4 now self-report the project ref. |
-| Pass 12 — live `image_hash` shape, step 3 hardened | **Files done; staging re-run is YOURS.** Production's `image_hash` uniqueness is a *partial unique index*, which step 3's text patterns could not see. Step 3 now reads the catalog. Staging must be rebuilt to the live shape and re-run before cutover. |
+| Pass 12 — live `image_hash` shape, step 3 hardened | **Done except the staging rollback.** Production's `image_hash` uniqueness is a *partial unique index*, which step 3's text patterns could not see; step 3 now reads the catalog. Staging rebuilt to that shape and re-run: `up`, `verify_after_up.sql` and the 15 isolation tests all clean. `0002 down` on staging is the one rehearsal step left. |
 
 ## Pass 12 — Production's `image_hash` shape, and the silent no-op step 3 hid
 
@@ -99,12 +99,19 @@ They were executed in the rehearsal, not just written, and each reported exactly
 global-unique rows are answered from the catalog for the same reason step 3 is — a text answer would report
 "none" while the partial index was still there.
 
-**Staging is rebuilt to the live shape, and that re-run is not done.** `migrations/staging/00_pre_migration_schema.sql`
-now also creates `transactions_image_hash_uidx` (it previously created `image_hash` with no uniqueness at all,
-which is exactly why the earlier rehearsal passed: the buggy pattern had nothing to miss). Rebuilding staging
-and re-running `up → verify → isolation suite → down` is the owner's step, because only the SQL editor can run
-the DDL — there is no DB credential or `psql` in this environment. The isolation suite needs the migrated
-staging state, so it is re-run after that, not before.
+**Staging now carries the live shape, and the re-run is done** (2026-10-17, by the owner in the SQL editor):
+`0002 down` → `create unique index transactions_image_hash_uidx … where image_hash is not null` → `0002 up`
+with A's id → `verify_after_up.sql`. Every grid row came back as expected, and — read straight out of
+staging — its `public.migration_0002_saved_constraints` now holds **2** rows: the dedupe constraint **and**
+`index transactions_image_hash_uidx` *with its `WHERE` clause*. That is the new step 3a doing on the real
+project what the old one could not, and it is the artifact the rollback depends on. The migration was
+data-preserving: **29 rows / one owner** before and after.
+
+**The isolation suite passed against it: 15 passed, 4 warnings** (library deprecation warnings from the
+`supabase` client, not test failures). It ran after the `up`, against the per-owner partial index, with the
+real project — real sign-in, real JWKS, real Postgres, real Storage, and PostgREST/Storage RLS as each user,
+including the 409 case in both directions. Afterwards staging is exactly as it was: 29 rows, one owner, 14
+receipt objects under `A/2026/10`, nothing under B's folder, no duplicate hashes.
 
 **Read out of staging before recommending that order** (API, read-only, counts only — not DDL): **29 rows, one
 owner**, that owner being `STAGING_USER_A_ID`; **14 rows carry a receipt and all 14 sit under A's folder**, none
@@ -122,9 +129,11 @@ partial index exactly as they did under the old constraint, which the rehearsal 
 tests assert *behaviour* (409s, RLS, folder isolation) and never the object kind, so they are
 shape-independent. The one thing they cannot check is the catalog itself: they run through the API, and
 `pg_index` / `pg_constraint` are not exposed there — which is why that check lives in `verify_after_up.sql`.
-What they still need is to be **run** against the migrated staging, which is the re-run above.
+They have now been run against the migrated staging, and they pass.
 
-**Not re-run, and why:** the isolation suite (needs the migrated staging), and the live SQL itself.
+**Only the staging rollback is left, and the live SQL.** The remaining rehearsal step is `0002 down` +
+`verify_after_down.sql` on staging — the rollback path is still proven only locally (PGlite), where it
+restores the constraint and the partial index verbatim. Nothing has been run against live.
 
 ## Pass 11 — the runbook read-through, and the four fixes it produced
 
@@ -681,38 +690,18 @@ needs no manual bump; forgot-password delivers and the enumeration leak is close
 ## Next
 
 Staging was complete, then Pass 12 reopened one step of it: production's `image_hash` uniqueness turned out to
-be a **partial unique index**, which the old step 3 could not see, so the migration that was rehearsed is not
-the migration that will run. The **files are fixed**; the **staging re-run is yours**, because only the SQL
-editor can run DDL from here. What is left is live-side, and yours:
+be a **partial unique index**, which the old step 3 could not see, so the migration that was rehearsed was not
+the migration that would run. That is now closed on staging — rebuilt to the live shape, `0002 up`,
+`verify_after_up.sql` and the 15 isolation tests all clean — and **only the staging rollback is left** before
+the live work. What is left is:
 
-1. **Rebuild staging to the live shape and re-run the rehearsal** (Pass 12). In the staging SQL editor, in
-   this order:
-
-   ```sql
-   -- 1. Take staging back to the pre-migration shape. Data-preserving. Refuses if two owners share a hash.
-   --    (paste migrations/0002_multi_user.down.sql)
-
-   -- 2. Give it production's shape: the partial unique index the rebuild has to exercise.
-   create unique index if not exists transactions_image_hash_uidx
-     on public.transactions (image_hash) where image_hash is not null;
-
-   -- 3. The migration under test. One run. Use A's id (STAGING_USER_A_ID): the `up` backfills EVERY row
-   --    that has no owner to this id, and staging's 29 rows are all A's today. Any other id silently
-   --    re-homes the lot, and `a_receipt_row` in the isolation suite looks rows up by A.
-   select set_config('app.owner_id', '<your auth.users id>', false);
-   --    (paste migrations/0002_multi_user.up.sql)
-
-   -- 4. One statement, one grid. Every row must match its own expectation.
-   --    (paste migrations/staging/verify_after_up.sql)
-   ```
-
-   Step 1 refusing on a cross-owner duplicate and step 2 refusing on the same duplicate are **the same
-   condition** (`down`'s guard covers non-null `image_hash`), so if step 1 passes, step 2 will. Then **tell
-   me** and I will run the isolation suite against the migrated staging. Then `0002 down` +
-   `verify_after_down.sql`, which must show the `transactions_dedupe_hash_key` **constraint** and the
-   `transactions_image_hash_uidx` **partial index** back verbatim. The rehearsal is data-preserving, so
-   whatever staging holds before the `up` must still be there after the `down`; take the count once at the
-   start rather than trusting a number written here.
+1. **Finish the staging rehearsal: the rollback** (Pass 12). In the staging SQL editor run
+   `migrations/0002_multi_user.down.sql`, then `migrations/staging/verify_after_down.sql` (one statement, one
+   grid). Expect 29 rows, no `user_id` column, the dedupe uniqueness printed as
+   `transactions_dedupe_hash_key [constraint] :: UNIQUE (dedupe_hash)`, the image one as
+   `transactions_image_hash_uidx [index] :: ... WHERE (image_hash IS NOT NULL)`, 0 per-owner objects left, RLS
+   `true`, 0 policies, and `api_tokens` and the snapshot table `MISSING`. That is the last rehearsal step; the
+   live run is then the only thing unproven.
 2. **Live SMTP.** Per-project: staging has them, live does not. Copy `smtp.gmail.com`, 465, sender
    `hanennkam@gmail.com`, name **Duits** into the live project's Authentication → Emails → SMTP Settings,
    then **send one real test message and confirm it arrives** — a settings page that saves cleanly proves
@@ -723,6 +712,12 @@ editor can run DDL from here. What is left is live-side, and yours:
 4. Then cutover (`docs/CUTOVER_RUNBOOK.md`). The runbook was read through against the tools in Pass 11 and is
    trusted: every claim that had to agree with code does, the four stale-prose fixes it produced are in, and
    Pass 12 updated its step 7/8 expectations to the real live shape.
+
+**What the staging re-run did and did not settle.** The `up` and the verification did: staging's snapshot
+holds **2** rows, so step 3a now captures a partial index *with its `WHERE` clause* on the real project, and
+the 15 isolation tests pass against the per-owner partial index. The **rollback on staging is not run yet** —
+its only proof so far is local (PGlite), where it restores both objects verbatim. Running it also costs
+nothing to confirm later: re-running `0002 up` is supported and recreates the snapshot.
 
 **Deferred by choice, not blocking:** deleting the household rows, whenever you want — and the three
 accounts too, if you decide they go. Staging's `--apply` has already run, so an app delete now takes each

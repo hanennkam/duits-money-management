@@ -287,9 +287,10 @@ curl -s -D - -o /dev/null $BASE/ | grep -iE '^(HTTP|cache-control|content-securi
 Rehearsed on a real Postgres with the exact files, and on staging:
 
 > The shape fix of **2026-10-17** (production's `image_hash` uniqueness is a *partial* unique index, not a
-> constraint) is rehearsed locally on PGlite with production's exact shape. It has **not** yet been re-run on
-> staging: staging is rebuilt to that shape and `0002` re-run there before the window opens — see the current
-> pass in `NEXT_STEPS.md`.
+> constraint) is rehearsed locally on PGlite with production's exact shape, and re-run on **staging**:
+> rebuilt to that shape, `0002 up`, `verify_after_up.sql` (every grid row as expected) and the 15 isolation
+> tests, all clean. The staging **rollback** is the one rehearsal step still open — see the current pass in
+> `NEXT_STEPS.md`.
 
 - `schema.sql` (now including `image_hash`) creates the table production has. It does **not** create
   production's global uniqueness on `image_hash`: production keeps that as the partial index
@@ -300,6 +301,10 @@ Rehearsed on a real Postgres with the exact files, and on staging:
   index is snapshotted **with its `WHERE` clause**, dropped, replaced by the per-owner constraint and
   partial index, and restored **verbatim** by the rollback. Guard 3c raises when a global unique survives,
   and the rollback still refuses while two owners share a hash (2026-10-17, PGlite, local).
+- `0002 up` → `verify_after_up.sql` → the 15 isolation tests on **staging**, with the fixed files against the
+  rebuilt shape: 29 rows before and after, one owner, no duplicate hashes, every grid row as expected, and
+  **15 passed**. Staging's snapshot came back with **2** rows — the constraint and the partial index, the
+  latter with its `WHERE` clause (2026-10-17). The **staging rollback** is not re-run yet.
 - `0002 up` → `verify` → `0002 down` → `0002 up` again, never dropping a row: **6 → 6 → 6 → 6** on the local
   Postgres rehearsal, and **30 → 30 → 30 → 30** on staging (both runs used the shape staging had at the
   time, before the `image_hash` index above was added to the rehearsal). Staging reads **29** today, after the
