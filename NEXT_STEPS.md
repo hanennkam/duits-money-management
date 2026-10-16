@@ -61,6 +61,12 @@ exit=0
 `unexpected_format` is absent, and the exit code is 0. That is the state the cutover step 9 expects before
 the real run.
 
+**Staging then ran `--apply`.** Once the household-accounts question closed and the freeze lifted, the
+sequence was `DRY RUN → APPLY → DRY RUN`. The apply re-homed both foreign-prefixed objects
+(`copied: 2`, `originals_deleted: 2`, exit 0); the final dry run reports `already_moved: 14`,
+`legacy_rows: 0`, exit 0. An independent recursive bucket listing before and after shows **14 objects →
+14**, the same two file names, so nothing was lost in the move.
+
 **Staging row count: 29, post-`a2d55e96` delete.** The delete took the table 30 → 29, so staging reads 29
 again — this time for a known reason, not the Known issue 7 mystery. The count had already drifted 29 → 30
 through ordinary phone use before that, so drift-with-use is now demonstrated twice. Live counts are
@@ -280,9 +286,9 @@ The polish itself is commit `f33651a`. No files changed in this verification ses
    verification table below.
 3. **Three unexpected accounts exist on staging** — `suhaib@gmail.com`, `adeeb@gmail.com`,
    `madsu04@gmail.com` — created while sign-up was open (10:14–13:15 UTC on 2026-10-16). They own 5 rows
-   between them (4 manual, 1 receipt scan) and the evidence reads as **someone's real spending**, so they
-   have been **left untouched** — held pending your check of whether they are yours. See Known issue 4 and
-   *Next* for the exported attribution and the exact next step.
+   between them (4 manual, 1 receipt scan) and the evidence read as **real spending**, so they were held
+   rather than deleted. **Confirmed ours (household) on 2026-10-17**; kept, with deletion scheduled by the
+   owner. See Known issue 4 and *Next* for the attribution record.
 
 Resolves the earlier "Sign-up is not invite-only" gap (item 2 of the previous pass).
 
@@ -389,15 +395,16 @@ full detail; this is the summary.
    — **RESOLVED in pass 8** by configuring custom SMTP. Both `recover` calls now answer `200` with no
    body, so the enumeration leak went with it. See Pass 8 for the two caveats to carry to cutover.
 2. **Sign-up is closed on staging** (`disable_signup: true`, `/auth/v1/signup` → 422 `signup_disabled`).
-   It was open earlier today, and three accounts that are not ours were created through it. **The same
-   setting must still be turned off on the live project** before cutover — see the checklist.
+   It was open earlier today, and three accounts were created through it — later confirmed as household
+   (Known issue 4). **The same setting must still be turned off on the live project** before cutover — see
+   the checklist.
 3. **Settings shows "Not signed in"** after signing in through an invite link. — **FIXED in pass 3 and
    verified end to end** (the address is read from the token; see the verification table below).
-4. **Three accounts on staging are not ours** (`suhaib@gmail.com`, `adeeb@gmail.com`,
-   `madsu04@gmail.com`), owning 5 rows. **HELD — do not delete.** The rows read as real spending and the
-   scan came from your own LAN, so this is not probe junk. Deleted alongside them: my two throwaway
-   accounts `duits-invite-test@example.com` and `duits-invite-verify@example.com` (0 rows each, accounts
-   7 → 5). The attribution is exported; see *Next*.
+4. **Three accounts on staging — OURS, KEPT** (`suhaib@gmail.com`, `adeeb@gmail.com`, `madsu04@gmail.com`),
+   owning 5 rows. Confirmed as household on 2026-10-17; deletion is scheduled by the owner for later. The
+   rows read as real spending and the scan came from the LAN, which is what made the hold worth taking. My
+   two throwaway accounts `duits-invite-test@example.com` and `duits-invite-verify@example.com` are deleted
+   (0 rows each, accounts 7 → 5). See *Next* for the attribution record.
 5. **`migrate_receipts.py` and the leftover receipt paths.** A `down`/`up` cycle leaves objects under the
    old owner's folder. **Fixed in pass 9**: the script re-homes them (foreign prefix stripped) instead of
    reporting `unexpected_format`, so the runbook's rollback path no longer trips its own STOP condition.
@@ -440,37 +447,44 @@ needs no manual bump; forgot-password delivers and the enumeration leak is close
 
 ## Next
 
-Staging is in good shape: the migration rehearsal is complete, SMTP delivers, the phone pass came back
-clean, and `migrate_receipts.py` now runs clean on staging (`unexpected_format: 0`, exit 0). What is left
-before cutover:
+Staging is complete: the migration rehearsal is done, the receipt re-homing has been applied
+(`legacy_rows: 0`), SMTP delivers, the phone pass came back clean, and the household-accounts question is
+closed. What is left is live-side, and yours:
 
-1. **You are checking whether the three non-ours accounts are yours** — they are **held, not deleted**, and
-   staging is **dry run only** until that lands. The attribution is exported; see below.
-2. **Repeat the SMTP settings on live.** Per-project: staging has them, live does not. Copy
-   `smtp.gmail.com`, 465, sender `hanennkam@gmail.com`, name **Duits** into the live project's
-   Authentication → Emails → SMTP Settings, then **send one real test message and confirm it arrives** —
-   a settings page that saves cleanly proves nothing about port, TLS or the credentials.
-3. **Close sign-up on live**, and do it **before** the cutover window opens, not during it.
-4. Then cutover (`docs/CUTOVER_RUNBOOK.md`).
+1. **Live SMTP.** Per-project: staging has them, live does not. Copy `smtp.gmail.com`, 465, sender
+   `hanennkam@gmail.com`, name **Duits** into the live project's Authentication → Emails → SMTP Settings,
+   then **send one real test message and confirm it arrives** — a settings page that saves cleanly proves
+   nothing about port, TLS or the credentials. If a reset and an invite go to the same address, leave a
+   minute between them or the second is silently dropped.
+2. **Close sign-up on live**, and do it **before** the cutover window opens, not during it. Verify
+   `POST /auth/v1/signup` answers 422 `signup_disabled`.
+3. Then cutover (`docs/CUTOVER_RUNBOOK.md`).
 
-### The three non-ours accounts: HELD, do not delete
+**Deferred by choice, not blocking:** deleting the household rows and their three accounts, whenever you
+want. Staging's `--apply` has already run, so an app delete now takes each row and its object together —
+no orphans. See the section below.
 
-**Hard gate: no `--apply` on staging until this decision lands — dry run only.** An `--apply` would
-re-home the scanned row's object, `47ac06a8-…/2026/10/824a7d7a….jpg`, under A's folder and delete the
-original. The **bytes** are safe in the export with their sha256 verified; the **path** is not, and that
-path is the only thing tying the scan to `adeeb@gmail.com` outside the export. Evidence destroyed in
-place, with a backup taken — subtler than data loss and just as final. It costs nothing to wait: the
-staging `--apply` was always optional verification, and the live run does its own `--apply` where every
-path already belongs to a real owner and no such ambiguity exists.
+### The three non-ours accounts: OURS, KEPT — deletion scheduled by the owner
 
-**Release condition — either answer lifts the gate.** *Ours:* the rows stay, the path is no longer needed
-as evidence, `--apply` proceeds. *Not ours:* the rows and accounts are deleted by explicit id with counts
-before and after, and `--apply` proceeds with fewer legacy rows. Record the release in this section when
-it happens, so the freeze does not linger as another stale doc rule.
+**Decision landed 2026-10-17: they are ours (household).** The rows and the three accounts stay. Deletion
+is scheduled by the owner for a later time of their choosing; nothing here is pending, and this closes the
+question so it is not re-litigated at cutover. The evidence below is why it was held — it never needed to
+identify anyone, only to warn that the rows read as real spending.
 
-The instruction was revised to **hold**, and the evidence backs that up. They are **not** my accounts —
-mine are `duits-staging-a/b@example.com`. Two things make them worth treating as real until you have
-checked:
+**The `--apply` gate is RELEASED, and the release has been executed: staging `DRY RUN → APPLY → DRY RUN`.**
+The apply re-homed the two foreign-prefixed objects (`copied: 2`, `originals_deleted: 2`, exit 0) and the
+final dry run reports `already_moved: 14`, `legacy_rows: 0`, exit 0. The bucket went 14 objects → 14, the
+same two file names, no net loss.
+
+**Recommended order for the later delete, and why it matters:** staging `--apply` first, rows second. The
+Fresh Choice row is owned by A but its object sat at `47ac06a8-…/2026/10/824a7d7a….jpg`; deleting the row
+first would make `owned_receipt_path()` refuse that foreign path. The row would still delete — pass 5
+behaviour, 404 for the photo, row gone — but the object would be left behind as an orphan needing separate
+cleanup. With `--apply` first the object sits at `<owner>/2026/10/…` and matches its row, so an app delete
+takes both together: no orphans, no follow-up. Tidiness rather than safety, since the bytes are in the
+export either way — and it has now been done, so the tidy path is the one left.
+
+The evidence that made this worth holding — the rows are not mine (mine are `duits-staging-a/b@example.com`):
 
 - **The rows read as real spending**, not probe junk: four manual entries (RM 550.00, 46.00, 23.00, 10.00)
   and a scanned receipt from `Fresh Choice (Pekan) Pantai Selamat` dated 2026-10-11.
@@ -492,7 +506,7 @@ pre-backfill pass log (suhaib's four) plus the timeline:
 | 10:23:51 | the scanned receipt, from `192.168.1.4` |
 | 13:15:57 | `madsu04@gmail.com` created (no rows) |
 
-**Exported first, and nothing else touched.** The five rows (every column, timestamps included), the three
+**Exported before anything was touched.** The five rows (every column, timestamps included), the three
 accounts, the whole account list at export time, the receipt object's bytes, and every surviving
 phone-origin server log line are in:
 
@@ -504,20 +518,17 @@ phone-origin server log line are in:
 └── logs/                             four shell logs, all phone-origin request lines
 ```
 
-It is outside the repo on purpose: it holds a real receipt photo and real transaction amounts.
+It is outside the repo on purpose: it holds a real receipt photo and real transaction amounts. Now that
+the accounts are confirmed ours, it is an **archive, not load-bearing** — nothing in it is needed to
+decide or verify anything further.
 
 **My two throwaway accounts are deleted** — `duits-invite-test@example.com` and
 `duits-invite-verify@example.com`, by explicit id, each asserted to hold **0** rows first. Accounts went
 **7 → 5**; the row count stayed **29**.
 
-**If the answer comes back "not ours":** delete the three accounts and the five rows by explicit id with
-counts before and after, and scan the frozen logs for anything else that arrived while sign-up was open.
-The window is `10:14:33`–`13:15:57` UTC (first and last account created), and the account list plus the
-rows in the export are the complete inventory the data shows.
-
-**Either way, the attribution recorded above stands as the record.** If the accounts turn out to be yours,
-keep them and change this heading to *OURS, KEPT* — nothing below needs rewriting, and the decision is
-closed so it cannot be re-litigated at cutover.
+**The not-ours branch was not taken, and is closed.** The inventory work it would have needed was done
+regardless and sits in the export: the account list plus the rows are the complete inventory the data
+shows, over the window `10:14:33`–`13:15:57` UTC (first and last account created).
 
 ## Staging migration rehearsal — run, with results
 
