@@ -16,7 +16,20 @@ passed unless you ran it in that session.
   `https://duits-money-tracking.onrender.com`. Render's free instance sleeps when idle; the first
   request after a sleep is slow (see the splash's "Waking up the server…" line).
 - Last verified commit: `8f39d7e` (working tree clean before the housekeeping pass on 2026-10-16).
-- `./.venv/bin/python -m pytest -q` → **96 passed** (2026-10-16).
+- **Multi-user step 2 is implemented on branch `multi-user`, not merged, and the migration is NOT applied to any
+  database.** Every route is scoped to the caller's id from the verified Supabase JWT (`sub`). Every db helper
+  requires `user_id`. The 409 duplicate path only sees the caller's rows. Receipts live under `user_id/YYYY/MM/`,
+  and the owner is checked before any sign or delete. Before deploying to Render:
+  1. **Migration first.** The code writes `user_id`, and the live table has no such column, so every insert fails
+     until `migrations/0002_multi_user.up.sql` has run. Rehearse it on staging.
+  2. **Move existing receipts.** Old objects sit at `YYYY/MM/...`. Owner checks now refuse those paths, so
+     `receipt-url` and `DELETE` on the 16 existing receipt rows return 500 until a storage move (not written yet)
+     has run. Nothing is lost, because the delete fails before the row is removed.
+  3. **The browser has no sign-in screen yet.** `index.html` still sends `X-API-Key`. Until a login UI exists, the
+     app needs `ALLOW_LEGACY_API_KEY=true` and `LEGACY_USER_ID=<owner's id>`, and the iOS Shortcut depends on the
+     same flag. Personal access tokens for the Shortcut are not built.
+  4. **Sign-up is still open** in the live project. Close it in the Supabase dashboard before any second user exists.
+- `./.venv/bin/python -m pytest -q` → **167 passed** on `multi-user` (step 2). Last recorded on `main`: 98 passed.
 - **No automated UI test exists in the repo.** `tests/test_static.py` pins strings in the page; it does not
   run the page. See §5.
 

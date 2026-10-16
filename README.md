@@ -2,7 +2,7 @@
 
 Backend that takes a **receipt photo**, a **short text note**, or a **hand-typed row**, extracts the
 transaction with Claude (vision), and stores it in Supabase. Designed for Apple Shortcuts on an
-iPhone, and shipped with its own iPhone-first web UI — the whole API is a static `X-API-Key` away.
+iPhone, and shipped with its own iPhone-first web UI — API calls are authenticated with a Supabase sign-in token (`Authorization: Bearer`); a temporary legacy key sits behind a flag.
 
 9 protected endpoints, plus `/health` and the UI page at `GET /`. No auth/users, no dashboard, no
 CSV/PDF import, no voice, no sync.
@@ -13,7 +13,7 @@ CSV/PDF import, no voice, no sync.
 app/
   main.py          # FastAPI app, routes, error mapping, production switches
   config.py        # settings from env only: fails fast listing missing NAMEs
-  auth.py          # X-API-Key dependency + per-IP throttle on failed attempts
+  auth.py          # Supabase JWT verification (JWKS), owner id from `sub`, per-IP throttle; optional legacy key
   extractor.py     # Claude vision/text extraction -> Extraction
   db.py            # Supabase client, dedupe_hash, query/insert helpers
   models.py        # Pydantic v2 models + row/JSON shaping
@@ -21,7 +21,7 @@ app/
   static/logo.png    # the app icon (180x180): the favicon, and the source the other sizes come from
   static/apple-touch-icon*.png  # 180/152/120 slots iOS probes, opaque white, served publicly
 schema.sql         # transactions table, indexes, receipts bucket
-tests/             # pytest: dedupe, models, auth, extractor, endpoints, bank screenshots, production, static (96 tests)
+tests/             # pytest: dedupe, models, auth, extractor, endpoints, bank screenshots, production, static (167 tests)
 .env.example
 ctl.sh             # start / stop / status / restart, and whether the listener is stale
 design/            # the Stitch screens the UI was rebuilt from (screen.png + code.html + DESIGN.md)
@@ -113,7 +113,9 @@ store); never commit them, never bake them into the image or pass them as build 
 
 | Variable | Required | Default / notes |
 | --- | --- | --- |
-| `API_KEY` | yes | the `X-API-Key` the clients send; generate one with `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
+| `API_KEY` | yes | only used while `ALLOW_LEGACY_API_KEY` is on: the `X-API-Key` value; generate one with `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
+| `ALLOW_LEGACY_API_KEY` | no | temporary single-owner fallback, **off by default**. When `true`, `X-API-Key: <API_KEY>` acts as `LEGACY_USER_ID` |
+| `LEGACY_USER_ID` | only with the flag | the owner's `auth.users` id (a UUID). The app refuses to start with the flag on and this unset or invalid |
 | `SUPABASE_URL` | yes | your project URL |
 | `SUPABASE_SERVICE_KEY` | yes | `service_role` key — server-side only, it bypasses RLS |
 | `ANTHROPIC_API_KEY` | yes | Claude API key |
@@ -146,7 +148,7 @@ docker run --rm -p 8000:8000 --env-file ~/.duits.env -e ENVIRONMENT=production d
 
 The platform proxy (Render) must pass the client address in `X-Forwarded-For`; only the first hop of
 that header is trusted. Failed
-`X-API-Key` attempts are limited to 10 per minute per client IP, then `429` with `Retry-After`;
+Failed sign-in attempts (bad or missing credentials) are limited to 10 per minute per client IP, then `429` with `Retry-After`;
 the counter lives in the process, so with several replicas each one throttles separately.
 
 `/transactions*` and `/summary` responses carry `Cache-Control: no-store`, and every response
@@ -613,7 +615,7 @@ something.
 
 ## API
 
-All of these except `/health` need the header `X-API-Key: <API_KEY>`.
+All of these except `/health` need `Authorization: Bearer <Supabase access token>`. A signed-in user sees only their own rows; another user's id answers `404`. While `ALLOW_LEGACY_API_KEY` is on, the curl examples below also work with `X-API-Key: <API_KEY>`, which acts as `LEGACY_USER_ID`.
 
 | Method | Path | Body | Returns |
 | --- | --- | --- | --- |
@@ -882,7 +884,7 @@ pip install -r requirements-dev.txt   # requirements.txt alone is production-onl
 pytest
 ```
 
-96 tests, no network and no API key needed — Claude is monkeypatched at `extractor._call` and
+167 tests, no network and no API key needed — Claude is monkeypatched at `extractor._call` and
 the Supabase helpers at `app.db.*`: dedupe policy (receipts with a merchant dedupe; text notes
 and merchant-less receipts do not, and two text entries of the same amount on the same day both
 insert), hand-typed rows (`source = "manual"`, note kept in `raw_extraction.note`, empty category

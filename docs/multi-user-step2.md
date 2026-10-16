@@ -1,7 +1,8 @@
 # Multi-user step 2: design
 
-Status: proposal. Nothing here is implemented or migrated. Evidence: `docs/multi-user-audit.md`. "Done" means
-`tests/test_isolation.py` passes with `MULTI_USER_READY = True`.
+Status: **implemented on branch `multi-user`; the migration is not applied to any database.** Evidence:
+`docs/multi-user-audit.md`. The code is checked by `tests/test_isolation.py` and `tests/test_db_scoping.py`.
+Before deploy, see Handoff.md §1 (migration first, the storage move, and the sign-in screen).
 
 ## 1. Data access: service key plus a required owner
 
@@ -75,14 +76,14 @@ with the reverse script.
 4. Run the audit against staging and confirm the row and object counts match production.
 5. Apply the up migration with `app.owner_id` set to your staging account. Check that no row has a null
    `user_id`, and that the storage move leaves no object behind.
-6. Create two staging users, A and B. Run `tests/test_isolation.py` with `MULTI_USER_READY = True` against
-   staging, using real tokens. Exercise scan, text, manual create, edit, delete and receipt URLs as each user.
+6. Create two staging users, A and B. Point the app at staging and exercise scan, text, manual create, edit,
+   delete and receipt URLs as each user with real tokens. (The isolation tests use fake tokens and an in-memory
+   store, so they cannot replace this.)
 7. Rehearse the rollback, compare counts, then re-apply the up migration.
 8. Go or no-go. Production: fresh backup of the table and the bucket, deploy the code, apply the up migration,
    run the NOT NULL step, move receipts, re-run the audit queries.
 
-## 5. Decisions needed from you
+## 5. Decisions (approved)
 
-- May the browser hold the publishable key in the page?
-- Sign-up: close it entirely, or allow-list two accounts?
-- Is a one-hour window for a revoked session acceptable, or should each request call Auth?
+- The browser may hold the publishable key. Sign-up is closed, and users are added by invite.
+- A revoked session stays valid for up to one hour (its token lifetime).
