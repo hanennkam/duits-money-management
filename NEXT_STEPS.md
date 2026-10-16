@@ -12,6 +12,7 @@ Prepared after the auth-screen polish on branch `multi-user`. Read this before t
 | Task 5 — this file | **Done.** |
 | Verification pass 2 (invite flow) | **Done.** Sign-up is now refused, and the invite flow works end to end. |
 | Pass 3 — invite address, PORT, schema, rehearsal, runbook | **Done.** See the summary below. Staging SQL for the live rehearsal still needs you. |
+| Pass 4 — verify the invite-address fix | **Done.** Re-ran a real invite flow: Settings now shows the address. Document repaired. |
 
 ## Current branch + last commit
 
@@ -98,9 +99,9 @@ The polish itself is commit `f33651a`. No files changed in this verification ses
      address. Our UI hides this behind one message, but the API itself leaks it.
    The likely cause is the project's email provider rejecting `example.com` recipients. This is a Supabase
    setting, not app code. *(Still open.)*
-2. **Settings shows "Not signed in" after an invite sign-in.** `readAuthRedirect()` stores the session with
-   an empty email, and `renderAccount()` falls back to "Not signed in". Cosmetic, and specific to the
-   invite/recovery path; signing in with a password shows the address correctly.
+2. **Settings showed "Not signed in" after an invite sign-in.** — **Fixed in pass 3 and verified end to
+   end.** The session now carries the address read from the token, and Settings shows it. See the
+   verification table below.
 3. **Three unexpected accounts exist on staging** — `suhaib@gmail.com`, `adeeb@gmail.com`,
    `madsu04@gmail.com` — created while sign-up was open (10:14–13:15 today). They own 5 rows between them
    (4 manual, 1 receipt scan). These are **not** mine and have been left untouched. They may be your own
@@ -212,20 +213,32 @@ full detail; this is the summary.
 2. **Sign-up is closed on staging** (`disable_signup: true`, `/auth/v1/signup` → 422 `signup_disabled`).
    It was open earlier today, and three accounts that are not ours were created through it. **The same
    setting must still be turned off on the live project** before cutover — see the checklist.
-3. **Settings shows "Not signed in"** after signing in through an invite link (empty `email` in the
-   session). Cosmetic. — **FIXED in pass 3** (the address is read from the token).
+3. **Settings shows "Not signed in"** after signing in through an invite link. — **FIXED in pass 3 and
+   verified end to end** (the address is read from the token; see the verification table below).
 4. **Three accounts on staging are not ours** (`suhaib@gmail.com`, `adeeb@gmail.com`,
-   `madsu04@gmail.com`), owning 5 rows. Left untouched; decide whether to remove them.
-5. **One staging row reports `unexpected_format`** to `migrate_receipts.py`: its `receipt_path` is prefixed
-   with a UUID that is not its owner. Left over from the earlier rehearsal (the rollback reassigned owners
-   without moving the objects back). The script refuses to touch it and exits 1. Not expected on live, where
-   the move runs after the backfill.
-6. **The live rehearsal has not been run.** Everything in pass 3 was verified on a local Postgres and on
-   staging. Staging has now been through `down` → `up` → `verify` (see above); the second half
-   (`down` → `up` again) and the live run remain.
+   `madsu04@gmail.com`), owning 5 rows. Left untouched; decide whether to remove them. Two throwaway
+   accounts of mine also exist: `duits-invite-test@example.com` and `duits-invite-verify@example.com`.
+5. **Two staging rows report `unexpected_format`** to `migrate_receipts.py`: their `receipt_path` is
+   prefixed with a UUID that is not their owner. Left over from the `down`/`up` cycle, which reassigns
+   owners without moving the objects back. The script refuses to touch them and exits 1. Not expected on
+   live, where the move runs after the backfill.
+6. **The live rehearsal has not been run.** Everything was verified on a local Postgres and on staging.
+   Staging has now been through `down` → `up` → `verify` (see above); the second half (`down` → `up`
+   again) and the live run remain. Both need the SQL editor.
 7. **Staging has 29 rows, not the 30 last recorded.** The migration does not delete rows (proven locally),
    so this is not the migration. Most likely a delete from the phone or test cleanup. Worth a look against
    the backups if the exact count matters.
+8. **Not verified on a real iPhone.** Everything was checked in desktop Chrome. Notably unverified:
+   whether `100dvh` shrinks when the iOS keyboard opens (the design assumes the box can scroll), whether
+   `justify-content: safe center` is supported in Safari (the plain `center` fallback would let the title
+   clip above the box on overflow), `scrollIntoView` inside a fixed scroll container, real safe-area
+   insets, and focus zoom at exactly 16px.
+9. **The sign-in form is taller than the keyboard strip** on a small phone (456px of content against 300px
+   at 375×667), so it scrolls rather than fitting in one glance. Every control is reachable.
+
+**Resolved since the earlier passes** (kept so they are not re-opened): `image_hash` is now in
+`schema.sql`; `PORT` is pinned to `10000` by `render.yaml`; the Build stamp is injected per request and
+needs no manual bump.
 
 ## Staging migration rehearsal — run, with results
 
@@ -268,16 +281,17 @@ I can read rows and owners through the API, but not the catalog. Please paste th
   `constraint  transactions_dedupe_hash_key`.
 
 Section **A** is already covered by the API read-back above.
-3. **Not verified on a real iPhone.** Everything was checked in desktop Chrome. Notably unverified:
-   whether `100dvh` shrinks when the iOS keyboard opens (the design assumes the box can scroll), whether
-   `justify-content: safe center` is supported in Safari (the plain `center` fallback would let the title
-   clip above the box on overflow), `scrollIntoView` inside a fixed scroll container, real safe-area
-   insets, and focus zoom at exactly 16px.
-4. **`PORT` ambiguity on Render.** The `Dockerfile` defaults to `8000`; Render's default is `10000`.
-   Confirm the dashboard value before deploying.
-5. **The form is taller than the keyboard strip** on a small phone (456px of content against 300px at
-   375×667), so it scrolls rather than fitting in one glance. Every control is reachable.
-6. **The Build stamp is injected per request** from `RENDER_GIT_COMMIT`, or `dev` locally. No manual bump
-   is needed. Opening `index.html` from disk shows the raw `{{BUILD}}`.
-7. **`image_hash` exists in the live table but not in `schema.sql`** — a fresh database built from the repo
-   would not match production. `migrations/0002` depends on it existing.
+
+### Pass 3 verification — the invite address fix, re-run end to end
+
+The "Not signed in" fix was written and pinned by a static test in pass 3 but never exercised in a real
+invite flow. Re-run on staging with a fresh invite link:
+
+| Check | Result |
+| --- | --- |
+| Session after following the invite link | `duits-invite-verify@example.com` (was empty) |
+| Token cleared from the URL | yes |
+| **Settings → Account row** | **`duits-invite-verify@example.com`** (was "Not signed in") |
+| After saving the password | signed in, Home empty (`RM 0.00`, 0 rows) |
+
+So the fix holds on the path it was written for.
