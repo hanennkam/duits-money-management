@@ -21,7 +21,7 @@ app/
   static/logo.png    # the app icon (180x180): the favicon, and the source the other sizes come from
   static/apple-touch-icon*.png  # 180/152/120 slots iOS probes, opaque white, served publicly
 schema.sql         # transactions table, indexes, receipts bucket
-tests/             # pytest: dedupe, models, auth, extractor, endpoints, production, static (83 tests)
+tests/             # pytest: dedupe, models, auth, extractor, endpoints, bank screenshots, production, static (96 tests)
 .env.example
 ctl.sh             # start / stop / status / restart, and whether the listener is stale
 design/            # the Stitch screens the UI was rebuilt from (screen.png + code.html + DESIGN.md)
@@ -31,7 +31,7 @@ requirements.txt   # production runtime deps (what the Dockerfile installs)
 requirements-dev.txt  # `-r requirements.txt` plus pytest + httpx, for local tests
 Dockerfile         # production image: non-root user, no secrets baked in
 .dockerignore      # keeps .env, .venv, tests and caches out of the build context
-.gcloudignore      # same idea for `gcloud run deploy --source .`
+.gcloudignore      # UNUSED (old Google Cloud Run setup); Render does not read it, safe to delete
 pyproject.toml     # pytest config
 ```
 
@@ -79,14 +79,36 @@ uvicorn app.main:app --reload
   edit) and `./ctl.sh restart` replaces it. That matters: a server started before a new endpoint
   existed answers `405` for it, and the browser cannot tell the difference between that and a bug.
 
-## Deploy (container host)
+## Deploy (Render)
+
+Production runs on **Render** as a free **web service** built from the repo's `Dockerfile`:
+
+- URL: `https://duits-money-tracking.onrender.com`
+- Branch `main`, **auto-deploy on every push** to `main` (Render's default for a GitHub-connected service).
+  Render does not wait for tests, so a broken push goes live. Run pytest before pushing.
+- Health check path: `/health` (no auth).
+- Environment variables are set in the Render dashboard, under the service's **Environment** tab. Set
+  `ENVIRONMENT=production` there too.
+- **The free instance sleeps when idle** (Render's free web services spin down after a period with no traffic;
+  check Render's current docs for the exact time and monthly-hours limits). The first request after a sleep is
+  slow. The UI shows "Waking up the server…" after 4 seconds. Shortcuts will time out on a cold start, so retry
+  once.
+- Render terminates TLS and sets `X-Forwarded-For`. Confirm that header's behaviour on Render before relying on
+  the per-IP throttle described below.
+
+Deploy steps: create the web service from the GitHub repo, choose **Docker** as the runtime (the `Dockerfile`
+is used as-is; nothing is passed as build args), add the variables below, then deploy. `PORT` is supplied by
+Render and the container binds to it.
+
+The `.gcloudignore` file is **unused**. It came from an earlier Google Cloud Run setup and Render does not
+read it. It can be deleted.
 
 One image, no secrets inside it: everything is read from the environment at runtime, and the
 process runs as a non-root user (`appuser`, uid 10001). `.dockerignore` keeps `.env`, `.venv`,
 `tests/`, caches and `.git` out of the build context.
 
-Environment variables — **names only**. Put the values in your host's or platform's secret store;
-never commit them, never bake them into the image or pass them as build args.
+Environment variables — **names only**. Put the values in Render's environment settings (or any other secret
+store); never commit them, never bake them into the image or pass them as build args.
 
 | Variable | Required | Default / notes |
 | --- | --- | --- |
@@ -95,7 +117,7 @@ never commit them, never bake them into the image or pass them as build args.
 | `SUPABASE_SERVICE_KEY` | yes | `service_role` key — server-side only, it bypasses RLS |
 | `ANTHROPIC_API_KEY` | yes | Claude API key |
 | `CLAUDE_MODEL` | no | defaults to `claude-sonnet-4-5` |
-| `CLAUDE_FALLBACK_MODEL` | no | defaults to `claude-sonnet-5-5` |
+| `CLAUDE_FALLBACK_MODEL` | no | defaults to `claude-sonnet-5-5`. Check the model ID against Anthropic's docs |
 | `RECEIPTS_BUCKET` | no | defaults to `receipts` |
 | `MAX_UPLOAD_BYTES` | no | defaults to `10485760` (10 MB) |
 | `ENVIRONMENT` | no | set to `production` to switch `/docs`, `/redoc` and `/openapi.json` off |
@@ -121,8 +143,8 @@ Or with an env file kept outside the image (and out of git):
 docker run --rm -p 8000:8000 --env-file ~/.duits.env -e ENVIRONMENT=production duits
 ```
 
-Terminate TLS in front of it (platform proxy, nginx, Cloudflare) and have that proxy pass the
-client address in `X-Forwarded-For` — only the first hop of that header is trusted. Failed
+The platform proxy (Render) must pass the client address in `X-Forwarded-For`; only the first hop of
+that header is trusted. Failed
 `X-API-Key` attempts are limited to 10 per minute per client IP, then `429` with `Retry-After`;
 the counter lives in the process, so with several replicas each one throttles separately.
 
@@ -841,14 +863,9 @@ Safari. Both write the same rows.
   staying in step are not.
 - **No `Year` segment in Insights** — the API has no range query (see the Insights bullet above); it
   needs a `?from=&to=` endpoint before a year can be honest.
-- **`.env.example` does not list `CLAUDE_FALLBACK_MODEL`**, although `config.py` defaults it to
-  `claude-sonnet-5-5` and `extractor.py` uses it — a deployment copied from the example silently gets
-  the default. The env table under *Deploy* is the complete list.
-- **Below 660px of viewport height** the Add sheet's content column may scroll (it is the last resort
-  that keeps anything from painting over the pinned keys). Both target sizes are well clear of it, but
-  an SE-class screen with Details open cannot show every row at once. Same story at 375×667 in one
-  state: the Smart Entry card open while the keyboard is dismissed (keypad back on screen) is 32px
-  taller than the row it replaced, so the column scrolls rather than hiding Scan Receipt.
+- **The Add sheet does not scroll at any size, and that is not yet proven on short screens.** The old
+  sub-660px escape hatch was removed. A very short screen (SE-class, Details open) may therefore clip rather
+  than scroll. Only 375×667 and 390×844 were checked, and 375×667 fits with no slack.
 - **Home's ring has three cosmetic ceilings**: a slice under ~2% draws as the minimum round dot; the
   legend folds the tail into a grey `Others`, so a month holding both a real `other` category and a
   grouped tail shows `Other` *and* `Others`; and a 6-figure month total fills the hole.
@@ -860,7 +877,7 @@ pip install -r requirements-dev.txt   # requirements.txt alone is production-onl
 pytest
 ```
 
-83 tests, no network and no API key needed — Claude is monkeypatched at `extractor._call` and
+96 tests, no network and no API key needed — Claude is monkeypatched at `extractor._call` and
 the Supabase helpers at `app.db.*`: dedupe policy (receipts with a merchant dedupe; text notes
 and merchant-less receipts do not, and two text entries of the same amount on the same day both
 insert), hand-typed rows (`source = "manual"`, note kept in `raw_extraction.note`, empty category
@@ -872,8 +889,12 @@ the square size its slot expects).
 
 ### UI checks
 
-The pytest suite above covers the API only; the UI has no committed test suite yet. It is checked
-with a scratch Node harness that evals the page's `<script>` and asserts 755 things about the
+**Historical, not reproducible from the repo.** The pytest suite covers the API, and `tests/test_static.py`
+pins strings in the page. No automated test runs the page's behaviour. The UI results below were measured in
+earlier sessions with scratch scripts in `/tmp`, which are gone. The plan for real UI tests is in
+`Handoff.md` §7.
+
+The earlier scratch Node harness evaluated the page's `<script>` and asserted 755 things about the
 markup, the CSS and the behaviour (theme plumbing and palette, Add-sheet order, the shrink ladder,
 the icon links and the removal of the runtime canvas icon, the iOS touch rules — a 16px floor on
 controls, `touch-action: manipulation` — the motion tokens and every animation
@@ -980,5 +1001,5 @@ creating a row (nothing at +255ms while the sheet is still open, then `rgba(10, 
 again with `--force-prefers-reduced-motion` (opacity-only fades, `move-sheet: 0%`, sheets still
 opening and closing, the ring already drawn). Note that headless `--virtual-time-budget` **freezes animations and
 transitions**, so every number it produces for anything animated is meaningless — the older probes
-are kept for static checks only. That harness lives outside the repo today;
-moving it in (e.g. `tools/`) is the first item in `Handoff.md`.
+are kept for static checks only. That harness is not in the repo and no longer exists on disk; moving UI tests
+into the repo is `Handoff.md` §7.
