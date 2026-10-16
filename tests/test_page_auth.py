@@ -173,6 +173,22 @@ def test_recover_answers_with_one_generic_message(client: TestClient) -> None:
     assert "sent.ok" in body and "authError(sent)" in body
 
 
+def test_an_invite_sign_in_shows_the_real_address(client: TestClient) -> None:
+    """Settings must name the account after an invite or recovery link, not "Not signed in".
+
+    The redirect path used to store the session with a blank address, which is what made Settings lie.
+    The address now comes from the token's own claims, with a /auth/v1/user call as the fallback.
+    """
+    page = client.get("/").text
+    assert "function emailFromToken(token)" in page
+    assert "email: emailFromToken(params.access_token)" in page
+    assert 'email: ""' not in page, "the redirect path must not store a blank address"
+    assert "function hydrateEmail(session)" in page
+    assert 'authRequest("GET", "/auth/v1/user", null, session.access_token)' in page
+    # renderAccount still degrades to the label only when there genuinely is no address.
+    assert '(session && session.email) || "Not signed in"' in page
+
+
 def test_refreshes_are_serialised_so_only_one_runs_at_a_time(client: TestClient) -> None:
     page = client.get("/").text
     assert "var refreshInFlight = null;" in page

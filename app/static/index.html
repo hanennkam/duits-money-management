@@ -2109,6 +2109,31 @@
     return window.location.origin + "/";
   }
 
+  // The access token is a JWT whose payload carries the address, so the session can be stored complete
+  // and Settings can show it without a round trip. Unparseable simply means "no address", never a guess.
+  function emailFromToken(token) {
+    try {
+      var payload = String(token).split(".")[1] || "";
+      payload = payload.replace(/-/g, "+").replace(/_/g, "/");
+      while (payload.length % 4) payload += "=";
+      return JSON.parse(window.atob(payload)).email || "";
+    } catch (error) {
+      return "";
+    }
+  }
+
+  // Last resort when the token carried no address claim: ask Supabase who this is and store the answer.
+  async function hydrateEmail(session) {
+    try {
+      var result = await authRequest("GET", "/auth/v1/user", null, session.access_token);
+      var email = result.body && result.body.email;
+      if (result.ok && email) {
+        writeSession(Object.assign({}, session, { email: email }));
+        renderAccount();
+      }
+    } catch (error) { /* leave the address blank rather than show a wrong one */ }
+  }
+
   function readAuthRedirect() {
     // Supabase puts invite and recovery links in the URL hash. Read it once, then rewrite the address bar
     // so a token never lingers in the URL: it would leak through history, screenshots and referers.
@@ -2123,12 +2148,15 @@
     if (type !== "invite" && type !== "recovery") return false;
     pendingToken = params.access_token || null;
     if (params.access_token && params.refresh_token) {
-      writeSession({
+      var session = {
         access_token: params.access_token,
         refresh_token: params.refresh_token,
         expires_at: Number(params.expires_at) || null,
-        email: ""
-      });
+        email: emailFromToken(params.access_token)
+      };
+      writeSession(session);
+      // Settings must say who is signed in, not "Not signed in", even on this path.
+      if (!session.email) hydrateEmail(session);
     }
     if (window.history && window.history.replaceState) {
       window.history.replaceState(null, "", window.location.pathname + window.location.search);
