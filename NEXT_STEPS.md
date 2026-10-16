@@ -23,8 +23,9 @@ Prepared after the auth-screen polish on branch `multi-user`. Read this before t
 
 **The phone checklist came back clean** — sign-in, keyboard behaviour, dark mode, scan, text entry, sign-out
 and Back all worked on a real iPhone. That closes the biggest unknown: everything before it had only been
-checked in desktop Chrome. Three things remain reasoned about rather than measured on device (whether `100dvh`
-shrinks with the keyboard open, and `scrollIntoView` inside a fixed scroll container), noted in Known issue 8.
+checked in desktop Chrome. Three things remain reasoned about rather than measured on device — whether
+`100dvh` shrinks with the keyboard open, `scrollIntoView` inside a fixed scroll container, and focus zoom at
+exactly 16px — noted in Known issue 8.
 
 **`migrate_receipts.py` now re-homes a path left under another owner's folder.** A `down`/`up` cycle
 reassigns rows without moving the objects back, which leaves an object at `<other-owner>/YYYY/MM/x.jpg`. The
@@ -59,6 +60,17 @@ exit=0
 
 `unexpected_format` is absent, and the exit code is 0. That is the state the cutover step 9 expects before
 the real run.
+
+**Staging row count: 29, post-`a2d55e96` delete.** The delete took the table 30 → 29, so staging reads 29
+again — this time for a known reason, not the Known issue 7 mystery. The count had already drifted 29 → 30
+through ordinary phone use before that, so drift-with-use is now demonstrated twice. Live counts are
+baselined fresh inside the cutover window and are never compared against this number, so the staging count
+is not an expectation for live.
+
+**The exit codes are pinned by tests now, not just by the code that happens to be there.** The runbook's
+STOP reads the exit code, so `tests/test_migrate_receipts.py` gained three that hold it in place: a shared
+object prints `skipped (one object, two rows) — not an error` and exits **0**; an `unexpected_format` exits
+**1**; a guard refusal exits **2** without building a client. Suite: **206 passed, 15 skipped** (was 203).
 
 ## Pass 8 — SMTP is fixed
 
@@ -267,10 +279,10 @@ The polish itself is commit `f33651a`. No files changed in this verification ses
    end.** The session now carries the address read from the token, and Settings shows it. See the
    verification table below.
 3. **Three unexpected accounts exist on staging** — `suhaib@gmail.com`, `adeeb@gmail.com`,
-   `madsu04@gmail.com` — created while sign-up was open (10:14–13:15 today). They own 5 rows between them
-   (4 manual, 1 receipt scan). These are **not** mine and have been left untouched. They may be your own
-   test sign-ups; if not, they are direct evidence of the exposure that closing sign-up has now removed.
-   Decide whether to delete them.
+   `madsu04@gmail.com` — created while sign-up was open (10:14–13:15 UTC on 2026-10-16). They own 5 rows
+   between them (4 manual, 1 receipt scan) and the evidence reads as **someone's real spending**, so they
+   have been **left untouched** — held pending your check of whether they are yours. See Known issue 4 and
+   *Next* for the exported attribution and the exact next step.
 
 Resolves the earlier "Sign-up is not invite-only" gap (item 2 of the previous pass).
 
@@ -382,8 +394,10 @@ full detail; this is the summary.
 3. **Settings shows "Not signed in"** after signing in through an invite link. — **FIXED in pass 3 and
    verified end to end** (the address is read from the token; see the verification table below).
 4. **Three accounts on staging are not ours** (`suhaib@gmail.com`, `adeeb@gmail.com`,
-   `madsu04@gmail.com`), owning 5 rows. Left untouched; decide whether to remove them. Two throwaway
-   accounts of mine also exist: `duits-invite-test@example.com` and `duits-invite-verify@example.com`.
+   `madsu04@gmail.com`), owning 5 rows. **HELD — do not delete.** The rows read as real spending and the
+   scan came from your own LAN, so this is not probe junk. Deleted alongside them: my two throwaway
+   accounts `duits-invite-test@example.com` and `duits-invite-verify@example.com` (0 rows each, accounts
+   7 → 5). The attribution is exported; see *Next*.
 5. **`migrate_receipts.py` and the leftover receipt paths.** A `down`/`up` cycle leaves objects under the
    old owner's folder. **Fixed in pass 9**: the script re-homes them (foreign prefix stripped) instead of
    reporting `unexpected_format`, so the runbook's rollback path no longer trips its own STOP condition.
@@ -394,8 +408,8 @@ full detail; this is the summary.
    `up → verify → down → up`, with `verify` B–F checked). What remains is the same sequence against **live**,
    which is `docs/CUTOVER_RUNBOOK.md` step 7 and needs the SQL editor.
 
-7. **The 29-vs-30 row count on staging — UNEXPLAINED and ACCEPTED.** Could not be reconciled, and this is
-   the record of why:
+7. **The 29-vs-30 row count on staging — CLOSED.** Could not be reconciled at the time, and this is the
+   record of why:
    - **No row-level artefact exists.** The step-2 backup was `scripts/backup_receipts.py`, which backs up
      the **live** bucket's objects, not staging rows. `pg_dump` was never run against staging — it needs a
      connection string that only you hold.
@@ -407,10 +421,11 @@ full detail; this is the summary.
    - The migration is excluded: it provably does not delete rows (6 → 6 → 6 → 6 locally, and 30 → 30
      through `up → verify → down → up` on staging).
 
-   **Why this is not a cutover risk:** live counts are baselined fresh at cutover from `pg_dump` and
-   `scripts/audit_live.py` (runbook steps 2–4), taken together in the same window. Staging's count is not
-   that baseline and is never compared against live. So this cannot become a false alarm — but it is
-   written down here so nobody later treats a staging number as a live expectation.
+   **Closed as unexplained-and-accepted, and now permanently so.** The count sits at **29 because of the
+   deliberate `a2d55e96` delete**, written down in Pass 9, so the number will not be re-opened as a fresh
+   discrepancy. The drift is real but harmless: live counts are baselined fresh at cutover from `pg_dump`
+   and `scripts/audit_live.py` (runbook steps 2–4), taken together in the same window, and staging's count
+   is never compared against live.
 8. **Verified on a real iPhone** in the phone pass: sign-in, keyboard behaviour, dark mode, scan, text
    entry, sign-out and Back all worked. What that pass cannot settle remains unverified: whether `100dvh`
    shrinks when the keyboard opens, `scrollIntoView` inside a fixed scroll container, and focus zoom at
@@ -429,8 +444,8 @@ Staging is in good shape: the migration rehearsal is complete, SMTP delivers, th
 clean, and `migrate_receipts.py` now runs clean on staging (`unexpected_format: 0`, exit 0). What is left
 before cutover:
 
-1. **Decide on the five rows behind the three non-ours accounts** — see below. This is the last open
-   question on staging.
+1. **You are checking whether the three non-ours accounts are yours** — they are **held, not deleted**.
+   The attribution is exported; see below.
 2. **Repeat the SMTP settings on live.** Per-project: staging has them, live does not. Copy
    `smtp.gmail.com`, 465, sender `hanennkam@gmail.com`, name **Duits** into the live project's
    Authentication → Emails → SMTP Settings, then **send one real test message and confirm it arrives** —
@@ -438,31 +453,54 @@ before cutover:
 3. **Close sign-up on live**, and do it **before** the cutover window opens, not during it.
 4. Then cutover (`docs/CUTOVER_RUNBOOK.md`).
 
-### The three non-ours accounts: evidence before I delete
+### The three non-ours accounts: HELD, do not delete
 
-Your decision is to delete them if they are not my test sign-ups. They are **not** mine — my accounts are
-`duits-staging-a/b@example.com` and the two `duits-invite-*` throwaways. So by your rule they go.
+The instruction was revised to **hold**, and the evidence backs that up. They are **not** my accounts —
+mine are `duits-staging-a/b@example.com`. Two things make them worth treating as real until you have
+checked:
 
-Before I do, one observation that might change the call: **the five rows look like real transactions, not
-test data.**
+- **The rows read as real spending**, not probe junk: four manual entries (RM 550.00, 46.00, 23.00, 10.00)
+  and a scanned receipt from `Fresh Choice (Pekan) Pantai Selamat` dated 2026-10-11.
+- **The scan came from your own LAN.** The server log shows `POST /transactions/scan` → `201 Created` from
+  `192.168.1.4`, then `GET /transactions/627ff149-…/receipt-url` for that exact row.
 
-| Created | Source | Merchant | Date | Amount |
-| --- | --- | --- | --- | --- |
-| 10:23:51 | receipt_scan | `Fresh Choice (Pekan) Panta` | 2026-10-11 | RM 8.90 |
-| 10:15:07 | manual | *(none)* | 2026-10-16 | RM 550.00 |
-| 10:15:02 | manual | *(none)* | 2026-10-16 | RM 23.00 |
-| 10:14:59 | manual | *(none)* | 2026-10-16 | RM 46.00 |
-| 10:14:53 | manual | *(none)* | 2026-10-16 | RM 10.00 |
+**The attribution survived the backfill, and for one row it is hard.** Objects are stored at
+`<uploader-user-id>/YYYY/MM/<file>`, and `0002`'s backfill rewrote `user_id` without touching
+`receipt_path`. The scanned row's path is still `47ac06a8-…/2026/10/824a7d7a…jpg`, and `47ac06a8-…` is
+**`adeeb@gmail.com`'s user id** — written when the object was uploaded, before any reassignment. So that
+row is attributed by data, not by recollection. The four manual rows have no object, so their link is the
+pre-backfill pass log (suhaib's four) plus the timeline:
 
-A real supermarket, RM 550, and a receipt dated five days before it was scanned — that reads as someone
-entering their actual spending through the open sign-up, not as probe junk. The server log from that
-window shows `POST /transactions/scan` returning `201` from `192.168.1.4`, so at least one of these came
-from a phone.
+| UTC, 2026-10-16 | |
+| --- | --- |
+| 10:14:33 | `suhaib@gmail.com` created |
+| 10:14:53 – 10:15:07 | the four manual rows (RM 550 / 46 / 23 / 10) |
+| 10:15:20 | `adeeb@gmail.com` created |
+| 10:23:51 | the scanned receipt, from `192.168.1.4` |
+| 13:15:57 | `madsu04@gmail.com` created (no rows) |
 
-So: **delete anyway, or keep them?** If they are yours from testing, say so and they stay. If they came
-from outside, deleting is the right call and I will do it by explicit id with counts before and after. My
-two throwaway accounts (`duits-invite-test@`, `duits-invite-verify@`) hold **0 rows** and I would delete
-them at the same time — the invite verification they were made for is finished.
+**Exported first, and nothing else touched.** The five rows (every column, timestamps included), the three
+accounts, the whole account list at export time, the receipt object's bytes, and every surviving
+phone-origin server log line are in:
+
+```
+~/Backups/duits-staging-2026-10-16/
+├── open-signup-attribution.json      accounts, rows, objects, log lines, timeline
+├── deleted-throwaway-accounts.json   the two of mine, removed below
+├── objects/627ff149-….jpg            532,607 bytes, sha256 recorded in the JSON
+└── logs/                             four shell logs, all phone-origin request lines
+```
+
+It is outside the repo on purpose: it holds a real receipt photo and real transaction amounts.
+
+**My two throwaway accounts are deleted** — `duits-invite-test@example.com` and
+`duits-invite-verify@example.com`, by explicit id, each asserted to hold **0** rows first. Accounts went
+**7 → 5**; the row count stayed **29**.
+
+**If the answer comes back "not ours":** delete the three accounts and the five rows by explicit id with
+counts before and after, and scan the frozen logs for anything else that arrived while sign-up was open.
+The window is `10:14:33`–`13:15:57` UTC (first and last account created), and the account list plus the
+rows in the export are the complete inventory the data shows.
 
 ## Staging migration rehearsal — run, with results
 
