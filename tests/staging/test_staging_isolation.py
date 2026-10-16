@@ -17,6 +17,7 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Iterator
+from urllib.parse import quote
 
 import httpx
 import jwt
@@ -25,7 +26,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from dotenv import dotenv_values
 from fastapi.testclient import TestClient
 
-from app import auth
+from app import auth, db
 from app.config import get_settings
 from app.main import app
 from app.models import Extraction
@@ -121,10 +122,13 @@ LEGACY_BYTES = {n: f"fake receipt legacy-{n}".encode() for n in range(12)}
 
 
 @pytest.fixture(scope="module")
-def a_unshared_receipt(base: str, service: dict[str, str], ids: dict[str, str]) -> dict[str, Any]:
-    """An A receipt whose photo and dedupe key B does not also hold (the seed gives B copies of three of them).
+def a_unshared_receipt(
+    base: str, service: dict[str, str], ids: dict[str, str], b_own_row: dict[str, Any]
+) -> dict[str, Any]:
+    """An A receipt whose photo and dedupe key B does not also hold.
 
-    Scanning it as B must be a plain save: any 409 there would mean B's own row matched, which is not this case.
+    Scanning it as B must be a plain save: any 409 there would mean B's own row matched, which is not this
+    case. Depends on `b_own_row` so B's holdings are known before "unshared" is decided.
     """
     b_hashes = {(r["dedupe_hash"], r["image_hash"]) for r in rows_for(base, service, f"user_id=eq.{ids['b']}&select=dedupe_hash,image_hash")}
     for row in rows_for(base, service, f"user_id=eq.{ids['a']}&receipt_path=not.is.null&select=*&order=txn_date"):
@@ -135,8 +139,42 @@ def a_unshared_receipt(base: str, service: dict[str, str], ids: dict[str, str]) 
 
 @pytest.fixture(scope="module")
 def b_own_row(base: str, service: dict[str, str], ids: dict[str, str]) -> dict[str, Any]:
-    [row] = rows_for(base, service, f"user_id=eq.{ids['b']}&merchant=eq.Kedai%20B%20Sendiri&select=*")
-    return row
+    """B's own receipt row, re-created if it has gone missing.
+
+    A `down`/`up` cycle backfills **every** row to one owner, which leaves B with nothing and would make
+    this suite fail for reasons that have nothing to do with isolation. The runbook's rollback path is
+    exactly that cycle, so the fixture re-seeds rather than depending on data that the migration moves.
+    """
+    merchant = "Kedai B Sendiri"
+    existing = rows_for(base, service, f"user_id=eq.{ids['b']}&merchant=eq.{quote(merchant)}&select=*")
+    if existing:
+        return existing[0]
+
+    payload = b"fake receipt b-own-1"
+    day = date(2026, 10, 25)
+    amount = Decimal("66.60")
+    image_hash = hashlib.sha256(payload).hexdigest()
+    created = httpx.post(
+        f"{base}/rest/v1/transactions",
+        headers={**service, "Prefer": "return=representation"},
+        json={
+            "user_id": ids["b"],
+            "txn_date": day.isoformat(),
+            "amount": float(amount),
+            "merchant": merchant,
+            "category": "food",
+            "type": "expense",
+            "mode": "personal",
+            "source": "receipt_scan",
+            "receipt_path": f"{ids['b']}/2026/10/{image_hash[:32]}.jpg",
+            "image_hash": image_hash,
+            "dedupe_hash": db.dedupe_hash("receipt_scan", day, amount, merchant),
+            "raw_extraction": {"needs_review": False, "extraction": {}},
+        },
+        timeout=30,
+    )
+    assert created.status_code in (200, 201), created.text[:200]
+    return created.json()[0]
 
 
 @pytest.fixture(scope="module")
@@ -203,7 +241,8 @@ def test_a_tampered_token_is_refused(client: TestClient, token_b: str, ids: dict
 # ---------------------------------------------------------------- the API, as each user
 
 def test_a_lists_their_rows_and_b_lists_only_theirs(
-    client: TestClient, token_a: str, token_b: str, base: str, service, ids: dict[str, str]
+    client: TestClient, token_a: str, token_b: str, base: str, service, ids: dict[str, str],
+    b_own_row: dict[str, Any],
 ) -> None:
     october = "and=(txn_date.gte.2026-10-01,txn_date.lt.2026-11-01)&mode=eq.personal&select=id"
     a_expected = {r["id"] for r in rows_for(base, service, f"user_id=eq.{ids['a']}&{october}")}
