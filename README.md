@@ -97,8 +97,9 @@ Production runs on **Render** as a free **web service** built from the repo's `D
   the per-IP throttle described below.
 
 Deploy steps: create the web service from the GitHub repo, choose **Docker** as the runtime (the `Dockerfile`
-is used as-is; nothing is passed as build args), add the variables below, then deploy. `PORT` is supplied by
-Render and the container binds to it.
+is used as-is; nothing is passed as build args), add the variables below, then deploy. The service already
+runs on Render, so check the `PORT` env var in the dashboard if you need to confirm it; do not change the
+`Dockerfile` default.
 
 The `.gcloudignore` file is **unused**. It came from an earlier Google Cloud Run setup and Render does not
 read it. It can be deleted.
@@ -293,10 +294,12 @@ Settings keeps the large title alone.
   live "Saved on this device" / "Not set" value) that opens the change-key sheet, and *About*
   lists App, **Build**, Currency and Date format as plain read-only rows. The Build row is the one
   way to see *on the phone* whether the Home Screen app is running the current page: it prints the
-  stamp plus the status bar style the meta ended up with and whether it is running standalone. Bump
-  it whenever `index.html` changes, and if the shortcut shows an older stamp it is serving a cached
-  document.
+  stamp (the git short hash, injected by `GET /`, or `dev` locally) plus the status bar style the meta
+  ended up with and whether it is running standalone. If the shortcut shows an older stamp it is
+  serving a cached document.
   There is no service worker here — the page is the only asset, with its CSS and JS inline.
+
+  Opening `app/static/index.html` from disk shows `{{BUILD}}`; only the served page is filled in.
 
 The API key is asked for on first load and kept in `localStorage` under `apiKey`; it is never
 in the HTML or in this repo. A `401` clears it and re-prompts. Add to Home Screen works like an
@@ -344,8 +347,9 @@ The standalone app is edge to edge, in both themes:
   safe-area padding are what put content under the bar; whatever iOS decides, `env()` reports the truth
   and the layout follows it. The alternative — `black-translucent` in both themes — needs the light
   theme's top strip darkened to a band, which is the colour hack this deliberately avoids.
-- The **Build** row in Settings prints the stamp, the status bar style the meta ended up with and
-  whether it is running standalone, so a phone can be asked what it actually loaded.
+- The **Build** row in Settings prints the stamp (the git short hash, injected by `GET /`, or `dev`
+  locally), the status bar style the meta ended up with and whether it is running standalone, so a
+  phone can be asked what it actually loaded.
 
 ### Splash
 
@@ -810,8 +814,9 @@ Safari. Both write the same rows.
 - **A stale Home Screen app is now ruled out by the header.** There is no service worker and no
   external CSS/JS — the page *is* the asset — and `GET /` sends `Cache-Control: no-store` (verified on
   the running server), so no copy of the document can be served from cache at all. The **Build** row
-  in Settings remains the way to check what a phone actually loaded; if its stamp is older than the
-  server, the shortcut needs deleting and re-adding. The cost is re-downloading a ~150KB page every
+  in Settings remains the way to check what a phone actually loaded (the git short hash, injected by
+  `GET /`, or `dev` locally); if its stamp does not match the deployed commit, the shortcut needs
+  deleting and re-adding. The cost is re-downloading a ~150KB page every
   launch, which is the right trade for an app whose only asset is that page.
 - **The splash's timing is measured in Chrome, not on a phone.** The probes show the minimum hold,
   the 4s waking line, the 60s backstop (in the harness, with fake timers), the side effects of a
