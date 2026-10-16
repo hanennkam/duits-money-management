@@ -171,12 +171,13 @@ cd /Users/Apple/Dev/Duits-money-management
 - **Expected (apply):** `copied`, `rows_updated` and `originals_deleted` all equal that same number, every
   failure counter 0.
 - **Expected (confirm):** `legacy_rows: 0`, `already_moved` equals the number of receipt rows.
-- **Note:** a row whose `receipt_path` prefix is not its own owner shows up as `unexpected_format` and is
-  left alone (the script exits 1). One such row exists on **staging**, left over from the earlier rehearsal
-  where the rollback reassigned owners without moving the objects back. On live the move runs after the
-  backfill, so paths and owners should agree.
-- **STOP if** the dry run shows any `missing_source` or `unexpected_format`, or the apply leaves any failure
-  counter non-zero.
+- **Note:** a row whose `receipt_path` sits under *another* owner's folder is re-homed, not refused —
+  the foreign prefix is stripped and the object lands at `<owner>/YYYY/MM/x.jpg`. This is what a
+  **rollback** produces: `0002 down` then `up` reassigns rows without moving the objects back, so it is
+  expected after a recovery and is not a reason to stop. Only a path that is not a real owner prefix (not a
+  UUID) is reported as `unexpected_format`, as is a path shared by more than one row (`shared_object`).
+- **STOP if** the dry run shows any `missing_source`, `unexpected_format` or `shared_object`, or the apply
+  leaves any failure counter non-zero.
 - **Roll back from here:** the objects are copied before the original is deleted and the row update is
   conditional, so a partial run leaves the original intact. Re-running is safe. To move an object back by
   hand, use the Storage browser; `receipt_path` is the source of truth, so no rollback script is needed.

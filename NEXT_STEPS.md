@@ -17,6 +17,33 @@ Prepared after the auth-screen polish on branch `multi-user`. Read this before t
 | Pass 6 — rollback unblocked | **Done.** `0002 down` was refusing on a hash collision between two test-fixture rows. Resolved, and the fixture no longer collides. |
 | Pass 7 — staging rehearsal COMPLETE | **Done.** `up → verify → down → up` all ran on staging. 30 rows at every stage, no data lost. |
 | Pass 8 — SMTP fixed | **Done.** Password reset delivers, and the account-enumeration leak is closed. |
+| Pass 9 — phone pass recorded + receipt paths | **Done.** The phone checklist came back clean. `migrate_receipts.py` now re-homes a path left under another owner. |
+
+## Pass 9 — the phone pass, and the last receipt-path case
+
+**The phone checklist came back clean** — sign-in, keyboard behaviour, dark mode, scan, text entry, sign-out
+and Back all worked on a real iPhone. That closes the biggest unknown: everything before it had only been
+checked in desktop Chrome. Two things remain reasoned about rather than measured on device (whether `100dvh`
+shrinks with the keyboard open, and `scrollIntoView` inside a fixed scroll container), noted in Known issue 8.
+
+**`migrate_receipts.py` now re-homes a path left under another owner's folder.** A `down`/`up` cycle
+reassigns rows without moving the objects back, which leaves an object at `<other-owner>/YYYY/MM/x.jpg`. The
+script used to report those as `unexpected_format` and exit 1; it now strips the foreign prefix and moves the
+object to `<owner>/YYYY/MM/x.jpg`. Three things pin the behaviour:
+
+- the foreign prefix is **stripped**, so the target is `<owner>/2026/10/x.jpg` and never
+  `<owner>/<other-owner>/2026/10/x.jpg` — the naive `new = owner + "/" + old` would have produced the latter;
+- a path held by **more than one row** is left alone (`shared_object`) rather than moved out from under the
+  other row;
+- anything that is not a real owner prefix (a UUID) is still refused (`unexpected_format`) rather than
+  guessed at.
+
+This matters on live too: the runbook's rollback path (`0002 down` then `up`) is what creates these rows, and
+step 9 told you to **STOP** on `unexpected_format`. That advice would have fired after a perfectly good
+rollback. The runbook is updated.
+
+Dry run on staging after the change: `legacy_rows: 2` (was 0), `unexpected_format: 1`. The one remaining
+case is my own throwaway row, described under *Next*.
 
 ## Pass 8 — SMTP is fixed
 
@@ -342,42 +369,57 @@ full detail; this is the summary.
 4. **Three accounts on staging are not ours** (`suhaib@gmail.com`, `adeeb@gmail.com`,
    `madsu04@gmail.com`), owning 5 rows. Left untouched; decide whether to remove them. Two throwaway
    accounts of mine also exist: `duits-invite-test@example.com` and `duits-invite-verify@example.com`.
-5. **Two staging rows still report `unexpected_format`** to `migrate_receipts.py`: their `receipt_path` is
-   prefixed with a UUID that is not their owner, left over from a `down`/`up` cycle. The script refuses to
-   touch them and exits 1. **The app no longer breaks on them** (pass 5): they answer 404 for the receipt
-   and can be deleted. To clear them properly the object has to be moved to the owner's folder and
-   `receipt_path` updated — a small data fix, not done. Not expected on live, where the move runs after the
-   backfill.
+5. **`migrate_receipts.py` and the leftover receipt paths.** A `down`/`up` cycle leaves objects under the
+   old owner's folder. **Fixed in pass 9**: the script re-homes them (foreign prefix stripped) instead of
+   reporting `unexpected_format`, so the runbook's rollback path no longer trips its own STOP condition.
+   Two such rows are handled; one `unexpected_format` case remains and it is my own throwaway row — see
+   *Next*.
 6. **The live run has not been done.** The full sequence is now proven three times over: locally on a real
    Postgres (6 rows through up/verify/down/up), and on staging end to end (30 rows through
    `up → verify → down → up`, with `verify` B–F checked). What remains is the same sequence against **live**,
    which is `docs/CUTOVER_RUNBOOK.md` step 7 and needs the SQL editor.
 
-## Next
-
-**Staging is ready for the phone checklist.** The migration rehearsal is done, and SMTP now delivers, so the
-whole sign-in and invite path works. What is left before cutover:
-
-1. **The phone checklist** (`NEXT_STEPS.md` §3) — the biggest remaining unknown, since everything was
-   tested in desktop Chrome.
-2. **Repeat the SMTP settings on live.** They are per-project: staging has them, live does not. Copy the
-   same values (`smtp.gmail.com`, 465, the sender and name) into the live project's
-   Authentication → Emails → SMTP Settings.
-3. Then cutover (`docs/CUTOVER_RUNBOOK.md`).
 7. **Staging has 29 rows, not the 30 last recorded.** The migration does not delete rows (proven locally),
    so this is not the migration. Most likely a delete from the phone or test cleanup. Worth a look against
-   the backups if the exact count matters.
-8. **Not verified on a real iPhone.** Everything was checked in desktop Chrome. Notably unverified:
-   whether `100dvh` shrinks when the iOS keyboard opens (the design assumes the box can scroll), whether
-   `justify-content: safe center` is supported in Safari (the plain `center` fallback would let the title
-   clip above the box on overflow), `scrollIntoView` inside a fixed scroll container, real safe-area
-   insets, and focus zoom at exactly 16px.
+   the backups if the exact count matters. *(The phone pass afterwards adds and removes rows too, so treat
+   this as historical.)*
+8. **Verified on a real iPhone** in the phone pass: sign-in, keyboard behaviour, dark mode, scan, text
+   entry, sign-out and Back all worked. What that pass cannot settle remains unverified: whether `100dvh`
+   shrinks when the keyboard opens, `scrollIntoView` inside a fixed scroll container, and focus zoom at
+   exactly 16px — these are reasoned about, not measured on device.
 9. **The sign-in form is taller than the keyboard strip** on a small phone (456px of content against 300px
-   at 375×667), so it scrolls rather than fitting in one glance. Every control is reachable.
+   at 375×667), so it scrolls rather than fitting in one glance. Every control is reachable; confirmed
+   acceptable on the phone.
 
 **Resolved since the earlier passes** (kept so they are not re-opened): `image_hash` is now in
 `schema.sql`; `PORT` is pinned to `10000` by `render.yaml`; the Build stamp is injected per request and
-needs no manual bump.
+needs no manual bump; forgot-password delivers and the enumeration leak is closed (pass 8).
+
+## Next
+
+Staging is in good shape: the migration rehearsal is complete, SMTP delivers, and the phone pass came back
+clean. What is left before cutover:
+
+1. **One throwaway row of mine to clear** — see below. Then `migrate_receipts.py` on staging should exit 0.
+2. **Repeat the SMTP settings on live.** They are per-project: staging has them, live does not. Copy the
+   same values (`smtp.gmail.com`, 465, the sender and name) into the live project's
+   Authentication → Emails → SMTP Settings.
+3. **Sign-up must be closed on live** as well (staging already is).
+4. Then cutover (`docs/CUTOVER_RUNBOOK.md`).
+
+### One row of mine to clear
+
+`migrate_receipts.py` now re-homes a path left under another owner's folder (pass 9), so the two real
+mismatches are handled. One row still reports `unexpected_format`, and it is my own accident:
+
+- `a2d55e96`, merchant **`Throwaway Fix Check`**, RM 1.00, 2026-10-30, `receipt_path`
+  `someone-else/2026/10/x.jpg`. Created by a probe script of mine (its response parse failed after the
+  insert succeeded) and never cleaned up. No object exists under `someone-else/`, so there is nothing to
+  move — the row points at nothing.
+
+The tool is right to refuse it: `someone-else` is not an owner prefix, so it cannot know what that folder
+means. **Say the word and I will delete the row**, or delete it yourself. That is the last thing between
+staging and a clean `migrate_receipts.py` run.
 
 ## Staging migration rehearsal — run, with results
 
