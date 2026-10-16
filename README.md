@@ -315,6 +315,14 @@ Sign out) instead of the old API key row; sign out clears the session **and** ev
 publishable key and the project URL are injected into the page by `GET /` at serve time (like `{{BUILD}}`);
 the **service key never reaches the page**.
 
+The sign-in screen is built for the iOS keyboard: a scrolling, top-aligned column (never vertically
+centred on a fixed `100vh` height, which pushes the title under the status bar), `min-height: 100dvh`,
+and `padding-top` of `max(safe-area, 24px) + 24px`. Focusing a field scrolls it to the middle of what the
+keyboard leaves after ~250ms; leaving the form scrolls back to the top so the logo and title return.
+Fields are ≥16px with `maximum-scale=1`, `enterkeyhint` `next`/`go`, and `autocapitalize`/`autocorrect`
+off. Short screens (≤700px tall) get a compact form so the title, both fields and **Sign in** stay above
+the keyboard at 375×667.
+
 **Content-Security-Policy.** `GET /` sends a strict policy with a fresh per-response nonce:
 `default-src 'self'`, `script-src 'self' 'nonce-…'` (no `unsafe-inline`, so an injected script cannot run),
 `style-src 'self' 'unsafe-inline'`, `img-src 'self' blob: <project>`, `connect-src 'self' <project>`,

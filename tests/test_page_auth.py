@@ -38,6 +38,58 @@ def test_the_page_carries_the_publishable_key_and_never_the_service_key(client: 
     assert "apiKey" not in page, "the old localStorage API key slot is gone"
 
 
+def test_the_sign_in_screen_is_keyboard_safe(client: TestClient) -> None:
+    """iOS keeps the layout viewport when the keyboard opens, so this screen must be a scrolling column.
+
+    A vertically centred card on a fixed 100vh height ends up with its title under the status bar. These
+    pins are the shape of the fix; the geometry at 375x667 and 430x932 is measured in the browser.
+    """
+    page = client.get("/").text
+    css = page[page.index("/* ---------- sign in ---------- */"):page.index(".field, .chip, .btn-primary")]
+
+    assert "min-height: 100dvh" in css, "the box must follow the dynamic viewport"
+    # The static viewport height is what iOS breaks. Checked as declarations: the comment above
+    # deliberately names the unit it is warning about.
+    assert "min-height: 100vh" not in css and "height: 100vh" not in css
+    assert "calc(max(var(--sat), 24px) + 24px)" in css, "the title must clear the status bar"
+    assert "align-items: center" not in css, "this column must not be vertically centred"
+    assert "position: fixed; inset: 0; z-index: 40;" in css
+    assert "overflow-y: auto" in css, "the column scrolls when the keyboard eats the height"
+    # A container query cannot see the keyboard (it does not move the layout viewport).
+    assert "@container" not in css
+    assert "@media (max-height: 700px)" in css, "short screens get the compact form"
+
+
+def test_the_sign_in_fields_are_typed_for_a_phone_keyboard(client: TestClient) -> None:
+    page = client.get("/").text
+    assert 'id="authEmail" type="email" autocomplete="username"' in page
+    assert 'id="authPassword" type="password" autocomplete="current-password"' in page
+    assert page.count('enterkeyhint="next"') == 1, "only the email field promises Next"
+    assert page.count('enterkeyhint="go"') == 2, "the two password fields promise Go"
+    for field in ("authEmail", "authPassword", "authPassword2"):
+        block = page[page.index('id="' + field + '"') - 40:page.index('id="' + field + '"') + 260]
+        assert 'autocapitalize="off"' in block, field
+        assert 'autocorrect="off"' in block, field
+        assert 'spellcheck="false"' in block, field
+    # 16px is the iOS zoom threshold and maximum-scale=1 is the belt for it. The fields inherit the
+    # 17px body, which is over the floor; nothing may set them smaller.
+    assert 'maximum-scale=1' in page
+    assert not re.search(r"\.(field|auth-card input)[^{]*\{[^}]*font-size:\s*(1[0-5]|[0-9])px", page)
+
+
+def test_focus_reveals_the_field_and_blur_returns_to_the_top(client: TestClient) -> None:
+    """scrollIntoView on focus, ~250ms later; scroll back to the top when the keyboard goes away."""
+    page = client.get("/").text
+    assert "AUTH_REVEAL_DELAY_MS = 250" in page
+    assert 'input.scrollIntoView({ block: "center", behavior: "smooth" })' in page
+    assert "function resetAuthScroll()" in page
+    assert "document.activeElement !== input) return;" in page, "a stale timer must not scroll"
+    # leaving the form (not moving between its fields) is what returns to the top
+    assert 'if (!authFormHasFocus()) resetAuthScroll();' in page
+    assert 'visualViewport.addEventListener("resize"' in page, "the keyboard can close without a blur"
+    assert 'window.scrollTo({ top: 0, behavior: "smooth" })' in page
+
+
 def test_the_sign_in_screen_is_present_in_the_page(client: TestClient) -> None:
     page = client.get("/").text
     for element in (

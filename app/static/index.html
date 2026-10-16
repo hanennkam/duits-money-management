@@ -999,26 +999,50 @@
   }
   .donut.is-drawn .donut-seg { stroke-dashoffset: 0; }
   /* ---------- sign in ---------- */
-  /* A gate over the app, not a sheet: fixed, safe-area padded, and it never scales the page behind it. */
+  /* A gate over the app, not a sheet: it never scales the page behind it. It is a plain scrollable
+     column, top-aligned — deliberately NOT vertically centred on a fixed height. iOS keeps the layout
+     viewport when the keyboard opens, so a centred, height-pinned card ends up with its title under the
+     status bar. min-height: 100dvh, never 100vh, so the box follows the dynamic viewport.
+     padding-top is max(safe-area, 24px) + 24px: the title can never sit under the status bar.
+     --sat is the file's only safe-area read (see the inset rule at :root). */
   .auth {
     position: fixed; inset: 0; z-index: 40;
     background: var(--bg);
-    display: flex; align-items: center; justify-content: center;
-    padding: max(var(--sat), 20px) 20px calc(24px + var(--sab));
+    min-height: 100dvh;
+    padding: calc(max(var(--sat), 24px) + 24px) 20px calc(24px + var(--sab));
     overflow-y: auto; -webkit-overflow-scrolling: touch;
     touch-action: manipulation;
   }
-  .auth-card { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 12px; }
+  .auth-card {
+    width: 100%; max-width: 380px; margin: 0 auto;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  /* The flex gap owns the spacing: a label's own margin would add to it and push the form down. */
+  .auth-card .form-label { margin-bottom: 0; }
   .auth-logo {
     width: 72px; height: 72px; border-radius: 17px; align-self: center;
     box-shadow: var(--shadow); border: .5px solid var(--line);
   }
-  .auth-title { margin: 4px 0 0; text-align: center; }
-  .auth-note { margin: 0 0 2px; text-align: center; color: var(--text-2); }
+  .auth-title { margin: 2px 0 0; text-align: center; }
+  .auth-note { margin: 0; text-align: center; color: var(--text-2); }
   .auth-note:empty { display: none; }
-  .auth-foot { margin: 10px 0 0; text-align: center; color: var(--text-2); }
+  .auth-foot { margin: 8px 0 0; text-align: center; color: var(--text-2); }
   .auth-submit { width: 100%; }
   .auth-card .btn-ghost { width: 100%; }
+  /* Short screens: the mark and its breathing room give way first, so the title, both fields and the
+     Sign in button all stay above the keyboard on a 375x667 phone (45% keyboard leaves 300px).
+     Not a container query: the iOS keyboard does not change the layout viewport, so the box cannot see
+     it. Measured stack at 375x667 with these values: 48px pad + 32 mark + 4 gaps + 18 title + 15 label
+     + 46 field + 15 label + 46 field + 44 button = ~289px, under the 300px the keyboard leaves. */
+  @media (max-height: 700px) {
+    .auth-card { gap: 4px; }
+    .auth-card .form-label { font-size: 11px; }
+    .auth-logo { width: 32px; height: 32px; border-radius: 8px; }
+    .auth-title { margin: 0; font-size: 18px; }
+    .auth-submit { height: 44px; min-height: 44px; padding-top: 0; padding-bottom: 0; }
+    .auth-foot { display: none; }
+    .auth-card .btn-ghost { min-height: 38px; }
+  }
 
   .field, .chip, .btn-primary, .btn-danger, .pill { max-width: 100%; }
 </style>
@@ -1374,12 +1398,14 @@
     <h2 class="auth-title" id="authTitle">Sign in</h2>
     <p class="auth-note" id="authNote"></p>
     <label class="form-label" for="authEmail">Email</label>
-    <input class="field" id="authEmail" type="email" autocomplete="email" inputmode="email"
-           autocapitalize="off" autocorrect="off" spellcheck="false">
+    <input class="field" id="authEmail" type="email" autocomplete="username" inputmode="email"
+           enterkeyhint="next" autocapitalize="off" autocorrect="off" spellcheck="false">
     <label class="form-label" for="authPassword" id="authPasswordLabel">Password</label>
-    <input class="field" id="authPassword" type="password" autocomplete="current-password">
+    <input class="field" id="authPassword" type="password" autocomplete="current-password"
+           enterkeyhint="go" autocapitalize="off" autocorrect="off" spellcheck="false">
     <label class="form-label" for="authPassword2" id="authPassword2Label" hidden>Confirm password</label>
-    <input class="field" id="authPassword2" type="password" autocomplete="new-password" hidden>
+    <input class="field" id="authPassword2" type="password" autocomplete="new-password"
+           enterkeyhint="go" autocapitalize="off" autocorrect="off" spellcheck="false" hidden>
     <button class="btn-primary auth-submit" id="authSubmit" type="button">Sign in</button>
     <button class="btn-ghost" id="authForgot" type="button">Forgot password?</button>
     <button class="btn-ghost" id="authBack" type="button">Back to sign in</button>
@@ -2175,6 +2201,37 @@
     clearCaches();
     renderAccount();
     showAuth("signin");
+  }
+
+  /* ---- the keyboard, on the sign-in screen only ---- */
+  // This is the one place that reacts to the keyboard. The Add sheet deliberately does not (see the
+  // sheet rules in AGENTS.md): that sheet must never resize. The login form is a scrolling page and
+  // needs the opposite, so these two helpers live here and nowhere else.
+  var AUTH_REVEAL_DELAY_MS = 250;   // the keyboard takes about this long to finish opening
+  var AUTH_FIELDS = ["authEmail", "authPassword", "authPassword2"];
+
+  function authFormHasFocus() {
+    var active = document.activeElement;
+    return !!(active && AUTH_FIELDS.indexOf(active.id) > -1);
+  }
+
+  // The keyboard covers the lower half, so the focused field is brought to the middle of what is left,
+  // after the keyboard has settled — instead of letting iOS jump the whole page to reveal it.
+  function revealAuthField(input) {
+    setTimeout(function () {
+      if (!input || document.activeElement !== input) return;
+      if (input.scrollIntoView) input.scrollIntoView({ block: "center", behavior: "smooth" });
+    }, AUTH_REVEAL_DELAY_MS);
+  }
+
+  // The keyboard folded away: the logo and the title belong at the top again.
+  function resetAuthScroll() {
+    var scroller = $("authScreen");
+    if (scroller) {
+      if (scroller.scrollTo) scroller.scrollTo({ top: 0, behavior: "smooth" });
+      else scroller.scrollTop = 0;
+    }
+    if (window.scrollY) window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   /* ---------- home ---------- */
@@ -3856,11 +3913,32 @@
     $("authForgot").addEventListener("click", function () { setAuthView("forgot"); });
     $("authBack").addEventListener("click", function () { setAuthView("signin"); });
     $("signOutBtn").addEventListener("click", signOut);
-    ["authEmail", "authPassword", "authPassword2"].forEach(function (id) {
-      $(id).addEventListener("keydown", function (event) {
-        if (event.key === "Enter") { event.preventDefault(); submitAuth(); }
+    AUTH_FIELDS.forEach(function (id) {
+      var input = $(id);
+      input.addEventListener("focus", function () { revealAuthField(input); });
+      input.addEventListener("blur", function () {
+        // Blur fires while focus moves between fields too, so settle only once the form is empty.
+        setTimeout(function () { if (!authFormHasFocus()) resetAuthScroll(); }, 80);
+      });
+      input.addEventListener("keydown", function (event) {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        // The key does what enterkeyhint promises: "next" on email, "go" on a password field.
+        if (id === "authEmail" && !$("authPassword").hidden) { $("authPassword").focus(); return; }
+        submitAuth();
       });
     });
+    if (window.visualViewport && window.visualViewport.addEventListener) {
+      // The keyboard can fold away without a blur (its own dismiss button), so watch the viewport too.
+      // visualViewport is read only here: the Add sheet never measures the keyboard.
+      var authViewportHeight = window.visualViewport.height;
+      window.visualViewport.addEventListener("resize", function () {
+        var height = window.visualViewport.height;
+        var keyboardGone = height > authViewportHeight + 60;
+        authViewportHeight = height;
+        if (keyboardGone && !authFormHasFocus()) resetAuthScroll();
+      });
+    }
     wireTheme();   // last: the theme control is in Settings and needs nothing else wired first
   }
 
