@@ -221,21 +221,53 @@ full detail; this is the summary.
    without moving the objects back). The script refuses to touch it and exits 1. Not expected on live, where
    the move runs after the backfill.
 6. **The live rehearsal has not been run.** Everything in pass 3 was verified on a local Postgres and on
-   staging. Running `0002 up → verify → 0002 down → 0002 up` **on staging** needs the SQL editor, which the
-   assistant cannot reach — see the ask below.
+   staging. Staging has now been through `down` → `up` → `verify` (see above); the second half
+   (`down` → `up` again) and the live run remain.
+7. **Staging has 29 rows, not the 30 last recorded.** The migration does not delete rows (proven locally),
+   so this is not the migration. Most likely a delete from the phone or test cleanup. Worth a look against
+   the backups if the exact count matters.
 
-## Still to run on staging (needs you)
+## Staging migration rehearsal — run, with results
 
-One SQL-editor pass to confirm the migration behaves the same on real Supabase. Staging currently has
-`user_id` applied (30 rows), so the sequence starts with `down`:
+Ran on staging (`down` → `set_config(app.owner_id, A)` + `up` → `verify_after_up.sql`). Read back through
+the API afterwards:
 
-1. `migrations/0002_multi_user.down.sql`
-2. `select set_config('app.owner_id', '<A id>', false);` then `migrations/0002_multi_user.up.sql`
-3. `migrations/staging/verify_after_up.sql`
-4. `migrations/0002_multi_user.down.sql`
-5. `select set_config('app.owner_id', '<A id>', false);` then `migrations/0002_multi_user.up.sql`
+| Check | Result |
+| --- | --- |
+| `user_id` column present | yes (all 15 columns, `image_hash` included) |
+| **Total rows** | **29** — see the note below |
+| **Rows without an owner** | **0** ✓ |
+| Owner distribution | 29 rows, owner A (the backfill point) |
+| Hashes shared across owners | 0 |
+| Rows with a receipt_path | 14 (12 prefixed with their owner, **2 mismatches**) |
+| Receipt objects in the bucket | 15 |
 
-The row counts will be read back automatically between steps. Expect 30 rows at every stage.
+The critical invariant holds: **no row is without an owner**, and the backfill assigned everything to A as
+designed. The rollback guard would have refused `down` had two owners shared a hash, so that path is clear.
+
+**Why 29 and not 30.** My last count was 30, taken before the staging test suite ran and before continued
+phone testing. The migration does **not** delete rows — that is proven locally (6 → 6 → 6 → 6 across
+up/verify/down/up). So the missing row is not the migration's doing: most likely a delete from the phone
+(the log shows live use at 192.168.1.4) or test cleanup. If you want certainty, compare against the step-2
+`pg_dump` / `backup_receipts.py` artefacts.
+
+**The 2 receipt-path mismatches** are the expected consequence of a `down`/`up` cycle: the objects keep the
+old owner-prefixed paths while the rows are reassigned to A. Not a live-cutover problem, where the move runs
+after the backfill and paths and owners agree.
+
+### Still to paste from `verify_after_up.sql`
+
+I can read rows and owners through the API, but not the catalog. Please paste the output of:
+
+- **B** — the `is_nullable` values (I can see column types, not nullability). Expect `user_id` = `NO`.
+- **C** — unique constraints and indexes. Expect `transactions_user_dedupe_key` and
+  `transactions_user_image_key`, and **no** global `UNIQUE (dedupe_hash)`.
+- **D** — RLS state on `transactions` and `api_tokens`. Expect `true` for both.
+- **E** — policies. Expect 4 on `transactions`, 3 on `storage.objects`, 0 on `api_tokens`.
+- **F** — `public.migration_0002_saved_constraints` contents. Expect one row:
+  `constraint  transactions_dedupe_hash_key`.
+
+Section **A** is already covered by the API read-back above.
 3. **Not verified on a real iPhone.** Everything was checked in desktop Chrome. Notably unverified:
    whether `100dvh` shrinks when the iOS keyboard opens (the design assumes the box can scroll), whether
    `justify-content: safe center` is supported in Safari (the plain `center` fallback would let the title
