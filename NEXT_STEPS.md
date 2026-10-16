@@ -14,6 +14,36 @@ Prepared after the auth-screen polish on branch `multi-user`. Read this before t
 | Pass 3 — invite address, PORT, schema, rehearsal, runbook | **Done.** See the summary below. Staging SQL for the live rehearsal still needs you. |
 | Pass 4 — verify the invite-address fix | **Done.** Re-ran a real invite flow: Settings now shows the address. Document repaired. |
 | Pass 5 — catalog checks + receipt-path crash | **Done.** You checked `verify_after_up.sql` B–F. Fixed a 500 that made rows with a migration-leftover receipt path undeletable. |
+| Pass 6 — rollback unblocked | **Done.** `0002 down` was refusing on a hash collision between two test-fixture rows. Resolved, and the fixture no longer collides. |
+
+## Pass 6 — the rollback guard fired, and why
+
+`0002 down` refused with `the same dedupe_hash exists for two owners; resolve before rolling back`. **That
+is the guard working**, and it was right to stop: the global `UNIQUE (dedupe_hash)` cannot be restored while
+two owners hold the same key.
+
+The collision was entirely test fixture data — none of your iPhone rows involved:
+
+| | Owner | Created | id |
+| --- | --- | --- | --- |
+| stale copy | A (after the backfill) | 09:02:13 | `eb25042c` |
+| fixture row | B | 14:37:25 | `a7db563b` |
+
+Both were the same fake receipt (`Kedai B Sendiri`, RM 66.60, 2026-10-25). `eb25042c` was created by
+`staging_seed.py`, then reassigned to A by the `down`/`up` backfill; `a7db563b` was created by the
+self-healing fixture added in pass 5. Resolved as you approved: **`eb25042c` and its own receipt object
+were deleted** (they were not shared — each row had its own object).
+
+Three fixes follow from it:
+
+1. **The fixture no longer collides.** Its identity (`Kedai B <token>`, and the photo) is unique per run, so
+   it can never share a hash with a copy a previous `down`/`up` left under another owner. The tests read
+   those values instead of hardcoding them. `cleanup_test_rows` removes it at the end of the module.
+2. **Object cleanup actually works now.** It was sending `Content-Type: application/json` with an empty
+   body, which Supabase Storage answers **400** to — so every test object was silently left behind. Without
+   the header it deletes correctly. Verified: **0 orphan objects** after a full suite run.
+3. Confirmed clean before handing back: 30 rows, **0** `dedupe_hash` or `image_hash` values shared across
+   owners, 0 orphan objects.
 
 ## Current branch + last commit
 
@@ -265,14 +295,18 @@ full detail; this is the summary.
 
 ## Next
 
-The next unfinished item is **the second half of the staging rehearsal** — one SQL-editor pass on staging:
+The next unfinished item is **the second half of the staging rehearsal** — one SQL-editor pass on staging.
+The rollback guard that was blocking it is now clear, so this should go through:
 
 1. `migrations/0002_multi_user.down.sql`
 2. `select set_config('app.owner_id', '67a4cc95-a77a-4f1b-a12a-048db5324c1f', false);` then
    `migrations/0002_multi_user.up.sql`
 
 That completes `up → verify → down → up`, the exact sequence the live run uses. I read the row counts back
-automatically between the two runs. Expect 29 rows at each stage.
+automatically between the two runs. Expect 30 rows at each stage.
+
+If `down` refuses again on a shared hash, that is the same guard: paste the message and I will identify the
+two rows before anything is deleted.
 
 After that: the SMTP fix (unblocks password reset and invites), the phone checklist, then cutover.
 7. **Staging has 29 rows, not the 30 last recorded.** The migration does not delete rows (proven locally),

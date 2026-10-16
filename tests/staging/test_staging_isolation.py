@@ -13,11 +13,11 @@ import hashlib
 import os
 import re
 import time
+import uuid
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Iterator
-from urllib.parse import quote
 
 import httpx
 import jwt
@@ -34,6 +34,16 @@ from app.models import Extraction
 REAL_SIGNING_KEY_FOR = auth.signing_key_for  # captured before the root conftest can replace it
 LEGACY_0_BYTES = b"fake receipt legacy-0"
 SEEDED_B_MERCHANTS = {"Kedai B 0", "Kedai B 1", "Kedai B 2", "Kedai B Sendiri"}
+
+# B's fixture receipt is unique to this run. A fixed identity would collide with its own earlier copy,
+# because `0002 down`/`up` backfills every row to one owner and leaves the previous copy behind — and
+# `0002 down`'s rollback guard then refuses (correctly) when two owners share a hash. Tests read these
+# rather than hardcoding values, so they cannot drift from what the fixture stores.
+B_TOKEN = uuid.uuid4().hex[:8]
+B_MERCHANT = f"Kedai B {B_TOKEN}"
+B_DAY = date(2026, 10, 25)
+B_AMOUNT = "66.60"
+B_PHOTO = f"fake receipt b-own-{B_TOKEN}".encode()
 
 LIVE_PROJECT_REF = "viorpltdkpexswvofeul"
 STAGING_PROJECT_REF = "tddigsmukmhkjrwiqdec"
@@ -139,36 +149,28 @@ def a_unshared_receipt(
 
 @pytest.fixture(scope="module")
 def b_own_row(base: str, service: dict[str, str], ids: dict[str, str]) -> dict[str, Any]:
-    """B's own receipt row, re-created if it has gone missing.
+    """B's own receipt row: the one the duplicate tests expect to be named in a 409.
 
-    A `down`/`up` cycle backfills **every** row to one owner, which leaves B with nothing and would make
-    this suite fail for reasons that have nothing to do with isolation. The runbook's rollback path is
-    exactly that cycle, so the fixture re-seeds rather than depending on data that the migration moves.
+    It is created, not looked up, because a `down`/`up` cycle backfills **every** row to one owner and
+    leaves the previous copy behind under someone else. Its identity is unique to this run so the two can
+    never share a hash. `cleanup_test_rows` removes it at the end of the module.
     """
-    merchant = "Kedai B Sendiri"
-    existing = rows_for(base, service, f"user_id=eq.{ids['b']}&merchant=eq.{quote(merchant)}&select=*")
-    if existing:
-        return existing[0]
-
-    payload = b"fake receipt b-own-1"
-    day = date(2026, 10, 25)
-    amount = Decimal("66.60")
-    image_hash = hashlib.sha256(payload).hexdigest()
+    image_hash = hashlib.sha256(B_PHOTO).hexdigest()
     created = httpx.post(
         f"{base}/rest/v1/transactions",
         headers={**service, "Prefer": "return=representation"},
         json={
             "user_id": ids["b"],
-            "txn_date": day.isoformat(),
-            "amount": float(amount),
-            "merchant": merchant,
+            "txn_date": B_DAY.isoformat(),
+            "amount": float(Decimal(B_AMOUNT)),
+            "merchant": B_MERCHANT,
             "category": "food",
             "type": "expense",
             "mode": "personal",
             "source": "receipt_scan",
             "receipt_path": f"{ids['b']}/2026/10/{image_hash[:32]}.jpg",
             "image_hash": image_hash,
-            "dedupe_hash": db.dedupe_hash("receipt_scan", day, amount, merchant),
+            "dedupe_hash": db.dedupe_hash("receipt_scan", B_DAY, Decimal(B_AMOUNT), B_MERCHANT),
             "raw_extraction": {"needs_review": False, "extraction": {}},
         },
         timeout=30,
@@ -206,7 +208,13 @@ def cleanup_test_rows(base: str, service: dict[str, str], ids: dict[str, str]) -
         if row.get("merchant") is None or row["merchant"] in SEEDED_B_MERCHANTS:
             continue
         if row.get("receipt_path"):
-            httpx.delete(f"{base}/storage/v1/object/receipts/{row['receipt_path']}", headers=service, timeout=30)
+            # No Content-Type here: Supabase Storage answers 400 to a JSON content-type with an empty
+            # body, which was silently leaving the objects behind.
+            httpx.delete(
+                f"{base}/storage/v1/object/receipts/{row['receipt_path']}",
+                headers={"apikey": service["apikey"], "Authorization": service["Authorization"]},
+                timeout=30,
+            )
         httpx.delete(f"{base}/rest/v1/transactions?id=eq.{row['id']}", headers=service, timeout=30)
 
 
@@ -318,8 +326,8 @@ def test_a_409_for_b_carries_only_b_rows(
     client: TestClient, token_b: str, monkeypatch: pytest.MonkeyPatch, b_own_row: dict[str, Any], a_row_id: str
 ) -> None:
     """B re-scans B's own receipt: the duplicate answer is B's row, and A's id appears nowhere."""
-    response = scan(client, token_b, b"fake receipt b-own-1", monkeypatch,
-                    merchant="Kedai B Sendiri", amount="66.60", day=date(2026, 10, 25))
+    response = scan(client, token_b, B_PHOTO, monkeypatch,
+                    merchant=B_MERCHANT, amount=B_AMOUNT, day=B_DAY)
     assert response.status_code == 409
     assert response.json()["detail"]["transaction"]["id"] == b_own_row["id"]
     assert a_row_id not in response.text
@@ -330,7 +338,7 @@ def test_a_dedupe_key_match_in_b_s_own_rows_is_the_only_409_b_can_get(
 ) -> None:
     """Different photo, same merchant, amount and day as B's own row: the 409 names B's row, never A's."""
     response = scan(client, token_b, b"a photo that is not in the database", monkeypatch,
-                    merchant="Kedai B Sendiri", amount="66.60", day=date(2026, 10, 25))
+                    merchant=B_MERCHANT, amount=B_AMOUNT, day=B_DAY)
     assert response.status_code == 409
     assert response.json()["detail"]["transaction"]["id"] == b_own_row["id"]
     assert a_row_id not in response.text
