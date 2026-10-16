@@ -1,3 +1,6 @@
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = [
+    "isolation: multi-user isolation tests; expected to fail until step 2 (see tests/test_isolation.py)",
+]

@@ -3,3 +3,5 @@
 # Tests only: httpx drives fastapi.testclient, pytest runs the suite.
 pytest>=8.0
 httpx>=0.27
+# Tests only: PyJWT signs the isolation tests' fake tokens (step 2 uses it to verify them too).
+pyjwt[crypto]>=2.8
