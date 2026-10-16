@@ -11,13 +11,24 @@ Prepared after the auth-screen polish on branch `multi-user`. Read this before t
 | Task 3 — commit and push | **Done.** `multi-user` is pushed. **Not** merged to `main`, **not** deployed to live. |
 | Task 5 — this file | **Done.** |
 | Verification pass 2 (invite flow) | **Done.** Sign-up is now refused, and the invite flow works end to end. |
+| Pass 3 — invite address, PORT, schema, rehearsal, runbook | **Done.** See the summary below. Staging SQL for the live rehearsal still needs you. |
 
 ## Current branch + last commit
 
 - Branch: `multi-user`, tracking `origin/multi-user`, pushed.
-- Last commit: `59a8018` — `fix(auth): send redirect_to as origin + / on password recovery`.
 - `main` is untouched and was **not** pushed.
-- `pytest`: **194 passed, 15 skipped**. Staging suite: **15 passed**.
+- `pytest`: **195 passed, 15 skipped**. Staging suite: **15 passed**.
+
+## Pass 3 — what changed
+
+| Item | Result |
+| --- | --- |
+| "Not signed in" after an invite | **Fixed.** The address now comes from the token's own claims (`emailFromToken`), with a `/auth/v1/user` call as the fallback. Pinned by a page test. |
+| `PORT` | **Fixed.** `render.yaml` pins `PORT=10000`; the Dockerfile default stays `8000` and the start command already honours `$PORT`. Verified locally: `PORT=10000` binds 10000, `/health` 200, nothing on 8000. |
+| Schema drift | **Fixed.** `schema.sql` now carries `image_hash`, so a fresh database matches production (all 15 columns). |
+| Migration rehearsal | **Done on a real Postgres** with the exact files. Row counts **6 → 6 → 6 → 6** across up → verify → down → up; no rows lost. `0002` **refuses without `app.owner_id`**; the rollback **refuses** while two owners share a hash; per-owner uniqueness proven both ways. |
+| `migrate_receipts.py` dry run | **`legacy_rows: 0`** as required. One leftover rehearsal row reports `unexpected_format` (its `receipt_path` prefix is not its owner) and is correctly left alone. |
+| Cutover runbook | **`docs/CUTOVER_RUNBOOK.md`** — 14 numbered steps, each with the command or click, the expected result, a STOP line and a rollback. Marked MINE (dashboard) or YOURS (command). |
 
 ## Staging URL (iPhone, same Wi-Fi)
 
@@ -138,6 +149,10 @@ Open `http://192.168.1.6:8765/` in Safari.
 
 ## 4. Cutover checklist (going live)
 
+**The full linear runbook is `docs/CUTOVER_RUNBOOK.md`** — 14 steps, each with the exact command or
+dashboard click, the expected result, a STOP line and a rollback, marked MINE (you, dashboard) or
+YOURS (assistant, command). Read that instead of this summary.
+
 **Before anything is written to live.** Nothing below has been run. `docs/migration-runbook.md` has the
 full detail; this is the summary.
 
@@ -198,9 +213,29 @@ full detail; this is the summary.
    It was open earlier today, and three accounts that are not ours were created through it. **The same
    setting must still be turned off on the live project** before cutover — see the checklist.
 3. **Settings shows "Not signed in"** after signing in through an invite link (empty `email` in the
-   session). Cosmetic.
+   session). Cosmetic. — **FIXED in pass 3** (the address is read from the token).
 4. **Three accounts on staging are not ours** (`suhaib@gmail.com`, `adeeb@gmail.com`,
    `madsu04@gmail.com`), owning 5 rows. Left untouched; decide whether to remove them.
+5. **One staging row reports `unexpected_format`** to `migrate_receipts.py`: its `receipt_path` is prefixed
+   with a UUID that is not its owner. Left over from the earlier rehearsal (the rollback reassigned owners
+   without moving the objects back). The script refuses to touch it and exits 1. Not expected on live, where
+   the move runs after the backfill.
+6. **The live rehearsal has not been run.** Everything in pass 3 was verified on a local Postgres and on
+   staging. Running `0002 up → verify → 0002 down → 0002 up` **on staging** needs the SQL editor, which the
+   assistant cannot reach — see the ask below.
+
+## Still to run on staging (needs you)
+
+One SQL-editor pass to confirm the migration behaves the same on real Supabase. Staging currently has
+`user_id` applied (30 rows), so the sequence starts with `down`:
+
+1. `migrations/0002_multi_user.down.sql`
+2. `select set_config('app.owner_id', '<A id>', false);` then `migrations/0002_multi_user.up.sql`
+3. `migrations/staging/verify_after_up.sql`
+4. `migrations/0002_multi_user.down.sql`
+5. `select set_config('app.owner_id', '<A id>', false);` then `migrations/0002_multi_user.up.sql`
+
+The row counts will be read back automatically between steps. Expect 30 rows at every stage.
 3. **Not verified on a real iPhone.** Everything was checked in desktop Chrome. Notably unverified:
    whether `100dvh` shrinks when the iOS keyboard opens (the design assumes the box can scroll), whether
    `justify-content: safe center` is supported in Safari (the plain `center` fallback would let the title
