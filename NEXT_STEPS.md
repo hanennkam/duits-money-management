@@ -23,7 +23,7 @@ Prepared after the auth-screen polish on branch `multi-user`. Read this before t
 
 **The phone checklist came back clean** — sign-in, keyboard behaviour, dark mode, scan, text entry, sign-out
 and Back all worked on a real iPhone. That closes the biggest unknown: everything before it had only been
-checked in desktop Chrome. Two things remain reasoned about rather than measured on device (whether `100dvh`
+checked in desktop Chrome. Three things remain reasoned about rather than measured on device (whether `100dvh`
 shrinks with the keyboard open, and `scrollIntoView` inside a fixed scroll container), noted in Known issue 8.
 
 **`migrate_receipts.py` now re-homes a path left under another owner's folder.** A `down`/`up` cycle
@@ -44,6 +44,21 @@ rollback. The runbook is updated.
 
 Dry run on staging after the change: `legacy_rows: 2` (was 0), `unexpected_format: 1`. The one remaining
 case is my own throwaway row, described under *Next*.
+
+**Acceptance evidence — `unexpected_format: 0`.** After that row was deleted (by explicit id), the dry run
+on staging reports:
+
+```
+mode: DRY RUN
+rows_with_receipt: 14
+already_moved: 12
+legacy_rows: 2
+would_move: 2
+exit=0
+```
+
+`unexpected_format` is absent, and the exit code is 0. That is the state the cutover step 9 expects before
+the real run.
 
 ## Pass 8 — SMTP is fixed
 
@@ -379,10 +394,23 @@ full detail; this is the summary.
    `up → verify → down → up`, with `verify` B–F checked). What remains is the same sequence against **live**,
    which is `docs/CUTOVER_RUNBOOK.md` step 7 and needs the SQL editor.
 
-7. **Staging has 29 rows, not the 30 last recorded.** The migration does not delete rows (proven locally),
-   so this is not the migration. Most likely a delete from the phone or test cleanup. Worth a look against
-   the backups if the exact count matters. *(The phone pass afterwards adds and removes rows too, so treat
-   this as historical.)*
+7. **The 29-vs-30 row count on staging — UNEXPLAINED and ACCEPTED.** Could not be reconciled, and this is
+   the record of why:
+   - **No row-level artefact exists.** The step-2 backup was `scripts/backup_receipts.py`, which backs up
+     the **live** bucket's objects, not staging rows. `pg_dump` was never run against staging — it needs a
+     connection string that only you hold.
+   - **The server access logs do not cover the window.** They record exactly one
+     `DELETE /transactions/…` across every run they cover, and it is my own throwaway `b31b4f8f`. The
+     server has been restarted several times, so earlier logs are gone.
+   - Row counts move continuously from phone testing and from test runs creating and deleting rows, so the
+     delta is inside normal noise.
+   - The migration is excluded: it provably does not delete rows (6 → 6 → 6 → 6 locally, and 30 → 30
+     through `up → verify → down → up` on staging).
+
+   **Why this is not a cutover risk:** live counts are baselined fresh at cutover from `pg_dump` and
+   `scripts/audit_live.py` (runbook steps 2–4), taken together in the same window. Staging's count is not
+   that baseline and is never compared against live. So this cannot become a false alarm — but it is
+   written down here so nobody later treats a staging number as a live expectation.
 8. **Verified on a real iPhone** in the phone pass: sign-in, keyboard behaviour, dark mode, scan, text
    entry, sign-out and Back all worked. What that pass cannot settle remains unverified: whether `100dvh`
    shrinks when the keyboard opens, `scrollIntoView` inside a fixed scroll container, and focus zoom at
@@ -397,29 +425,44 @@ needs no manual bump; forgot-password delivers and the enumeration leak is close
 
 ## Next
 
-Staging is in good shape: the migration rehearsal is complete, SMTP delivers, and the phone pass came back
-clean. What is left before cutover:
+Staging is in good shape: the migration rehearsal is complete, SMTP delivers, the phone pass came back
+clean, and `migrate_receipts.py` now runs clean on staging (`unexpected_format: 0`, exit 0). What is left
+before cutover:
 
-1. **One throwaway row of mine to clear** — see below. Then `migrate_receipts.py` on staging should exit 0.
-2. **Repeat the SMTP settings on live.** They are per-project: staging has them, live does not. Copy the
-   same values (`smtp.gmail.com`, 465, the sender and name) into the live project's
-   Authentication → Emails → SMTP Settings.
-3. **Sign-up must be closed on live** as well (staging already is).
+1. **Decide on the five rows behind the three non-ours accounts** — see below. This is the last open
+   question on staging.
+2. **Repeat the SMTP settings on live.** Per-project: staging has them, live does not. Copy
+   `smtp.gmail.com`, 465, sender `hanennkam@gmail.com`, name **Duits** into the live project's
+   Authentication → Emails → SMTP Settings, then **send one real test message and confirm it arrives** —
+   a settings page that saves cleanly proves nothing about port, TLS or the credentials.
+3. **Close sign-up on live**, and do it **before** the cutover window opens, not during it.
 4. Then cutover (`docs/CUTOVER_RUNBOOK.md`).
 
-### One row of mine to clear
+### The three non-ours accounts: evidence before I delete
 
-`migrate_receipts.py` now re-homes a path left under another owner's folder (pass 9), so the two real
-mismatches are handled. One row still reports `unexpected_format`, and it is my own accident:
+Your decision is to delete them if they are not my test sign-ups. They are **not** mine — my accounts are
+`duits-staging-a/b@example.com` and the two `duits-invite-*` throwaways. So by your rule they go.
 
-- `a2d55e96`, merchant **`Throwaway Fix Check`**, RM 1.00, 2026-10-30, `receipt_path`
-  `someone-else/2026/10/x.jpg`. Created by a probe script of mine (its response parse failed after the
-  insert succeeded) and never cleaned up. No object exists under `someone-else/`, so there is nothing to
-  move — the row points at nothing.
+Before I do, one observation that might change the call: **the five rows look like real transactions, not
+test data.**
 
-The tool is right to refuse it: `someone-else` is not an owner prefix, so it cannot know what that folder
-means. **Say the word and I will delete the row**, or delete it yourself. That is the last thing between
-staging and a clean `migrate_receipts.py` run.
+| Created | Source | Merchant | Date | Amount |
+| --- | --- | --- | --- | --- |
+| 10:23:51 | receipt_scan | `Fresh Choice (Pekan) Panta` | 2026-10-11 | RM 8.90 |
+| 10:15:07 | manual | *(none)* | 2026-10-16 | RM 550.00 |
+| 10:15:02 | manual | *(none)* | 2026-10-16 | RM 23.00 |
+| 10:14:59 | manual | *(none)* | 2026-10-16 | RM 46.00 |
+| 10:14:53 | manual | *(none)* | 2026-10-16 | RM 10.00 |
+
+A real supermarket, RM 550, and a receipt dated five days before it was scanned — that reads as someone
+entering their actual spending through the open sign-up, not as probe junk. The server log from that
+window shows `POST /transactions/scan` returning `201` from `192.168.1.4`, so at least one of these came
+from a phone.
+
+So: **delete anyway, or keep them?** If they are yours from testing, say so and they stay. If they came
+from outside, deleting is the right call and I will do it by explicit id with counts before and after. My
+two throwaway accounts (`duits-invite-test@`, `duits-invite-verify@`) hold **0 rows** and I would delete
+them at the same time — the invite verification they were made for is finished.
 
 ## Staging migration rehearsal — run, with results
 

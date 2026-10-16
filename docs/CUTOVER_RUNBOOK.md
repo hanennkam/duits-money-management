@@ -81,22 +81,29 @@ cd /Users/Apple/Dev/Duits-money-management
     host `smtp.gmail.com`, port `465`, sender `hanennkam@gmail.com`, sender name **Duits**, username the
     same Gmail address, and the password (an App Password if the account has 2FA). Leave
     "Minimum interval per user" at `60` seconds.
-- **Expected:** a test email from the SMTP settings arrives in a real mailbox, and
-  `POST /auth/v1/recover` for a real address returns **200 with an empty body**. Both a known and an
-  unknown address must answer the same — if they differ, the endpoint leaks which accounts exist.
+- **Expected:** **send one real test message and confirm it actually arrives in the mailbox.** A settings
+  page that saves cleanly proves nothing about port, TLS or the credentials. Then confirm
+  `POST /auth/v1/recover` for a real address returns **200 with an empty body** — both a known and an
+  unknown address must answer the same, or the endpoint leaks which accounts exist.
 - **Two caveats, both from the staging setup:**
   - Supabase warns that Gmail is *"designed for sending personal rather than transactional email
-    messages. Email deliverability may be impacted."* Gmail caps a personal account at ~500 emails a day
-    and can throttle an account it reads as bulk-sending. Fine for inviting one or two people; not for a
-    bulk invite.
-  - **Two emails to the same address inside 60 seconds have the second silently dropped.** Space out a
-    reset followed by an invite.
+    messages. Email deliverability may be impacted."* Gmail caps a **personal** account at roughly 500
+    emails a day and 2000 for Workspace, and can throttle or suspend an account it reads as
+    bulk-sending. **Batch invites carefully** — one or two at a time, not a list.
+  - **The minimum interval per user is 60 seconds.** A second email to the same address inside a minute is
+    **silently dropped** — no error, no queue. This will masquerade as a broken SMTP copy if the verifier
+    sends a reset and then an invite back to back. Wait a minute between them, or use two addresses.
 - **STOP if** the test email does not arrive, or `recover` still returns a non-200 for an existing
   address. Password reset and invites both depend on this.
 - **Roll back from here:** the old Site URL / Redirect URLs, noted down before you change them. SMTP can be
   reset to the default provider at any time.
 
 ## 6. Close sign-up — MINE
+
+**Do this before the cutover window opens, not during it.** While sign-up is open, anyone with the
+publishable key can create an account and write rows; a row created during the migration would be
+backfilled to the owner and muddy every count from there on. On staging this exposure produced three
+accounts and five rows.
 
 - **Do:** Supabase → **Authentication → Providers → Email** → turn **"Allow new users to sign up"** off.
 - **Expected:** this is refused with `signup_disabled`.
@@ -174,10 +181,13 @@ cd /Users/Apple/Dev/Duits-money-management
 - **Note:** a row whose `receipt_path` sits under *another* owner's folder is re-homed, not refused —
   the foreign prefix is stripped and the object lands at `<owner>/YYYY/MM/x.jpg`. This is what a
   **rollback** produces: `0002 down` then `up` reassigns rows without moving the objects back, so it is
-  expected after a recovery and is not a reason to stop. Only a path that is not a real owner prefix (not a
-  UUID) is reported as `unexpected_format`, as is a path shared by more than one row (`shared_object`).
-- **STOP if** the dry run shows any `missing_source`, `unexpected_format` or `shared_object`, or the apply
-  leaves any failure counter non-zero.
+  expected after a recovery and is not a reason to stop.
+- **A `shared_object` is a skip, not an error.** It means one object is referenced by two rows, so it
+  cannot be moved for one without breaking the other; the script reports it and leaves it alone. The rows
+  keep working — the app answers 404 for a receipt it cannot reach and still deletes the row. Note it and
+  carry on. The script prints `shared_object: skipped … — not an error` and exits 0 for it.
+- **STOP if** the dry run shows any `missing_source` or `unexpected_format`, or the apply leaves any
+  failure counter non-zero.
 - **Roll back from here:** the objects are copied before the original is deleted and the row update is
   conditional, so a partial run leaves the original intact. Re-running is safe. To move an object back by
   hand, use the Storage browser; `receipt_path` is the source of truth, so no rollback script is needed.

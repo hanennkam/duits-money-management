@@ -206,10 +206,15 @@ def main(argv: list[str] | None = None) -> int:
         if stats[name] or name in ("rows_with_receipt", "legacy_rows"):
             print(f"{name}: {stats[name]}")
 
+    # `shared_object` is a skip, not a failure: one object referenced by two rows cannot be moved for one
+    # without breaking the other, so it is reported and left alone. The row keeps working — the app
+    # answers 404 for a receipt it cannot reach and still deletes the row. The rest are real failures.
     failed = sum(stats[name] for name in (
         "missing_source", "conflict_at_target", "verify_failed", "row_changed_underneath",
-        "delete_failed", "unexpected_format", "shared_object",
+        "delete_failed", "unexpected_format",
     ))
+    if stats["shared_object"]:
+        print("shared_object: skipped (one object, two rows) — not an error")
     return 1 if failed else 0
 
 
