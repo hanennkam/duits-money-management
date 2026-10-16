@@ -18,6 +18,47 @@ Prepared after the auth-screen polish on branch `multi-user`. Read this before t
 | Pass 7 — staging rehearsal COMPLETE | **Done.** `up → verify → down → up` all ran on staging. 30 rows at every stage, no data lost. |
 | Pass 8 — SMTP fixed | **Done.** Password reset delivers, and the account-enumeration leak is closed. |
 | Pass 9 — phone pass recorded + receipt paths | **Done.** The phone checklist came back clean. `migrate_receipts.py` now re-homes a path left under another owner. |
+| Pass 10 — household decision, `--apply`, byte reconciliation | **Done.** The three accounts are ours; the receipt re-homing ran (`legacy_rows: 0`); both re-homed objects are identified; the isolation suite ran clean. |
+
+## Pass 10 — the household decision, the receipt re-homing, and the byte reconciliation
+
+**The three accounts are ours (household).** The hold was released and the question is closed; the section
+under *Next* carries the full record. Nothing is pending on staging.
+
+**Staging `--apply` ran** — `DRY RUN → APPLY → DRY RUN`: `copied: 2`, `originals_deleted: 2`, then
+`already_moved: 14`, `legacy_rows: 0`, exit 0. An independent recursive bucket listing confirms 14 objects
+→ 14 with the same two file names, so the move lost nothing.
+
+**Both re-homed objects are now identified individually.** `bytes_copied: 532,627` was 20 bytes more than
+the single photo we knew about, so the second object was not a photo:
+
+| Object (now under A) | Bytes | Row | Merchant | What it is |
+| --- | --- | --- | --- | --- |
+| `824a7d7a….jpg` | 532,607 | `627ff149` | Fresh Choice (Pekan) Pantai Selamat | the real receipt (household) |
+| `cb0be583….jpg` | **20** | `a7db563b` | Kedai B Sendiri | the staging **seed** fixture, bytes `b"fake receipt b-own-1"` |
+
+532,607 + 20 = 532,627, so `bytes_copied` reconciles exactly. `cb0be583`'s sha256 is
+`cb0be583df89f30297f6d6c7091622db01465253ad65eb25dd8e48268fc4c699`.
+
+**`a7db563b` is not household data, and must not join the household delete list.** It is created by
+`scripts/staging_seed.py` (`fake_receipt("b-own-1", 25, "66.60", "Kedai B Sendiri")`) and is one of the
+four merchants in the staging suite's `SEEDED_B_MERCHANTS`, which its cleanup deliberately preserves.
+Deleting it would empty a seed the suite expects to find. The household delete list therefore stays at
+**five rows**, and the arithmetic stays **29 → 24**.
+
+**Every other object in the staging bucket is 20–22 bytes.** Apart from that one real photo the bucket is
+entirely fixture stubs, which is worth knowing before reading any staging receipt figure as meaningful.
+
+**The staging isolation suite ran once more, as the last staging action before the cutover window:**
+
+```
+before: rows=29  accounts=5  objects=14  orphan_objects=0
+after : rows=29  accounts=5  objects=14  orphan_objects=0
+```
+
+**15 passed**, and it returned to 29 with no orphans, as pass 6's cleanup fix promised. This is the only
+suite that exercises RLS against a real Supabase project, and RLS is exactly the property the live project
+inherits from the same migrations, so it was worth running while staging is still the rehearsal ground.
 
 ## Pass 9 — the phone pass, and the last receipt-path case
 
@@ -462,7 +503,9 @@ closed. What is left is live-side, and yours:
 
 **Deferred by choice, not blocking:** deleting the household rows and their three accounts, whenever you
 want. Staging's `--apply` has already run, so an app delete now takes each row and its object together —
-no orphans. See the section below.
+no orphans. See the section below. When it happens, **update the recorded count in the same breath** —
+rows **29 → 24**, accounts **5 → 2** if all three go — so a stale number cannot seed the next mystery the
+way the old 29-vs-30 did. The `Kedai B Sendiri` seed row is *not* on that list (see Pass 10).
 
 ### The three non-ours accounts: OURS, KEPT — deletion scheduled by the owner
 
