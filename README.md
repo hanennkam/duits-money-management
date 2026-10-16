@@ -315,13 +315,16 @@ Sign out) instead of the old API key row; sign out clears the session **and** ev
 publishable key and the project URL are injected into the page by `GET /` at serve time (like `{{BUILD}}`);
 the **service key never reaches the page**.
 
-The sign-in screen is built for the iOS keyboard: a scrolling, top-aligned column (never vertically
-centred on a fixed `100vh` height, which pushes the title under the status bar), `min-height: 100dvh`,
-and `padding-top` of `max(safe-area, 24px) + 24px`. Focusing a field scrolls it to the middle of what the
-keyboard leaves after ~250ms; leaving the form scrolls back to the top so the logo and title return.
-Fields are ≥16px with `maximum-scale=1`, `enterkeyhint` `next`/`go`, and `autocapitalize`/`autocorrect`
-off. Short screens (≤700px tall) get a compact form so the title, both fields and **Sign in** stay above
-the keyboard at 375×667.
+The sign-in screen is one column, centred and sitting at **45%** from the top (the bottom padding is 10vh
+taller than the top, which is what shifts a centred block up). It is `min-height: 100dvh` — never `100vh`,
+which is what iOS breaks — and scrolls when the keyboard eats the height. The centring is `safe center`,
+because a centred flex item taller than its box overflows off the *top*, where the logo and title could
+never be scrolled back into view. Focusing a field scrolls it to the middle of what the keyboard leaves
+after ~250ms; leaving the form scrolls back to the top so the logo and title return. Fields are 16px with
+`maximum-scale=1`, `enterkeyhint` `next`/`go`, and `autocapitalize`/`autocorrect` off. The set-password and
+reset views use the same column and the same sizes. The form is taller than the strip a 45% keyboard
+leaves on a small phone (456px of content against 300px at 375×667), so it is designed to scroll rather
+than to fit in one glance; every control is reachable and lands clear of the keyboard when focused.
 
 **Content-Security-Policy.** `GET /` sends a strict policy with a fresh per-response nonce:
 `default-src 'self'`, `script-src 'self' 'nonce-…'` (no `unsafe-inline`, so an injected script cannot run),

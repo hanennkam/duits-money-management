@@ -999,49 +999,67 @@
   }
   .donut.is-drawn .donut-seg { stroke-dashoffset: 0; }
   /* ---------- sign in ---------- */
-  /* A gate over the app, not a sheet: it never scales the page behind it. It is a plain scrollable
-     column, top-aligned — deliberately NOT vertically centred on a fixed height. iOS keeps the layout
-     viewport when the keyboard opens, so a centred, height-pinned card ends up with its title under the
-     status bar. min-height: 100dvh, never 100vh, so the box follows the dynamic viewport.
-     padding-top is max(safe-area, 24px) + 24px: the title can never sit under the status bar.
-     --sat is the file's only safe-area read (see the inset rule at :root). */
+  /* A gate over the app, not a sheet: it never scales the page behind it. One column, centred and
+     sitting ~45% from the top, which scrolls when the keyboard eats the height.
+     - min-height: 100dvh and never 100vh: the static viewport height is what iOS breaks.
+     - The bottom padding is 10vh larger than the top. That IS the shift: with the block centred in the
+       content box, a taller bottom padding puts its centre at exactly 45% of the box.
+     - .auth-card carries `margin: auto` as well as the container's `safe center`: a centred flex item
+       taller than its box overflows off the *top* and becomes unreachable. `safe` falls back to the
+       start instead, and auto margins fall back to 0, so the title stays reachable and it still scrolls.
+     --sat/--sab are the file's only safe-area reads (see the inset rule at :root). */
   .auth {
     position: fixed; inset: 0; z-index: 40;
     background: var(--bg);
     min-height: 100dvh;
-    padding: calc(max(var(--sat), 24px) + 24px) 20px calc(24px + var(--sab));
+    display: flex; flex-direction: column;
+    /* "safe" is the point: a form taller than the box is aligned to the start rather than overflowing
+       off the top, where the logo and title could never be scrolled back into view. The first line is
+       the plain form for engines without it. */
+    justify-content: center;
+    justify-content: safe center;
+    align-items: center;
+    padding: max(var(--sat), 24px) 24px calc(max(var(--sab), 24px) + 10vh);
     overflow-y: auto; -webkit-overflow-scrolling: touch;
     touch-action: manipulation;
   }
   .auth-card {
-    width: 100%; max-width: 380px; margin: 0 auto;
-    display: flex; flex-direction: column; gap: 10px;
+    width: 100%; max-width: 340px;
+    margin: auto;
+    display: flex; flex-direction: column; align-items: stretch;
   }
-  /* The flex gap owns the spacing: a label's own margin would add to it and push the form down. */
-  .auth-card .form-label { margin-bottom: 0; }
   .auth-logo {
-    width: 72px; height: 72px; border-radius: 17px; align-self: center;
+    width: 72px; height: 72px; border-radius: 16px; align-self: center;
+    margin-bottom: 16px;
     box-shadow: var(--shadow); border: .5px solid var(--line);
   }
-  .auth-title { margin: 2px 0 0; text-align: center; }
-  .auth-note { margin: 0; text-align: center; color: var(--text-2); }
+  .auth-title {
+    font-size: 24px; font-weight: 700;
+    margin: 0 0 20px; text-align: center;
+  }
+  .auth-note {
+    font-size: 13px; color: var(--text-2);
+    margin: 0 0 14px; text-align: center;
+  }
   .auth-note:empty { display: none; }
-  .auth-foot { margin: 8px 0 0; text-align: center; color: var(--text-2); }
-  .auth-submit { width: 100%; }
-  .auth-card .btn-ghost { width: 100%; }
-  /* Short screens: the mark and its breathing room give way first, so the title, both fields and the
-     Sign in button all stay above the keyboard on a 375x667 phone (45% keyboard leaves 300px).
-     Not a container query: the iOS keyboard does not change the layout viewport, so the box cannot see
-     it. Measured stack at 375x667 with these values: 48px pad + 32 mark + 4 gaps + 18 title + 15 label
-     + 46 field + 15 label + 46 field + 44 button = ~289px, under the 300px the keyboard leaves. */
-  @media (max-height: 700px) {
-    .auth-card { gap: 4px; }
-    .auth-card .form-label { font-size: 11px; }
-    .auth-logo { width: 32px; height: 32px; border-radius: 8px; }
-    .auth-title { margin: 0; font-size: 18px; }
-    .auth-submit { height: 44px; min-height: 44px; padding-top: 0; padding-bottom: 0; }
-    .auth-foot { display: none; }
-    .auth-card .btn-ghost { min-height: 38px; }
+  .auth-card .form-label { font-size: 12px; margin: 0 0 6px; }
+  .auth-card .field {
+    height: 48px; min-height: 48px; border-radius: 12px; font-size: 16px;
+  }
+  /* 14px between one field and the label of the next. */
+  .auth-card .field + .form-label { margin-top: 14px; }
+  .auth-submit {
+    width: 100%; height: 48px; min-height: 48px;
+    border-radius: 24px; font-size: 17px; margin-top: 18px;
+    padding-top: 0; padding-bottom: 0;
+  }
+  .auth-card .btn-ghost {
+    width: 100%; font-size: 15px; margin-top: 14px;
+  }
+  .auth-foot {
+    font-size: 13px; color: var(--text-2);
+    margin: 20px 0 0; text-align: center;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
   }
 
   .field, .chip, .btn-primary, .btn-danger, .pill { max-width: 100%; }

@@ -39,25 +39,49 @@ def test_the_page_carries_the_publishable_key_and_never_the_service_key(client: 
 
 
 def test_the_sign_in_screen_is_keyboard_safe(client: TestClient) -> None:
-    """iOS keeps the layout viewport when the keyboard opens, so this screen must be a scrolling column.
+    """The screen is centred, sits ~45% down, and still scrolls and keeps its top reachable.
 
-    A vertically centred card on a fixed 100vh height ends up with its title under the status bar. These
-    pins are the shape of the fix; the geometry at 375x667 and 430x932 is measured in the browser.
+    Two traps are pinned here. The static viewport height is what iOS breaks, so the box is dvh-based.
+    And a centred flex item taller than its box overflows off the *top*, where it can never be scrolled
+    back into view: `safe center` aligns to the start instead. Geometry is measured in the browser.
     """
     page = client.get("/").text
     css = page[page.index("/* ---------- sign in ---------- */"):page.index(".field, .chip, .btn-primary")]
 
     assert "min-height: 100dvh" in css, "the box must follow the dynamic viewport"
-    # The static viewport height is what iOS breaks. Checked as declarations: the comment above
-    # deliberately names the unit it is warning about.
+    # Checked as declarations: the comment above deliberately names the unit it is warning about.
     assert "min-height: 100vh" not in css and "height: 100vh" not in css
-    assert "calc(max(var(--sat), 24px) + 24px)" in css, "the title must clear the status bar"
-    assert "align-items: center" not in css, "this column must not be vertically centred"
+    assert "max(var(--sat), 24px) 24px calc(max(var(--sab), 24px) + 10vh)" in css, (
+        "the taller bottom padding is what puts the block at 45%")
     assert "position: fixed; inset: 0; z-index: 40;" in css
     assert "overflow-y: auto" in css, "the column scrolls when the keyboard eats the height"
-    # A container query cannot see the keyboard (it does not move the layout viewport).
-    assert "@container" not in css
-    assert "@media (max-height: 700px)" in css, "short screens get the compact form"
+    assert "@container" not in css, "a container query cannot see the keyboard"
+    # Centred, but safely: without `safe` the title would be pushed above the box and become unreachable.
+    assert "justify-content: center;" in css
+    assert "justify-content: safe center;" in css
+    assert "align-items: center;" in css
+    assert "margin: auto;" in css, "auto margins fall back to 0 instead of overflowing off the top"
+
+
+def test_the_sign_in_screen_sizes(client: TestClient) -> None:
+    """Every size and gap the design asks for, on the sign-in, reset and set-password views alike."""
+    page = client.get("/").text
+    css = page[page.index("/* ---------- sign in ---------- */"):page.index(".field, .chip, .btn-primary")]
+
+    assert "max-width: 340px" in css, "the inner column"
+    assert "width: 72px; height: 72px; border-radius: 16px" in css, "the logo"
+    assert "margin-bottom: 16px" in css, "the gap under the logo"
+    assert "font-size: 24px; font-weight: 700" in css, "the title"
+    assert "margin: 0 0 20px" in css, "the gap under the title"
+    assert "font-size: 12px; margin: 0 0 6px" in css, "the label and its 6px gap to the input"
+    assert "height: 48px; min-height: 48px; border-radius: 12px; font-size: 16px" in css, "an input"
+    assert ".auth-card .field + .form-label { margin-top: 14px; }" in css, "the 14px between fields"
+    assert "border-radius: 24px; font-size: 17px; margin-top: 18px" in css, "the Sign in button"
+    assert ".auth-card .btn-ghost {\n    width: 100%; font-size: 15px; margin-top: 14px;" in css, "Forgot / Back"
+    assert "font-size: 13px; color: var(--text-2)" in css and "margin: 20px 0 0" in css, "the invite note"
+    assert "-webkit-line-clamp: 2" in css, "the note is capped at two lines"
+    # iOS must not zoom on focus: 16px is the floor for anything a finger can focus.
+    assert "font-size: 16px" in css
 
 
 def test_the_sign_in_fields_are_typed_for_a_phone_keyboard(client: TestClient) -> None:
