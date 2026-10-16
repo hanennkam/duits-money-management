@@ -16,8 +16,9 @@ passed unless you ran it in that session.
   `https://duits-money-tracking.onrender.com`. Render's free instance sleeps when idle; the first
   request after a sleep is slow (see the splash's "Waking up the server…" line).
 - Last verified commit: `8f39d7e` (working tree clean before the housekeeping pass on 2026-10-16).
-- **Multi-user step 2 is implemented on branch `multi-user`, not merged, and the migration is NOT applied to any
-  database.** Every route is scoped to the caller's id from the verified Supabase JWT (`sub`). Every db helper
+- **Multi-user steps 1-3 are on branch `multi-user`, not merged. The migration is rehearsed on STAGING, and NOT
+  applied to live.** The live run is `docs/migration-runbook.md`; staging results are in its section 9.
+  Step 2 detail follows. Every route is scoped to the caller's id from the verified Supabase JWT (`sub`). Every db helper
   requires `user_id`. The 409 duplicate path only sees the caller's rows. Receipts live under `user_id/YYYY/MM/`,
   and the owner is checked before any sign or delete. Before deploying to Render:
   1. **Migration first.** The code writes `user_id`, and the live table has no such column, so every insert fails

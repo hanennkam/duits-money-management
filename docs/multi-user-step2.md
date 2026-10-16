@@ -1,6 +1,6 @@
 # Multi-user step 2: design
 
-Status: **implemented on branch `multi-user`; the migration is not applied to any database.** Evidence:
+Status: **implemented on branch `multi-user`; the migration is rehearsed on staging and not applied to live** (see `docs/migration-runbook.md`). Evidence:
 `docs/multi-user-audit.md`. The code is checked by `tests/test_isolation.py` and `tests/test_db_scoping.py`.
 Before deploy, see Handoff.md §1 (migration first, the storage move, and the sign-in screen).
 
