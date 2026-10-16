@@ -52,9 +52,12 @@ Expected: the `receipts` file count from `backup_receipts.py` equals **O**. If i
 In the live SQL editor, run `select count(*) from public.transactions;` (expect **N**) and
 `select count(*) from public.transactions where receipt_path is not null;` (expect **R**). Record R.
 
-If the live table lacks `image_hash`, or has `dedupe_hash` or `image_hash` constrained in a different way from the
-audit, **stop**. The up file handles the names it expects, and it refuses to continue if a global unique on those
-columns survives. A different starting state needs a new review.
+The live table was confirmed in the SQL editor (2026-10-17): it has `image_hash`, `dedupe_hash` carries the
+**constraint** `transactions_dedupe_hash_key = UNIQUE (dedupe_hash)`, and `image_hash` carries a **partial
+unique index** `transactions_image_hash_uidx ... (image_hash) WHERE (image_hash IS NOT NULL)` — an index, not
+a constraint. If live shows anything else, **stop**. The up file drops both by catalog (partial or not,
+whatever they are called) and refuses to continue if a global unique on those columns survives; a different
+starting state still needs a new review.
 
 ## 4. Run the up migration (the first live write)
 
@@ -65,20 +68,26 @@ In the live SQL editor, in **one run**, paste:
 
 Expected: the run completes with no error. Any error rolls the whole run back, so the table is unchanged.
 
-Then run `migrations/staging/verify_after_up.sql` (it is read-only). Expected:
+Then run `migrations/staging/verify_after_up.sql`: one statement, one grid, and every row must match the
+expectation written in its own name.
 
-| Check | Expected |
+| Grid row | Expected |
 | --- | --- |
-| A. rows total | **N** |
-| A. rows without owner | **0** |
-| A. owners | **1** (the owner) |
-| B. `user_id` | `uuid`, NOT NULL |
-| C. constraints | `transactions_user_dedupe_key` UNIQUE (user_id, dedupe_hash) and `transactions_user_image_key` UNIQUE (user_id, image_hash); **no** global `UNIQUE (dedupe_hash)` |
-| D. RLS | `true` on `transactions` and `api_tokens` |
-| E. policies | 4 on `transactions`, 3 on `storage.objects` (`receipts_owner_*`), 0 on `api_tokens` |
-| F. snapshot | one row: `constraint transactions_dedupe_hash_key` (plus `image` only if the live table had one) |
+| 1. rows total | **N** |
+| 2. rows without owner | **0** |
+| 3. owners | **1** (the owner) |
+| 4. `user_id` column | `uuid / NO` |
+| 5. global unique on `dedupe_hash` | **none** |
+| 6. global unique on `image_hash` | **none** — production's `transactions_image_hash_uidx` must be gone |
+| 7. per-owner dedupe uniqueness | `transactions_user_dedupe_key UNIQUE (user_id, dedupe_hash)` |
+| 8. per-owner image uniqueness | `CREATE UNIQUE INDEX transactions_user_image_uidx ... WHERE (image_hash IS NOT NULL)` |
+| 9. per-owner listing index | `transactions_user_mode_txn_date_idx` |
+| 10. RLS on `transactions` / `api_tokens` | `true / true` |
+| 11. policies: transactions / storage receipts / api_tokens | `4 / 3 / 0` |
+| 12. snapshot | **2 rows**: `constraint transactions_dedupe_hash_key` and `index transactions_image_hash_uidx`, the second one **with** its `WHERE` clause |
 
-If any row differs, **stop** and run the rollback (section 7). The snapshot in F is what makes the rollback exact.
+If any row differs, **stop** and run the rollback (section 7). The snapshot in row 12 is what makes the
+rollback exact.
 
 ## 5. Move the receipt objects
 
@@ -125,9 +134,10 @@ Rollback is data-preserving: rows are kept, and receipts can stay where they are
 2. Run `migrations/0002_multi_user.down.sql` in the live SQL editor, in one run. It refuses if two owners share a
    dedupe hash or an image hash, and nothing changes in that case. Resolving such rows is a human decision (which copy to keep). Do
    not delete rows to make the rollback pass without that decision.
-3. Run `migrations/staging/verify_after_down.sql`. Expected: row count **N** (or the count at that time), no
-   `user_id` column, the global unique constraints back (from the snapshot), no owner policies, no `api_tokens`,
-   and no snapshot table.
+3. Run `migrations/staging/verify_after_down.sql`: one statement, one grid. Expected: row count **N** (or the
+   count at that time), no `user_id` column, the original global uniqueness back **as it was** — the
+   `transactions_dedupe_hash_key` constraint and the partial index `transactions_image_hash_uidx` with its
+   `WHERE` clause — no per-owner objects left, no owner policies, no `api_tokens`, and no snapshot table.
 4. Deploy the previous commit (the one before step 2) with `X-API-Key` as before. The pre-step-2 code never reads
    `user_id`, so it works with the restored schema.
 
@@ -137,7 +147,9 @@ PGlite (up, down, up).
 ## 8. Expected final state
 
 - Rows: **N**, all owned by the owner. Receipts: **R**, all under `<owner>/YYYY/MM/`.
-- Constraints: per-owner unique constraints only.
+- Constraints: per-owner unique uniqueness only — the constraint `transactions_user_dedupe_key` on
+  `(user_id, dedupe_hash)` and the partial unique index `transactions_user_image_uidx` on
+  `(user_id, image_hash) WHERE image_hash IS NOT NULL`.
 - RLS and storage policies on.
 - Sign-up closed.
 - Render: step-2 code, the two legacy variables set, auto-deploy on.
@@ -152,6 +164,13 @@ Rehearsed on the staging project (`tddigsmukmhkjrwiqdec`), with fake data for tw
   word instead of `\M`), dropped nothing, and still reported success. The fix drops by name, saves the originals
   to the snapshot, and refuses to continue if a global unique survives. Staging was repaired with
   `migrations/staging/02_repair_after_bad_up.sql`, which refuses to run twice.
+- **A second bug in the up migration was found and fixed (2026-10-17).** Step 3 found the global unique
+  objects by matching `indexdef` text, and its pattern was anchored on `(dedupe_hash)` / `(image_hash)`. Live's
+  `image_hash` uniqueness is a **partial** index, whose definition ends in `WHERE (image_hash IS NOT NULL)`,
+  so nothing matched: the index survived, guard 3c did not fire either, and the migration would have reported
+  success while leaving `image_hash` globally unique — a second owner could never scan a photo the first owner
+  had. Step 3a/3b/3c now work from the catalog (`pg_index.indkey`), so partial or not and whatever the name,
+  the object is snapshotted verbatim, dropped, and the guard raises if any survives.
 - **Per-owner uniqueness works.** A cross-owner duplicate is accepted, and a same-owner duplicate is refused.
 - **Receipt move.** 12 legacy objects were copied, verified by SHA-256, and their rows updated. The originals were
   then deleted. A second run found nothing to do.
@@ -168,8 +187,10 @@ Rehearsed on the staging project (`tddigsmukmhkjrwiqdec`), with fake data for tw
 - Real Render behaviour, and the env-var change at deploy.
 - The iOS Shortcut and the UI against the new code.
 - Live sign-up being closed (it was open on staging too; the dashboard setting was not changed by this work).
-- The live schema beyond the audit's findings: unique constraint names and index definitions were inferred from
-  the staging rebuild, and the live table is checked by step 3 and step 4's verification.
+- The live schema beyond the audit's findings: unique constraint names and index definitions. These are no
+  longer inferred — the live SQL editor confirmed them on 2026-10-17 (`transactions_dedupe_hash_key` as a
+  constraint, `transactions_image_hash_uidx` as a partial unique index), and step 3 and step 4's verification
+  re-check the same facts on the day.
 
 **Open finding (not fixed in this step):** `GET /transactions/{id}/receipt-url` returns Supabase's **relative**
 signed path (`/object/sign/...`). A client cannot use it as a URL. The fix is to join it to

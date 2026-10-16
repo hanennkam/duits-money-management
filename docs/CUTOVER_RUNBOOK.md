@@ -173,21 +173,26 @@ this closes before step 7.
     -H "Prefer: count=exact" -H "Range-Unit: items" -H "Range: 0-0" -D - -o /dev/null | grep -i content-range
   ```
 
-  Expected the same **N** as step 4. Then run `migrations/staging/verify_after_up.sql` in the SQL editor and
-  expect: rows without owner **0**, owners **1**, `user_id` NOT NULL, constraints
-  `transactions_user_dedupe_key` + `transactions_user_image_key`, RLS on, 4 transaction policies,
-  3 storage policies.
+  Expected the same **N** as step 4. Then run `migrations/staging/verify_after_up.sql` in the SQL editor: it is
+  **one statement returning one grid**, and every row must match the expectation written in that row's own
+  name — rows without owner **0**, owners **1**, `user_id` **uuid / NO**, **no** global unique left on
+  `dedupe_hash` or `image_hash` (they are reported from the catalog, so a *partial* index counts), the
+  constraint `transactions_user_dedupe_key`, the partial unique index `transactions_user_image_uidx`,
+  `transactions_user_mode_txn_date_idx`, RLS on for `transactions` and `api_tokens`, 4 transaction /
+  3 storage receipts / 0 api_tokens policies, and a **2-row** snapshot.
 - **STOP if** any statement errors, or the row count changed, or any verification line differs. The whole
   script runs in one transaction, so an error rolls it all back — nothing is half-applied.
 - **Roll back from here:** run `migrations/0002_multi_user.down.sql` in the SQL editor. It restores the
-  original global unique constraints from the snapshot table and drops `user_id`. **Rows are kept.** It
-  refuses to run if two owners share a hash (rehearsed), and changes nothing in that case.
+  original global unique constraints and indexes from the snapshot table, verbatim (live's `image_hash`
+  index comes back **with** its `WHERE (image_hash IS NOT NULL)`), and drops `user_id`. **Rows are kept.**
+  It refuses to run if two owners share a hash (rehearsed), and changes nothing in that case.
 
 ## 8. Verify the migration — MINE
 
-- **Do:** run `migrations/staging/verify_after_up.sql` (read-only) in the SQL editor and read the result sets.
-- **Expected:** as listed in step 7. Also confirm `public.migration_0002_saved_constraints` holds the saved
-  global constraint — **keep that table** until the rollback window closes.
+- **Do:** run `migrations/staging/verify_after_up.sql` (read-only) in the SQL editor and read the grid.
+- **Expected:** as listed in step 7. Also confirm `public.migration_0002_saved_constraints` holds **both**
+  saved definitions — `constraint transactions_dedupe_hash_key` and `index transactions_image_hash_uidx`
+  (with its `WHERE` clause) — **keep that table** until the rollback window closes.
 - **STOP if** any row differs from step 7's expectations.
 - **Roll back from here:** `migrations/0002_multi_user.down.sql`, as above.
 
@@ -281,11 +286,25 @@ curl -s -D - -o /dev/null $BASE/ | grep -iE '^(HTTP|cache-control|content-securi
 
 Rehearsed on a real Postgres with the exact files, and on staging:
 
-- `schema.sql` (now including `image_hash`) creates a database matching production.
+> The shape fix of **2026-10-17** (production's `image_hash` uniqueness is a *partial* unique index, not a
+> constraint) is rehearsed locally on PGlite with production's exact shape. It has **not** yet been re-run on
+> staging: staging is rebuilt to that shape and `0002` re-run there before the window opens — see the current
+> pass in `NEXT_STEPS.md`.
+
+- `schema.sql` (now including `image_hash`) creates the table production has. It does **not** create
+  production's global uniqueness on `image_hash`: production keeps that as the partial index
+  `transactions_image_hash_uidx`, created outside this repo.
+  `migrations/staging/00_pre_migration_schema.sql` now creates it, so the rehearsal runs against the shape
+  production actually has.
+- `0002 up` → `verify` → `0002 down` → `0002 up` again with that shape, never dropping a row: the partial
+  index is snapshotted **with its `WHERE` clause**, dropped, replaced by the per-owner constraint and
+  partial index, and restored **verbatim** by the rollback. Guard 3c raises when a global unique survives,
+  and the rollback still refuses while two owners share a hash (2026-10-17, PGlite, local).
 - `0002 up` → `verify` → `0002 down` → `0002 up` again, never dropping a row: **6 → 6 → 6 → 6** on the local
-  Postgres rehearsal, and **30 → 30 → 30 → 30** on staging. Staging reads **29** today, after the deliberate
-  delete of the throwaway row (`a2d55e96` — a transaction row id, not a commit). Live is baselined fresh in
-  steps 3–4 and is never compared against either number.
+  Postgres rehearsal, and **30 → 30 → 30 → 30** on staging (both runs used the shape staging had at the
+  time, before the `image_hash` index above was added to the rehearsal). Staging reads **29** today, after the
+  deliberate delete of the throwaway row (`a2d55e96` — a transaction row id, not a commit). Live is baselined
+  fresh in steps 3–4 and is never compared against either number.
 - `0002` **refuses to run without `app.owner_id`**.
 - The rollback **refuses** while two owners share a hash.
 - Per-owner uniqueness: a cross-owner duplicate hash is accepted; a same-owner duplicate is refused.

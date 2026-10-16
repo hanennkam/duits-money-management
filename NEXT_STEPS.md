@@ -20,13 +20,119 @@ Prepared after the auth-screen polish on branch `multi-user`. Read this before t
 | Pass 9 — phone pass recorded + receipt paths | **Done.** The phone checklist came back clean. `migrate_receipts.py` now re-homes a path left under another owner. |
 | Pass 10 — household decision, `--apply`, byte reconciliation | **Done.** The three accounts are ours; the receipt re-homing ran (`legacy_rows: 0`); both re-homed objects are identified; the isolation suite ran clean. |
 | Pass 11 — runbook read-through against the tools | **Done.** Every tool-agreeing claim verified against code; four stale-prose fixes; steps 3–4 now self-report the project ref. |
+| Pass 12 — live `image_hash` shape, step 3 hardened | **Files done; staging re-run is YOURS.** Production's `image_hash` uniqueness is a *partial unique index*, which step 3's text patterns could not see. Step 3 now reads the catalog. Staging must be rebuilt to the live shape and re-run before cutover. |
+
+## Pass 12 — Production's `image_hash` shape, and the silent no-op step 3 hid
+
+**What the live SQL editor showed changes the answer to "did step 3 do its job?".** Live carries the
+uniqueness as two different kinds of object:
+
+- `transactions_dedupe_hash_key` = **constraint** `UNIQUE (dedupe_hash)`;
+- `transactions_image_hash_uidx` = **partial unique index**
+  `CREATE UNIQUE INDEX ... ON public.transactions USING btree (image_hash) WHERE (image_hash IS NOT NULL)`.
+
+The old step 3a snapshot and 3b/3c loops found these objects by matching `indexdef` **text**, with the pattern
+anchored on `(dedupe_hash)` / `(image_hash)`. A partial index's definition *ends* in `WHERE (...)`, so it
+matched nothing. Three consequences, all in one file:
+
+1. the snapshot held the dedupe constraint only, so `down` could never have restored the image index;
+2. the catch-all loop dropped nothing, so the index **survived** the migration;
+3. guard 3c reused the same pattern, so it did not fire — and the migration ends with
+   `image_hash` still **globally** unique. Two owners could not hold the same photo, and every later step
+   would have looked fine. That is the serious one: it is a silent no-op, not an error.
+
+**Reproduced before fixing.** A local PGlite rehearsal (a real Postgres, outside the repo, Supabase-only bits
+shimmed) built production's exact shape and ran the then-current `0002`:
+
+```
+=== 1. after up ===
+transactions_image_hash_uidx | constraint=- | uniq=true pk=false partial=true
+    CREATE UNIQUE INDEX transactions_image_hash_uidx ... (image_hash) WHERE (image_hash IS NOT NULL)   <- survived
+transactions_user_image_key  | constraint=transactions_user_image_key | uniq=true ...   <- the old shape
+snapshot:
+  constraint transactions_dedupe_hash_key: ... UNIQUE (dedupe_hash)                        <- index missing
+=== 2. guard 3c with only the PARTIAL image index left ===
+  old regex guard flags: []                                                                 <- does not fire
+  guard 3c: NO RAISE  <- WRONG: the partial index survived and nothing stopped it
+=== 5. per-owner uniqueness after up ===
+  cross-owner duplicate image_hash: refused (23505)                                         <- the multi-user break
+```
+
+**The staging project independently confirms it.** Its live `public.migration_0002_saved_constraints` holds
+**one** row — `constraint transactions_dedupe_hash_key` — because the old step 3a matched the constraint's
+`indexdef` and nothing else. So no earlier rehearsal run, on staging or locally, could have seen this: the
+index was never in the snapshot, and `00_pre_migration_schema.sql` had never created it in the first place.
+
+**The fix, all in `migrations/0002_multi_user.up.sql` step 3 and 4 and in the `.down.sql`:**
+
+- **3a (snapshot)** reads one row per unique index whose *only* key column is `dedupe_hash` or `image_hash`
+  (`pg_index.indkey` + `pg_attribute.attname`, primary keys excluded) — partial or not, whatever its name. A
+  constraint-backed index is saved as the **constraint** (`alter table ... add constraint <name> <def>`); a
+  loose index is saved as `pg_get_indexdef(...)` **verbatim**, `WHERE` clause included. No text matching.
+- **3b (drops)** drops the real names first — including `transactions_image_hash_uidx` — then walks the same
+  catalog test and drops by kind: `drop constraint` for a constraint, `drop index if exists` for a loose
+  index, because dropping the index behind a constraint fails.
+- **3c (guard)** uses the same catalog test and **names the offender** in the raise, so a survivor is never
+  anonymous.
+- **4 (per-owner)** stays a constraint for `dedupe_hash`, and the image side becomes the **partial unique
+  index** `transactions_user_image_uidx on (user_id, image_hash) where image_hash is not null`, mirroring the
+  object it replaces. `transactions_user_image_key` — the constraint an earlier revision created — no longer
+  exists; `down` still drops both spellings so a database migrated by that earlier revision still rolls back.
+- **down step 3a (new)** re-counts what the snapshot restored against the snapshot itself and raises if they
+  disagree, so a rollback cannot half-restore quietly.
+
+**Re-ran the whole thing with the fix, on production's shape:** `up` → `verify` → `down` → `up`. The partial
+index is snapshotted with its `WHERE` clause, dropped, replaced by the per-owner pair, restored **verbatim**
+by the rollback, and the round trip leaves the same objects both times. Guard 3c now raises with the object
+named. A cross-owner duplicate `image_hash` is now **accepted** while a same-owner one is refused, and a second
+NULL `image_hash` for one owner is accepted. A variant where production's image uniqueness is a *constraint*
+was run too, and it also round-trips exactly. **What this does not prove:** it runs on PGlite with shimmed
+`auth`/`storage`, so RLS policies are parsed and stored, not enforced.
+
+**The kind is not cosmetic for `down`:** the verify grids now print each restored object's **form** as well as
+its definition, so a constraint coming back as an index (or vice versa) is visible rather than silently
+"close enough".
+
+**Both verify scripts are now one statement, one grid** (`migrations/staging/verify_after_up.sql`,
+`verify_after_down.sql`): 12 rows and 9 rows, each row's expectation written into the row's own `check_name`.
+They were executed in the rehearsal, not just written, and each reported exactly the expected value. The
+global-unique rows are answered from the catalog for the same reason step 3 is — a text answer would report
+"none" while the partial index was still there.
+
+**Staging is rebuilt to the live shape, and that re-run is not done.** `migrations/staging/00_pre_migration_schema.sql`
+now also creates `transactions_image_hash_uidx` (it previously created `image_hash` with no uniqueness at all,
+which is exactly why the earlier rehearsal passed: the buggy pattern had nothing to miss). Rebuilding staging
+and re-running `up → verify → isolation suite → down` is the owner's step, because only the SQL editor can run
+the DDL — there is no DB credential or `psql` in this environment. The isolation suite needs the migrated
+staging state, so it is re-run after that, not before.
+
+**Read out of staging before recommending that order** (API, read-only, counts only — not DDL): **29 rows, one
+owner**, that owner being `STAGING_USER_A_ID`; **14 rows carry a receipt and all 14 sit under A's folder**, none
+at the legacy `2026/` path; **no `dedupe_hash` or `image_hash` value is shared by two rows at all**. So
+`0002 down` will not hit its cross-owner guard, and the global partial index will create cleanly — the
+data-preserving order (`down` → create the index → `up`) is safe on the staging state as it stands. It also
+means the `up` must be run with **A's** id: step 2 backfills every ownerless row to the session owner, so any
+other id would re-home all 29 rows and break the suite's lookup of A's receipt.
+
+**Neither the seed nor the isolation suite needed a change, and that is a checked statement, not a guess.**
+`scripts/staging_seed.py` never names the unique objects: its phase "after" inserts B rows repeating A's
+`dedupe_hash` **and** `image_hash` — accepted only if the per-owner shape is right, and the exact case the old
+state refused (23505 above) — and then requires a same-owner duplicate to be refused. Both hold under the new
+partial index exactly as they did under the old constraint, which the rehearsal re-checked. The 15 isolation
+tests assert *behaviour* (409s, RLS, folder isolation) and never the object kind, so they are
+shape-independent. The one thing they cannot check is the catalog itself: they run through the API, and
+`pg_index` / `pg_constraint` are not exposed there — which is why that check lives in `verify_after_up.sql`.
+What they still need is to be **run** against the migrated staging, which is the re-run above.
+
+**Not re-run, and why:** the isolation suite (needs the migrated staging), and the live SQL itself.
 
 ## Pass 11 — the runbook read-through, and the four fixes it produced
 
 **The last pre-flight is done: `docs/CUTOVER_RUNBOOK.md` read line by line against the current tools.** Every
 claim that had to agree with code was checked, and all agreed: the STOP list (`missing_source` /
 `unexpected_format` are the only stops, `shared_object` is a skip that exits 0), every counter name, both
-migration refusal messages, the `transactions_user_dedupe_key` / `transactions_user_image_key` names, the 4
+migration refusal messages, the `transactions_user_dedupe_key` / `transactions_user_image_key` names *(the
+image name is now `transactions_user_image_uidx`, a partial unique index — see Pass 12)*, the 4
 transaction + 3 storage policies, `GET /health`, the `no-store` + per-response CSP nonce on `/`, and the
 printed output of `backup_receipts.py`, `audit_live.py` and `verify_after_up.sql`. Four things did not:
 
@@ -574,19 +680,49 @@ needs no manual bump; forgot-password delivers and the enumeration leak is close
 
 ## Next
 
-Staging is complete: the migration rehearsal is done, the receipt re-homing has been applied
-(`legacy_rows: 0`), SMTP delivers, the phone pass came back clean, and the household-accounts question is
-closed. What is left is live-side, and yours:
+Staging was complete, then Pass 12 reopened one step of it: production's `image_hash` uniqueness turned out to
+be a **partial unique index**, which the old step 3 could not see, so the migration that was rehearsed is not
+the migration that will run. The **files are fixed**; the **staging re-run is yours**, because only the SQL
+editor can run DDL from here. What is left is live-side, and yours:
 
-1. **Live SMTP.** Per-project: staging has them, live does not. Copy `smtp.gmail.com`, 465, sender
+1. **Rebuild staging to the live shape and re-run the rehearsal** (Pass 12). In the staging SQL editor, in
+   this order:
+
+   ```sql
+   -- 1. Take staging back to the pre-migration shape. Data-preserving. Refuses if two owners share a hash.
+   --    (paste migrations/0002_multi_user.down.sql)
+
+   -- 2. Give it production's shape: the partial unique index the rebuild has to exercise.
+   create unique index if not exists transactions_image_hash_uidx
+     on public.transactions (image_hash) where image_hash is not null;
+
+   -- 3. The migration under test. One run. Use A's id (STAGING_USER_A_ID): the `up` backfills EVERY row
+   --    that has no owner to this id, and staging's 29 rows are all A's today. Any other id silently
+   --    re-homes the lot, and `a_receipt_row` in the isolation suite looks rows up by A.
+   select set_config('app.owner_id', '<your auth.users id>', false);
+   --    (paste migrations/0002_multi_user.up.sql)
+
+   -- 4. One statement, one grid. Every row must match its own expectation.
+   --    (paste migrations/staging/verify_after_up.sql)
+   ```
+
+   Step 1 refusing on a cross-owner duplicate and step 2 refusing on the same duplicate are **the same
+   condition** (`down`'s guard covers non-null `image_hash`), so if step 1 passes, step 2 will. Then **tell
+   me** and I will run the isolation suite against the migrated staging. Then `0002 down` +
+   `verify_after_down.sql`, which must show the `transactions_dedupe_hash_key` **constraint** and the
+   `transactions_image_hash_uidx` **partial index** back verbatim. The rehearsal is data-preserving, so
+   whatever staging holds before the `up` must still be there after the `down`; take the count once at the
+   start rather than trusting a number written here.
+2. **Live SMTP.** Per-project: staging has them, live does not. Copy `smtp.gmail.com`, 465, sender
    `hanennkam@gmail.com`, name **Duits** into the live project's Authentication → Emails → SMTP Settings,
    then **send one real test message and confirm it arrives** — a settings page that saves cleanly proves
    nothing about port, TLS or the credentials. If a reset and an invite go to the same address, leave a
    minute between them or the second is silently dropped.
-2. **Close sign-up on live**, and do it **before** the cutover window opens, not during it. Verify
+3. **Close sign-up on live**, and do it **before** the cutover window opens, not during it. Verify
    `POST /auth/v1/signup` answers 422 `signup_disabled`.
-3. Then cutover (`docs/CUTOVER_RUNBOOK.md`). The runbook was read through against the tools in Pass 11 and is
-   trusted: every claim that had to agree with code does, and the four stale-prose fixes it produced are in.
+4. Then cutover (`docs/CUTOVER_RUNBOOK.md`). The runbook was read through against the tools in Pass 11 and is
+   trusted: every claim that had to agree with code does, the four stale-prose fixes it produced are in, and
+   Pass 12 updated its step 7/8 expectations to the real live shape.
 
 **Deferred by choice, not blocking:** deleting the household rows, whenever you want — and the three
 accounts too, if you decide they go. Staging's `--apply` has already run, so an app delete now takes each

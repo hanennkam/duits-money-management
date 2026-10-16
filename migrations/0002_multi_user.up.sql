@@ -24,82 +24,120 @@ update public.transactions
  where user_id is null;
 
 -- 3. The global uniqueness of dedupe_hash and image_hash goes away; per-owner uniqueness replaces it (step 4).
---    3a. Save the exact definitions first, so the rollback restores precisely what was there.
+--    Both objects are identified in the CATALOG from here on, never by matching indexdef text, because live
+--    carries the image_hash uniqueness as a PARTIAL unique index. Its definition ends in
+--    `WHERE (image_hash IS NOT NULL)`, so any pattern anchored on `(image_hash)$` misses it — and a missed
+--    index means a silent no-op that leaves image_hash globally unique, which would stop a second owner from
+--    ever scanning the same photo.
+--    3a. Save the exact definitions first, so the rollback restores precisely what was there: the same object
+--    kind, the same name, and the same definition verbatim, WHERE clause included.
 create table if not exists public.migration_0002_saved_constraints (
   kind       text not null,  -- 'constraint' or 'index'
   name       text not null,
   definition text not null
 );
-insert into public.migration_0002_saved_constraints (kind, name, definition)
-select 'constraint', conname,
-       'alter table public.transactions add constraint ' || quote_ident(conname) || ' ' || pg_get_constraintdef(oid)
-  from pg_constraint
- where conrelid = 'public.transactions'::regclass
-   and contype = 'u'
-   and pg_get_constraintdef(oid) ~ '^UNIQUE \((dedupe_hash|image_hash)\)$';
-insert into public.migration_0002_saved_constraints (kind, name, definition)
-select 'index', indexname, indexdef
-  from pg_indexes
- where schemaname = 'public'
-   and tablename = 'transactions'
-   and indexdef ~ 'UNIQUE INDEX .* USING btree \((dedupe_hash|image_hash)\)$'
-   and indexname not in (
-     select conname from pg_constraint where conrelid = 'public.transactions'::regclass
-   );
 
--- 3b. Drop them by their real names (the Postgres defaults for `unique` on a column), then catch any other
---     global unique on these columns by catalog, in case a live name differs.
+-- One row per unique index on public.transactions whose ONLY key column is dedupe_hash or image_hash,
+-- primary keys excluded. Constraint-backed ones are saved as the constraint (that is the object to restore);
+-- the rest are saved as the index definition exactly as Postgres reports it. Partial or not is irrelevant:
+-- the key columns come from pg_index.indkey, not from the text.
+insert into public.migration_0002_saved_constraints (kind, name, definition)
+select case when c.oid is null then 'index' else 'constraint' end,
+       ci.relname,
+       case when c.oid is null then pg_get_indexdef(i.indexrelid)
+            else 'alter table public.transactions add constraint '
+                 || quote_ident(c.conname) || ' ' || pg_get_constraintdef(c.oid)
+       end
+  from pg_index i
+  join pg_class t  on t.oid = i.indrelid
+  join pg_namespace n on n.oid = t.relnamespace
+  join pg_class ci on ci.oid = i.indexrelid
+  left join pg_constraint c on c.conindid = i.indexrelid
+ where n.nspname = 'public'
+   and t.relname = 'transactions'
+   and i.indisunique
+   and not i.indisprimary
+   and i.indnkeyatts = 1
+   and (select a.attname
+          from pg_attribute a
+         where a.attrelid = i.indrelid and a.attnum = i.indkey[0])
+       in ('dedupe_hash', 'image_hash');
+
+-- 3b. Drop them. First the names live and staging actually carry, including live's partial index
+--     transactions_image_hash_uidx, then a catalog walk that catches any other global unique on these two
+--     columns whatever it is called and whether or not it is partial. A constraint is dropped as a
+--     constraint and a loose index as an index, because dropping the index behind a constraint fails.
 alter table public.transactions drop constraint if exists transactions_dedupe_hash_key;
 alter table public.transactions drop constraint if exists transactions_image_hash_key;
 drop index if exists public.transactions_dedupe_hash_key;
 drop index if exists public.transactions_image_hash_key;
+drop index if exists public.transactions_image_hash_uidx;
 
 do $$
 declare
   r record;
 begin
   for r in
-    select conname
-      from pg_constraint
-     where conrelid = 'public.transactions'::regclass
-       and contype = 'u'
-       and pg_get_constraintdef(oid) ~ '^UNIQUE \((dedupe_hash|image_hash)\)$'
+    select ci.relname as object_name,
+           (c.oid is not null) as is_constraint
+      from pg_index i
+      join pg_class t  on t.oid = i.indrelid
+      join pg_namespace n on n.oid = t.relnamespace
+      join pg_class ci on ci.oid = i.indexrelid
+      left join pg_constraint c on c.conindid = i.indexrelid
+     where n.nspname = 'public'
+       and t.relname = 'transactions'
+       and i.indisunique
+       and not i.indisprimary
+       and i.indnkeyatts = 1
+       and (select a.attname
+              from pg_attribute a
+             where a.attrelid = i.indrelid and a.attnum = i.indkey[0])
+           in ('dedupe_hash', 'image_hash')
   loop
-    execute format('alter table public.transactions drop constraint %I', r.conname);
-  end loop;
-
-  for r in
-    select indexname
-      from pg_indexes
-     where schemaname = 'public'
-       and tablename = 'transactions'
-       and indexdef ~ 'UNIQUE INDEX .* USING btree \((dedupe_hash|image_hash)\)$'
-  loop
-    execute format('drop index public.%I', r.indexname);
+    if r.is_constraint then
+      execute format('alter table public.transactions drop constraint %I', r.object_name);
+    else
+      execute format('drop index if exists public.%I', r.object_name);
+    end if;
   end loop;
 end $$;
 
 -- 3c. Refuse to continue if a global unique on these columns is still there. This is the check that would
---     have caught the silent no-op.
+--     have caught the silent no-op. Same catalog test as 3a: partial or not, whatever the name.
 do $$
+declare
+  survivor text;
 begin
-  if exists (
-    select 1 from pg_indexes
-     where schemaname = 'public'
-       and tablename = 'transactions'
-       and indexdef ~* 'UNIQUE INDEX'
-       and indexdef ~ '\((dedupe_hash|image_hash)\)$'
-  ) then
-    raise exception 'a global unique on dedupe_hash or image_hash survived step 3; nothing after this point ran';
+  select ci.relname || ' (' || pg_get_indexdef(i.indexrelid) || ')'
+    into survivor
+    from pg_index i
+    join pg_class t  on t.oid = i.indrelid
+    join pg_namespace n on n.oid = t.relnamespace
+    join pg_class ci on ci.oid = i.indexrelid
+   where n.nspname = 'public'
+     and t.relname = 'transactions'
+     and i.indisunique
+     and not i.indisprimary
+     and i.indnkeyatts = 1
+     and (select a.attname
+            from pg_attribute a
+           where a.attrelid = i.indrelid and a.attnum = i.indkey[0])
+         in ('dedupe_hash', 'image_hash')
+   limit 1;
+  if survivor is not null then
+    raise exception 'a global unique on dedupe_hash or image_hash survived step 3; nothing after this point ran: %', survivor;
   end if;
 end $$;
 
--- 4. Per-owner uniqueness: UNIQUE (user_id, dedupe_hash) and UNIQUE (user_id, image_hash). NULLs are distinct in
---    a Postgres unique constraint by default, so text entries and typed rows (NULL hashes) never collide.
+-- 4. Per-owner uniqueness, mirroring the two shapes it replaces: dedupe_hash keeps a constraint, and
+--    image_hash becomes a PARTIAL unique index like live's, so rows with no image (typed entries, bank
+--    screenshots) are outside it and a row's NULL image_hash never collides. NULLs are distinct inside a
+--    unique constraint, so dedupe_hash NULL rows never collide either.
 alter table public.transactions
   add constraint transactions_user_dedupe_key unique (user_id, dedupe_hash);
-alter table public.transactions
-  add constraint transactions_user_image_key unique (user_id, image_hash);
+create unique index transactions_user_image_uidx
+  on public.transactions (user_id, image_hash) where image_hash is not null;
 
 -- 5. Listing index for one owner's month.
 create index if not exists transactions_user_mode_txn_date_idx

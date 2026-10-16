@@ -30,5 +30,12 @@ insert into storage.buckets (id, name, public)
 values ('receipts', 'receipts', false)
 on conflict (id) do nothing;
 
--- ---- live-only column, found by the audit (not in schema.sql) -------------------------------
+-- ---- live-only shapes, found by the audit and confirmed in the live SQL editor ---------------------
+-- `image_hash` is live but absent from schema.sql, and live carries its uniqueness as a PARTIAL UNIQUE
+-- INDEX rather than a constraint. Staging is rebuilt with that exact shape, so the migration is rehearsed
+-- against what live actually has — a text pattern ending in `(image_hash)` does not match a partial index,
+-- which is exactly the gap this rebuild closes.
 alter table public.transactions add column if not exists image_hash text;
+
+create unique index if not exists transactions_image_hash_uidx
+  on public.transactions (image_hash) where image_hash is not null;

@@ -102,7 +102,8 @@ bucket. They are admin tools, not user-facing, and should stay that way.
 5. **Storage paths carry no owner**, so `receipt-url` can sign any object a row points at, and the path scheme gives
    no isolation at the bucket level.
 6. **`image_hash` exists live but not in `schema.sql`**, so a fresh database built from the repo would not match
-   production.
+   production. *(2026-10-17: the column was since added to `schema.sql`. Production also carries the partial
+   unique index on it, which `schema.sql` does not create — see §6.)*
 
 ## 6. Not verified
 
@@ -113,3 +114,19 @@ bucket. They are admin tools, not user-facing, and should stay that way.
 - Triggers and functions in `public`.
 
 All of these are in `scripts/audit_queries.sql`. Results should be pasted back as structure only, with no row data.
+
+### Closed 2026-10-17 (read in the live SQL editor, structure only)
+
+The two uniqueness facts listed above are no longer unverified:
+
+- `dedupe_hash` carries the **constraint** `transactions_dedupe_hash_key = UNIQUE (dedupe_hash)`.
+- `image_hash` carries a **partial unique index** `transactions_image_hash_uidx`, defined as
+  `CREATE UNIQUE INDEX ... ON public.transactions USING btree (image_hash) WHERE (image_hash IS NOT NULL)` —
+  an **index**, not a constraint.
+- The other objects on the table are `transactions_pkey` and `transactions_mode_txn_date_idx`.
+
+This closes the "unique constraint names and index definitions" gap in
+`docs/migration-runbook.md` §9. Both objects are read from the catalog by
+`migrations/0002_multi_user.up.sql`, so a partial index is snapshotted with its `WHERE` clause, dropped, and
+restored verbatim by `migrations/0002_multi_user.down.sql`. The remaining "not verified" items above are
+untouched.

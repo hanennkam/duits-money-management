@@ -2,6 +2,11 @@
 -- ended in \m instead of \M). The fixed migrations/0002_multi_user.up.sql does this itself on a clean run.
 -- Do not run this on the live project. Run it once in the STAGING SQL editor, in one session.
 -- It refuses to run unless the global constraint is still there, so a second run does nothing and fails.
+--
+-- Record only (2026-10-17). This file reproduces the per-owner shape of the revision that was in place at the
+-- time: a UNIQUE (user_id, image_hash) CONSTRAINT. The current up file creates the partial unique index
+-- `transactions_user_image_uidx` instead, and it drops both shapes on a rollback. Treat this as history, not
+-- as a template.
 
 begin;
 
