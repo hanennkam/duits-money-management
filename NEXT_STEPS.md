@@ -46,8 +46,14 @@ four merchants in the staging suite's `SEEDED_B_MERCHANTS`, which its cleanup de
 Deleting it would empty a seed the suite expects to find. The household delete list therefore stays at
 **five rows**, and the arithmetic stays **29 → 24**.
 
-**Every other object in the staging bucket is 20–22 bytes.** Apart from that one real photo the bucket is
-entirely fixture stubs, which is worth knowing before reading any staging receipt figure as meaningful.
+**Apart from that one photo, every object in the staging bucket is a 20–22 byte fixture stub.** Two
+consequences worth carrying:
+
+- Any "the photo loads" check on staging exercised the load path against **stub bytes**. The single
+  exception is the household scan — the only object uploaded and then fetched back through a signed URL as
+  a real image (the phone log shows `GET /transactions/627ff149-…/receipt-url` → `200`).
+- **Staging receipt counts are not a data-quality signal.** `14 receipts` means 14 rows carry a
+  `receipt_path`; 13 of those point at a 20–22 byte fixture, not at a picture of anything.
 
 **The staging isolation suite ran once more, as the last staging action before the cutover window:**
 
@@ -187,10 +193,13 @@ The collision was entirely test fixture data — none of your iPhone rows involv
 | stale copy | A (after the backfill) | 09:02:13 | `eb25042c` |
 | fixture row | B | 14:37:25 | `a7db563b` |
 
-Both were the same fake receipt (`Kedai B Sendiri`, RM 66.60, 2026-10-25). `eb25042c` was created by
-`staging_seed.py`, then reassigned to A by the `down`/`up` backfill; `a7db563b` was created by the
-self-healing fixture added in pass 5. Resolved as you approved: **`eb25042c` and its own receipt object
-were deleted** (they were not shared — each row had its own object).
+Both were the same fake receipt (`Kedai B Sendiri`, RM 66.60, 2026-10-25), and **both came from
+`scripts/staging_seed.py`** — `fake_receipt("b-own-1", 25, "66.60", "Kedai B Sendiri")`. `eb25042c` was
+reassigned to A by the `down`/`up` backfill; `a7db563b` was not. *(Pass 10 corrected this line: it used to
+say `a7db563b` came from the self-healing fixture, which the code does not support — that fixture's identity
+is `Kedai B <token>`, so a bare `Kedai B Sendiri` carrying the `b-own-1` photo is the seed.)* Resolved as you
+approved: **`eb25042c` and its own receipt object were deleted** (they were not shared — each row had its
+own object).
 
 Three fixes follow from it:
 
@@ -362,6 +371,9 @@ Open `http://192.168.1.6:8765/` in Safari.
 - [ ] Add a text transaction from the `+` sheet (Smart Entry) and confirm the row appears.
 - [ ] Scan a receipt (camera or photo roll) and confirm the toast and the row.
 - [ ] Open a row with a receipt and confirm the photo loads.
+  *(Pass 10: this check used `627ff149`, the only real photo in staging. The other thirteen objects are
+  20–22 byte fixture stubs, so this is the one row on which the load path was exercised with real bytes —
+  see Pass 10.)*
 
 **Keyboard / layout**
 - [ ] With the keyboard open on the sign-in screen, everything is reachable by scrolling and nothing is
@@ -501,10 +513,11 @@ closed. What is left is live-side, and yours:
    `POST /auth/v1/signup` answers 422 `signup_disabled`.
 3. Then cutover (`docs/CUTOVER_RUNBOOK.md`).
 
-**Deferred by choice, not blocking:** deleting the household rows and their three accounts, whenever you
-want. Staging's `--apply` has already run, so an app delete now takes each row and its object together —
-no orphans. See the section below. When it happens, **update the recorded count in the same breath** —
-rows **29 → 24**, accounts **5 → 2** if all three go — so a stale number cannot seed the next mystery the
+**Deferred by choice, not blocking:** deleting the household rows, whenever you want — and the three
+accounts too, if you decide they go. Staging's `--apply` has already run, so an app delete now takes each
+row and its object together — no orphans. See the section below. When it happens, **update the recorded
+count in the same breath** — rows **29 → 24** (settled), and accounts **5 → 2 only if the accounts are
+deleted as well** (that half is still the owner's call) — so a stale number cannot seed the next mystery the
 way the old 29-vs-30 did. The `Kedai B Sendiri` seed row is *not* on that list (see Pass 10).
 
 ### The three non-ours accounts: OURS, KEPT — deletion scheduled by the owner
