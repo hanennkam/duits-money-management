@@ -77,10 +77,22 @@ cd /Users/Apple/Dev/Duits-money-management
   - **URL Configuration → Site URL:** `https://duits-money-tracking.onrender.com`
   - **Redirect URLs:** add `https://duits-money-tracking.onrender.com/` and, for phone testing,
     `http://<mac-lan-ip>:8765/`.
-  - **Providers → Email → SMTP**: set your custom SMTP host, port, username, password and sender.
-- **Expected:** sending a test message from the SMTP settings arrives in a real mailbox.
-- **STOP if** the test email does not arrive. Password reset and invites both depend on this, and they are
-  already broken on staging with the default provider (`400 Email address is invalid`).
+  - **Emails → SMTP Settings:** enable custom SMTP and copy the values that are **known good on staging**:
+    host `smtp.gmail.com`, port `465`, sender `hanennkam@gmail.com`, sender name **Duits**, username the
+    same Gmail address, and the password (an App Password if the account has 2FA). Leave
+    "Minimum interval per user" at `60` seconds.
+- **Expected:** a test email from the SMTP settings arrives in a real mailbox, and
+  `POST /auth/v1/recover` for a real address returns **200 with an empty body**. Both a known and an
+  unknown address must answer the same — if they differ, the endpoint leaks which accounts exist.
+- **Two caveats, both from the staging setup:**
+  - Supabase warns that Gmail is *"designed for sending personal rather than transactional email
+    messages. Email deliverability may be impacted."* Gmail caps a personal account at ~500 emails a day
+    and can throttle an account it reads as bulk-sending. Fine for inviting one or two people; not for a
+    bulk invite.
+  - **Two emails to the same address inside 60 seconds have the second silently dropped.** Space out a
+    reset followed by an invite.
+- **STOP if** the test email does not arrive, or `recover` still returns a non-200 for an existing
+  address. Password reset and invites both depend on this.
 - **Roll back from here:** the old Site URL / Redirect URLs, noted down before you change them. SMTP can be
   reset to the default provider at any time.
 

@@ -16,6 +16,33 @@ Prepared after the auth-screen polish on branch `multi-user`. Read this before t
 | Pass 5 — catalog checks + receipt-path crash | **Done.** You checked `verify_after_up.sql` B–F. Fixed a 500 that made rows with a migration-leftover receipt path undeletable. |
 | Pass 6 — rollback unblocked | **Done.** `0002 down` was refusing on a hash collision between two test-fixture rows. Resolved, and the fixture no longer collides. |
 | Pass 7 — staging rehearsal COMPLETE | **Done.** `up → verify → down → up` all ran on staging. 30 rows at every stage, no data lost. |
+| Pass 8 — SMTP fixed | **Done.** Password reset delivers, and the account-enumeration leak is closed. |
+
+## Pass 8 — SMTP is fixed
+
+Custom SMTP is configured on staging (`smtp.gmail.com:465`, sender `hanennkam@gmail.com`, name **Duits**),
+and a real email arrived. Verified at the API:
+
+| | Before | After |
+| --- | --- | --- |
+| `POST /auth/v1/recover`, existing account | **400** `Email address is invalid` | **200**, empty body |
+| `POST /auth/v1/recover`, unknown address | 200 | **200**, empty body |
+| `POST /auth/v1/signup` | 422 `signup_disabled` | unchanged — still refused |
+
+**The account-enumeration leak closed as a side effect.** Before, the two `recover` calls differed by status
+code (400 for a known address, 200 for an unknown one), which told an attacker which addresses exist. Now
+both answer `200` with no body, which is the correct anti-enumeration behaviour. So Known issue 1 is
+resolved on both counts.
+
+### Two caveats to carry into cutover
+
+1. **Supabase flags the provider**: *"It looks like the SMTP provider you entered is designed for sending
+   personal rather than transactional email messages. Email deliverability may be impacted."* Gmail has
+   per-day sending limits (500 for a personal account, 2000 for Workspace) and can throttle or suspend an
+   account it sees as bulk-sending. For one user inviting one or two people that is fine; if the plan is to
+   invite a household or a group at once, expect limits.
+2. **Minimum interval per user is 60 seconds.** Two emails to the same address inside a minute — a reset
+   followed by an invite, say — have the second silently dropped. Wait a minute between them.
 
 ## Pass 7 — the staging rehearsal is complete
 
@@ -187,13 +214,13 @@ The polish itself is commit `f33651a`. No files changed in this verification ses
 
 ### Failed / gaps
 
-1. **Forgot password does not deliver.** Supabase answers `400 Email address "…" is invalid` for both
-   existing test accounts, while unknown addresses return `200`. Two consequences:
-   - **Reset emails never arrive**, so the "Forgot password" flow cannot complete today.
-   - **Account enumeration at the Supabase level**: the status code differs for a known and an unknown
-     address. Our UI hides this behind one message, but the API itself leaks it.
-   The likely cause is the project's email provider rejecting `example.com` recipients. This is a Supabase
-   setting, not app code. *(Still open.)*
+1. **Forgot password did not deliver.** Supabase answered `400 Email address "…" is invalid` for both
+   existing test accounts, while unknown addresses returned `200`. Two consequences:
+   - **Reset emails never arrived**, so the "Forgot password" flow could not complete.
+   - **Account enumeration at the Supabase level**: the status code differed for a known and an unknown
+     address. Our UI hides this behind one message, but the API itself leaked it.
+   The cause was the project's email provider rejecting `example.com` recipients. A Supabase setting, not
+   app code. — **RESOLVED in pass 8** (custom SMTP). Both calls now answer `200` with no body.
 2. **Settings showed "Not signed in" after an invite sign-in.** — **Fixed in pass 3 and verified end to
    end.** The session now carries the address read from the token, and Settings shows it. See the
    verification table below.
@@ -305,6 +332,8 @@ full detail; this is the summary.
 
 1. **Forgot-password emails do not send** for the staging accounts (Supabase: `400 Email address is
    invalid`). The UI is correct; the delivery is not. Also leaks account existence by status code.
+   — **RESOLVED in pass 8** by configuring custom SMTP. Both `recover` calls now answer `200` with no
+   body, so the enumeration leak went with it. See Pass 8 for the two caveats to carry to cutover.
 2. **Sign-up is closed on staging** (`disable_signup: true`, `/auth/v1/signup` → 422 `signup_disabled`).
    It was open earlier today, and three accounts that are not ours were created through it. **The same
    setting must still be turned off on the live project** before cutover — see the checklist.
@@ -326,17 +355,15 @@ full detail; this is the summary.
 
 ## Next
 
-**The staging migration rehearsal is done.** The next unfinished item is **the SMTP fix**, which is a
-Supabase dashboard step and unblocks two things that are currently broken:
+**Staging is ready for the phone checklist.** The migration rehearsal is done, and SMTP now delivers, so the
+whole sign-in and invite path works. What is left before cutover:
 
-Supabase → **Authentication → Providers → Email → SMTP** → set your custom SMTP host, port, username,
-password and sender, then send a test and confirm it arrives in a real mailbox.
-
-Right now every test address gets `400 Email address is invalid`, which means **password reset does not
-work** and **invites do not arrive**. The cutover's last step is "invite other users", and it fails without
-this. Nothing in the app can fix it — it is a Supabase setting.
-
-After that: the phone checklist (`NEXT_STEPS.md` §3), then cutover (`docs/CUTOVER_RUNBOOK.md`).
+1. **The phone checklist** (`NEXT_STEPS.md` §3) — the biggest remaining unknown, since everything was
+   tested in desktop Chrome.
+2. **Repeat the SMTP settings on live.** They are per-project: staging has them, live does not. Copy the
+   same values (`smtp.gmail.com`, 465, the sender and name) into the live project's
+   Authentication → Emails → SMTP Settings.
+3. Then cutover (`docs/CUTOVER_RUNBOOK.md`).
 7. **Staging has 29 rows, not the 30 last recorded.** The migration does not delete rows (proven locally),
    so this is not the migration. Most likely a delete from the phone or test cleanup. Worth a look against
    the backups if the exact count matters.
