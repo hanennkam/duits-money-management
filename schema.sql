@@ -18,7 +18,13 @@ create table if not exists public.transactions (
   -- sha256 of the dedupe key: a bank reference, or date|amount|merchant(|ten-minute window). NULL rows
   -- are never deduped (text notes, hand-typed rows, scans with no merchant and no reference).
   dedupe_hash   text unique,
-  raw_extraction jsonb
+  raw_extraction jsonb,
+  -- sha256 of the uploaded image bytes, so the same photo scanned twice is caught before a second Claude
+  -- call. Present in the live table but missing from this file until now (schema drift, found by the
+  -- audit in docs/multi-user-audit.md). NULL for text and manual rows and for bank screenshots.
+  -- Its index/uniqueness is not verifiable through the API: migrations/0002 creates the per-owner
+  -- unique key (user_id, image_hash), which is the one the app relies on.
+  image_hash    text
 );
 
 comment on table public.transactions is
