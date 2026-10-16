@@ -56,12 +56,18 @@ stopped at the folder guard: no network, no download, exit 1. The folder was rem
 line prints before any request; its real output against live is still unexercised. Suite: **206 passed,
 15 skipped**, unchanged.
 
-**One finding that is not the runbook's.** `a2d55e96`, cited twice in this file (Pass 9 and Known issue 7) as
-the thing behind staging's 30 → 29 delete, resolves to **no object in this repo** — `git cat-file -t` refuses
-it and it is absent from `git log --all`. The event is recorded in Pass 9 as a delete "by explicit id", and
-Known issue 7 names a *different* id (`b31b4f8f`) as the throwaway row in the logs, so it is not clear whether
-`a2d55e96` was meant as a row id or a commit. The runbook therefore cites **Pass 9** rather than the hash, so
-a third unresolvable citation is not added. Left open — flagged rather than rewritten.
+The suite's **2 warnings are pre-existing, not from this batch** — `app/main.py:115` uses
+`starlette.status.HTTP_422_UNPROCESSABLE_ENTITY`, which Starlette deprecates in favour of
+`HTTP_422_UNPROCESSABLE_CONTENT` (that line last changed in `aae36b0`). Noted once here so it is not
+re-investigated; left alone, since it is an app change and nothing in this batch asks for one.
+
+**One finding that is not the runbook's, now resolved and corrected in place.** `a2d55e96`, cited twice in
+this file as the thing behind staging's 30 → 29 delete, turned out to be **a transaction row id, not a
+commit** — which is why it resolves to no git object: it never was one. Both citations now say so, and the
+runbook cites it with the same label. Chasing the other id, `b31b4f8f`, produced a real correction: it is a
+**different row and a different delete event** — loopback, through the app, a row whose receipt object was
+left behind (see Known issue 7, which now carries the log line verbatim). It is not the phone-test delete,
+so Known issue 7 keeps its closure rather than upgrading it.
 
 ## Pass 10 — the household decision, the receipt re-homing, and the byte reconciliation
 
@@ -157,8 +163,12 @@ sequence was `DRY RUN → APPLY → DRY RUN`. The apply re-homed both foreign-pr
 `legacy_rows: 0`, exit 0. An independent recursive bucket listing before and after shows **14 objects →
 14**, the same two file names, so nothing was lost in the move.
 
-**Staging row count: 29, post-`a2d55e96` delete.** The delete took the table 30 → 29, so staging reads 29
-again — this time for a known reason, not the Known issue 7 mystery. The count had already drifted 29 → 30
+**Staging row count: 29, after the `a2d55e96` delete.** `a2d55e96` is a **transaction row id, not a commit** —
+the throwaway row (merchant `Throwaway Fix Check`, RM 1.00, dated 2026-10-30, `receipt_path`
+`someone-else/2026/10/x.jpg`) created by a probe script whose response parse failed after the insert had
+already succeeded, and deleted by explicit id. The delete took the table 30 → 29, so staging reads 29
+again — this time for a known reason, not the Known issue 7 mystery. Because it was run by explicit id it
+never reached the app, which is why it has no server log line. The count had already drifted 29 → 30
 through ordinary phone use before that, so drift-with-use is now demonstrated twice. Live counts are
 baselined fresh inside the cutover window and are never compared against this number, so the staging count
 is not an expectation for live.
@@ -516,19 +526,39 @@ full detail; this is the summary.
    - **No row-level artefact exists.** The step-2 backup was `scripts/backup_receipts.py`, which backs up
      the **live** bucket's objects, not staging rows. `pg_dump` was never run against staging — it needs a
      connection string that only you hold.
-   - **The server access logs do not cover the window.** They record exactly one
-     `DELETE /transactions/…` across every run they cover, and it is my own throwaway `b31b4f8f`. The
-     server has been restarted several times, so earlier logs are gone.
+   - **The server access logs do not cover the window.** Across every run they cover there is exactly one
+     `DELETE /transactions/…`, and it is **not a phone request**. The line, verbatim:
+
+     ```
+     INFO:     127.0.0.1:62235 - "GET /transactions/b31b4f8f-7901-4e94-a9b0-8d16c2280457/receipt-url HTTP/1.1" 404 Not Found
+     Leaving a receipt object in place: its path is outside the owner's folder
+     INFO:     127.0.0.1:62235 - "DELETE /transactions/b31b4f8f-7901-4e94-a9b0-8d16c2280457 HTTP/1.1" 204 No Content
+     ```
+
+     Source is `127.0.0.1` — loopback, the Mac — where the iPhone's own traffic in the same log reads
+     `192.168.1.4`. So this is **not** the phone-test delete, and the closure below is not upgraded to
+     "explained — phone delete". What it removed: the row `b31b4f8f-…`, through the app, immediately after a
+     `receipt-url` GET for that same row from the same local port returned `404` — and the app's line between
+     them says the receipt object was **left in place** because its path sits outside the owner's folder. So
+     the row had an unreachable receipt and its object was orphaned: pass 5's shape (row deletes, object
+     untouched). uvicorn does not timestamp access lines, so it cannot be dated; the only anchor is that it
+     is the first request logged by that server process. The server has been restarted several times, so
+     earlier logs are gone. (The export's own log scan missed this line by construction — it filtered to
+     phone writes, `192.168.1.4` only.)
    - Row counts move continuously from phone testing and from test runs creating and deleting rows, so the
      delta is inside normal noise.
    - The migration is excluded: it provably does not delete rows (6 → 6 → 6 → 6 locally, and 30 → 30
      through `up → verify → down → up` on staging).
 
    **Closed as unexplained-and-accepted, and now permanently so.** The count sits at **29 because of the
-   deliberate `a2d55e96` delete**, written down in Pass 9, so the number will not be re-opened as a fresh
-   discrepancy. The drift is real but harmless: live counts are baselined fresh at cutover from `pg_dump`
-   and `scripts/audit_live.py` (runbook steps 2–4), taken together in the same window, and staging's count
-   is never compared against live.
+   deliberate delete of `a2d55e96`** — a **transaction row id, not a commit** — written down in Pass 9, so the
+   number will not be re-opened as a fresh discrepancy. The two ids in this file are **two different rows and
+   two different delete events, not two ids for one delete**: `a2d55e96` was deleted by explicit id and never
+   reached the app, so it has no log line; `b31b4f8f` was deleted *through* the app, from loopback, and is
+   the one logged line above. What stays unresolved about that second one is only which pass it belongs to
+   and what the row held — the log line does not say, and no other artefact names it. The drift is real but
+   harmless: live counts are baselined fresh at cutover from `pg_dump` and `scripts/audit_live.py` (runbook
+   steps 2–4), taken together in the same window, and staging's count is never compared against live.
 8. **Verified on a real iPhone** in the phone pass: sign-in, keyboard behaviour, dark mode, scan, text
    entry, sign-out and Back all worked. What that pass cannot settle remains unverified: whether `100dvh`
    shrinks when the keyboard opens, `scrollIntoView` inside a fixed scroll container, and focus zoom at

@@ -283,9 +283,9 @@ Rehearsed on a real Postgres with the exact files, and on staging:
 
 - `schema.sql` (now including `image_hash`) creates a database matching production.
 - `0002 up` → `verify` → `0002 down` → `0002 up` again, never dropping a row: **6 → 6 → 6 → 6** on the local
-  Postgres rehearsal, and **30 → 30 → 30 → 30** on staging. Staging reads **29** today, after Pass 9's
-  deliberate delete of one leftover throwaway row. Live is baselined fresh in steps 3–4 and is never
-  compared against either number.
+  Postgres rehearsal, and **30 → 30 → 30 → 30** on staging. Staging reads **29** today, after the deliberate
+  delete of the throwaway row (`a2d55e96` — a transaction row id, not a commit). Live is baselined fresh in
+  steps 3–4 and is never compared against either number.
 - `0002` **refuses to run without `app.owner_id`**.
 - The rollback **refuses** while two owners share a hash.
 - Per-owner uniqueness: a cross-owner duplicate hash is accepted; a same-owner duplicate is refused.
