@@ -13,12 +13,47 @@ Prepared after the auth-screen polish on branch `multi-user`. Read this before t
 | Verification pass 2 (invite flow) | **Done.** Sign-up is now refused, and the invite flow works end to end. |
 | Pass 3 — invite address, PORT, schema, rehearsal, runbook | **Done.** See the summary below. Staging SQL for the live rehearsal still needs you. |
 | Pass 4 — verify the invite-address fix | **Done.** Re-ran a real invite flow: Settings now shows the address. Document repaired. |
+| Pass 5 — catalog checks + receipt-path crash | **Done.** You checked `verify_after_up.sql` B–F. Fixed a 500 that made rows with a migration-leftover receipt path undeletable. |
 
 ## Current branch + last commit
 
 - Branch: `multi-user`, tracking `origin/multi-user`, pushed.
 - `main` is untouched and was **not** pushed.
-- `pytest`: **195 passed, 15 skipped**. Staging suite: **15 passed**.
+- `pytest`: **198 passed, 15 skipped**. Staging suite: **15 passed**.
+
+## Pass 5 — what changed
+
+**You checked `verify_after_up.sql` sections B–F** against staging, so the catalog side of the migration is
+confirmed: `user_id` NOT NULL, the two per-owner unique keys present with no global `UNIQUE (dedupe_hash)`,
+RLS on, the expected policy counts, and the rollback snapshot in place.
+
+**Fixed: rows with an unreachable `receipt_path` were crashing.** Proven on staging before touching anything:
+
+| | Before | After |
+| --- | --- | --- |
+| `GET /transactions/{id}/receipt-url` | **500** `Internal Server Error` | **404** "This transaction has no receipt image." |
+| `DELETE /transactions/{id}` | **500**, and the row survived | **204**, the row goes |
+| A well-formed row | 200, signed URL | unchanged |
+
+Root cause: `db._owned_path()` correctly refuses a path outside the owner's folder, but its `ValueError`
+escaped to the route and became a 500. Since `delete_receipt` runs before `delete_transaction`, the row
+could not be deleted at all.
+
+Why it matters beyond staging: the cutover runbook's **rollback path** (`0002 down` then `up`) reassigns
+owners without moving the objects back, which is exactly how these rows are produced. So the runbook's own
+recovery procedure could have left live rows that neither open nor delete.
+
+The guard itself is unchanged — a foreign object is still never signed, moved or deleted. What changed is
+that a path the owner cannot reach now reads as "no receipt", and the row is still deletable with a logged
+warning that the object was left in place.
+
+Added tests: `404 not 500` for a foreign path, `DELETE` still works and never touches a foreign object, and
+the `owned_receipt_path()` rule (own folder, null, empty, other owner's folder, legacy un-prefixed form).
+
+**Also made the staging isolation suite survive a rollback cycle.** Your `down`/`up` run broke it: the
+backfill gives every row to one owner, so B owned nothing and three tests failed on missing fixture data
+rather than on isolation. `b_own_row` now re-creates B's row when it is gone, and the fixtures that depend
+on it are ordered accordingly. Expect the suite to stay green through the `down` → `up` runs still to come.
 
 ## Pass 3 — what changed
 
@@ -218,13 +253,28 @@ full detail; this is the summary.
 4. **Three accounts on staging are not ours** (`suhaib@gmail.com`, `adeeb@gmail.com`,
    `madsu04@gmail.com`), owning 5 rows. Left untouched; decide whether to remove them. Two throwaway
    accounts of mine also exist: `duits-invite-test@example.com` and `duits-invite-verify@example.com`.
-5. **Two staging rows report `unexpected_format`** to `migrate_receipts.py`: their `receipt_path` is
-   prefixed with a UUID that is not their owner. Left over from the `down`/`up` cycle, which reassigns
-   owners without moving the objects back. The script refuses to touch them and exits 1. Not expected on
-   live, where the move runs after the backfill.
+5. **Two staging rows still report `unexpected_format`** to `migrate_receipts.py`: their `receipt_path` is
+   prefixed with a UUID that is not their owner, left over from a `down`/`up` cycle. The script refuses to
+   touch them and exits 1. **The app no longer breaks on them** (pass 5): they answer 404 for the receipt
+   and can be deleted. To clear them properly the object has to be moved to the owner's folder and
+   `receipt_path` updated — a small data fix, not done. Not expected on live, where the move runs after the
+   backfill.
 6. **The live rehearsal has not been run.** Everything was verified on a local Postgres and on staging.
-   Staging has now been through `down` → `up` → `verify` (see above); the second half (`down` → `up`
-   again) and the live run remain. Both need the SQL editor.
+   Staging has now been through `down` → `up` → `verify`, and `verify` sections B–F are checked. The
+   second half (`down` → `up` again) and the live run remain. Both need the SQL editor.
+
+## Next
+
+The next unfinished item is **the second half of the staging rehearsal** — one SQL-editor pass on staging:
+
+1. `migrations/0002_multi_user.down.sql`
+2. `select set_config('app.owner_id', '67a4cc95-a77a-4f1b-a12a-048db5324c1f', false);` then
+   `migrations/0002_multi_user.up.sql`
+
+That completes `up → verify → down → up`, the exact sequence the live run uses. I read the row counts back
+automatically between the two runs. Expect 29 rows at each stage.
+
+After that: the SMTP fix (unblocks password reset and invites), the phone checklist, then cutover.
 7. **Staging has 29 rows, not the 30 last recorded.** The migration does not delete rows (proven locally),
    so this is not the migration. Most likely a delete from the phone or test cleanup. Worth a look against
    the backups if the exact count matters.
@@ -268,19 +318,11 @@ up/verify/down/up). So the missing row is not the migration's doing: most likely
 old owner-prefixed paths while the rows are reassigned to A. Not a live-cutover problem, where the move runs
 after the backfill and paths and owners agree.
 
-### Still to paste from `verify_after_up.sql`
+### `verify_after_up.sql` sections B–F — CHECKED
 
-I can read rows and owners through the API, but not the catalog. Please paste the output of:
-
-- **B** — the `is_nullable` values (I can see column types, not nullability). Expect `user_id` = `NO`.
-- **C** — unique constraints and indexes. Expect `transactions_user_dedupe_key` and
-  `transactions_user_image_key`, and **no** global `UNIQUE (dedupe_hash)`.
-- **D** — RLS state on `transactions` and `api_tokens`. Expect `true` for both.
-- **E** — policies. Expect 4 on `transactions`, 3 on `storage.objects`, 0 on `api_tokens`.
-- **F** — `public.migration_0002_saved_constraints` contents. Expect one row:
-  `constraint  transactions_dedupe_hash_key`.
-
-Section **A** is already covered by the API read-back above.
+Checked on staging. The catalog matches expectations: `user_id` NOT NULL, per-owner unique keys in place
+with no global `UNIQUE (dedupe_hash)`, RLS on, the expected policy counts, and the rollback snapshot
+present. This closes the migration verification on staging.
 
 ### Pass 3 verification — the invite address fix, re-run end to end
 

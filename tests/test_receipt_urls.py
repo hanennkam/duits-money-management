@@ -74,3 +74,14 @@ def test_the_owner_folder_is_still_checked_before_signing(monkeypatch: pytest.Mo
     monkeypatch.setattr("app.db.get_settings", lambda: SETTINGS)
     with pytest.raises(ValueError, match="outside the owner"):
         db.create_receipt_url("2026/10/x.jpg", 60, user_id=USER)
+
+
+def test_a_path_outside_the_owner_folder_reads_as_no_receipt() -> None:
+    """The rule the routes use to decide between "no receipt" and a 500."""
+    mine = f"{USER}/2026/10/abc.jpg"
+    assert db.owned_receipt_path(mine, user_id=USER) == mine
+    assert db.owned_receipt_path(None, user_id=USER) is None
+    assert db.owned_receipt_path("", user_id=USER) is None
+    # a migration leftover: another owner's folder, or the un-prefixed legacy form
+    assert db.owned_receipt_path("other/2026/10/abc.jpg", user_id=USER) is None
+    assert db.owned_receipt_path("2026/10/abc.jpg", user_id=USER) is None

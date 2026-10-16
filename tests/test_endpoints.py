@@ -371,6 +371,36 @@ def test_receipt_url_is_404_without_a_receipt(client: TestClient, stored: dict[s
     assert stored["signed"] == []
 
 
+def test_a_receipt_path_outside_the_owners_folder_is_404_not_500(
+    client: TestClient, stored: dict[str, Any]
+) -> None:
+    """A migration leftover, not a photo the owner can reach. It answers like "no receipt", not a crash.
+
+    A `down`/`up` cycle reassigns owners without moving the objects back, which is exactly what the
+    cutover runbook's rollback path does. Before this, such a row returned 500 and was undeletable.
+    """
+    stored["row"]["receipt_path"] = "someone-else/2026/10/abc123.jpg"
+
+    response = client.get(f"/transactions/{ROW_ID}/receipt-url", headers=HEADERS)
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "This transaction has no receipt image."
+    assert stored["signed"] == [], "nothing outside the owner's folder may ever be signed"
+
+
+def test_a_row_with_an_unreachable_receipt_can_still_be_deleted(
+    client: TestClient, stored: dict[str, Any]
+) -> None:
+    """Deleting the row must work; the foreign object is not ours to remove and is left alone."""
+    stored["row"]["receipt_path"] = "someone-else/2026/10/abc123.jpg"
+
+    response = client.delete(f"/transactions/{ROW_ID}", headers=HEADERS)
+
+    assert response.status_code == 204
+    assert stored["row"] is None, "the row itself still goes"
+    assert stored["removed"] == [], "a receipt outside the owner's folder is never deleted"
+
+
 def test_receipt_url_is_404_when_the_row_is_missing(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

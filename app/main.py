@@ -399,9 +399,13 @@ async def update_transaction(
 async def delete_transaction(transaction_id: UUID, user_id: CurrentUser) -> None:
     """Delete one of the caller's rows, and its receipt object if it has one."""
     row = _existing(transaction_id, user_id)
-    receipt_path = row.get("receipt_path")
+    receipt_path = db.owned_receipt_path(row.get("receipt_path"), user_id=user_id)
     if receipt_path:
         db.delete_receipt(receipt_path, user_id=user_id)
+    elif row.get("receipt_path"):
+        # The object sits outside this owner's folder, so it is not ours to remove. Leave it alone and say
+        # so, but never let it block deleting the row.
+        logger.warning("Leaving a receipt object in place: its path is outside the owner's folder")
     db.delete_transaction(str(transaction_id), user_id=user_id)
 
 
@@ -409,7 +413,9 @@ async def delete_transaction(transaction_id: UUID, user_id: CurrentUser) -> None
 async def receipt_url(transaction_id: UUID, user_id: CurrentUser) -> ReceiptUrl:
     """Short-lived signed URL for one of the caller's private receipt images."""
     row = _existing(transaction_id, user_id)
-    receipt_path = row.get("receipt_path")
+    # A path outside the owner's folder is a migration leftover, not a receipt they can reach: it answers
+    # exactly like a row with no photo rather than a 500.
+    receipt_path = db.owned_receipt_path(row.get("receipt_path"), user_id=user_id)
     if not receipt_path:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "This transaction has no receipt image.")
     url = db.create_receipt_url(receipt_path, RECEIPT_URL_TTL, user_id=user_id)

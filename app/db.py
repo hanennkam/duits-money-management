@@ -148,11 +148,29 @@ def _owned(query: Any, user_id: UUID) -> Any:
     return query.eq("user_id", str(user_id))
 
 
+def owned_receipt_path(path: str | None, *, user_id: UUID) -> str | None:
+    """The receipt path when this owner can reach it, otherwise None.
+
+    `receipt_path` is only meaningful under the owner's folder. Anything else is left over from a data
+    migration — a `down`/`up` cycle reassigns owners without moving the objects back — and the owner can
+    neither view nor delete that object. To the API that is exactly the same as "no receipt", so callers
+    can decide without a 500.
+    """
+    if not path:
+        return None
+    return path if path.startswith(f"{user_id}/") else None
+
+
 def _owned_path(path: str, user_id: UUID) -> str:
-    """Receipts live under the owner's folder (user_id/YYYY/MM/<uuid>.ext). Any other path is refused."""
-    if not path.startswith(f"{user_id}/"):
+    """Receipts live under the owner's folder (user_id/YYYY/MM/<uuid>.ext). Any other path is refused.
+
+    The final guard: nothing is ever handed to the Storage client that is not the owner's, even if a
+    caller skipped `owned_receipt_path`.
+    """
+    owned = owned_receipt_path(path, user_id=user_id)
+    if owned is None:
         raise ValueError("receipt path is outside the owner's folder")
-    return path
+    return owned
 
 
 def find_by_dedupe_hashes(hashes: list[str], *, user_id: UUID) -> dict[str, Any] | None:
