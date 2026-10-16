@@ -242,9 +242,9 @@ def test_a_gets_a_working_signed_url_for_their_own_receipt(
     response = client.get(f"/transactions/{a_row_id}/receipt-url", headers=bearer(token_a))
     assert response.status_code == 200
     url = response.json()["url"]
-    # Supabase signs a path relative to its Storage API; a client needs it joined to the project URL.
-    absolute = url if url.startswith("http") else f"{get_settings().supabase_url.rstrip('/')}/storage/v1{url}"
-    fetched = httpx.get(absolute, timeout=30)
+    # The API returns an absolute URL: it joins Supabase's relative signed path to the Storage base.
+    assert url.startswith("https://"), f"receipt URL must be absolute, got {url[:40]}"
+    fetched = httpx.get(url, timeout=30)
     assert fetched.status_code == 200
     assert fetched.content == LEGACY_0_BYTES
 

@@ -236,9 +236,8 @@ def summarize(start: date, end: date, mode: str, *, user_id: UUID) -> dict[str, 
 
 def upload_receipt(path: str, content: bytes, content_type: str, *, user_id: UUID) -> str:
     """Upload a receipt image under the owner's folder; returns its path."""
-    _bucket().upload(
-        _owned_path(path, user_id), content, {"content-type": content_type, "upsert": "false"}
-    )
+    path = _owned_path(path, user_id)  # ownership first: never hand the client a foreign path
+    _bucket().upload(path, content, {"content-type": content_type, "upsert": "false"})
     return path
 
 
@@ -255,9 +254,24 @@ def delete_receipt(path: str, *, user_id: UUID) -> None:
 
 
 def create_receipt_url(path: str, expires_in: int, *, user_id: UUID) -> str:
-    """Short-lived signed URL for one of the owner's private receipt objects."""
-    signed = _bucket().create_signed_url(_owned_path(path, user_id), expires_in)
+    """Short-lived signed URL for one of the owner's private receipt objects.
+
+    Supabase answers with a path relative to its Storage API (`/object/sign/...`), which no client can
+    open on its own, so it is joined to the project's Storage base here and the caller gets an absolute
+    URL it can fetch or `open` directly.
+    """
+    path = _owned_path(path, user_id)  # ownership first: never hand the client a foreign path
+    signed = _bucket().create_signed_url(path, expires_in)
     url = signed.get("signedURL") or signed.get("signedUrl")
     if not url:
         raise RuntimeError("Supabase returned no signed URL for this receipt")
-    return url
+    return absolute_receipt_url(url)
+
+
+def absolute_receipt_url(signed: str) -> str:
+    """Join Supabase's relative signed path to the Storage base. An absolute URL is left alone."""
+    if signed.startswith(("http://", "https://")):
+        return signed
+    if not signed.startswith("/"):
+        signed = "/" + signed
+    return f"{get_settings().supabase_url.rstrip('/')}/storage/v1{signed}"
