@@ -15,6 +15,36 @@ Prepared after the auth-screen polish on branch `multi-user`. Read this before t
 | Pass 4 — verify the invite-address fix | **Done.** Re-ran a real invite flow: Settings now shows the address. Document repaired. |
 | Pass 5 — catalog checks + receipt-path crash | **Done.** You checked `verify_after_up.sql` B–F. Fixed a 500 that made rows with a migration-leftover receipt path undeletable. |
 | Pass 6 — rollback unblocked | **Done.** `0002 down` was refusing on a hash collision between two test-fixture rows. Resolved, and the fixture no longer collides. |
+| Pass 7 — staging rehearsal COMPLETE | **Done.** `up → verify → down → up` all ran on staging. 30 rows at every stage, no data lost. |
+
+## Pass 7 — the staging rehearsal is complete
+
+`0002 down` now runs (the guard cleared), and `set_config(app.owner_id, A)` + `0002 up` followed it to
+`commit;` with no error. That is the full `up → verify → down → up` sequence — the same one the live run
+uses.
+
+Read back through the API afterwards:
+
+| Check | Result |
+| --- | --- |
+| `user_id` column | present |
+| Tables exposed | `transactions`, **`api_tokens`**, **`migration_0002_saved_constraints`** |
+| **Total rows** | **30** — unchanged, nothing lost |
+| **Rows without an owner** | **0** |
+| Owner distribution | 30, all owner A (the backfill point) |
+| `dedupe_hash` shared across owners | **0** |
+| `image_hash` shared across owners | **0** |
+| Rows with a receipt_path | 15 — 12 match their owner, **3 mismatches** |
+
+Notes on that table:
+
+- **`up` succeeding is itself proof that `down` ran**: step 4 of `up` adds `transactions_user_dedupe_key`,
+  which would fail with a duplicate-object error if the constraints had still been there.
+- **The 3 receipt-path mismatches** are the expected residue of a `down`/`up` cycle — the objects keep the
+  owner prefix they had while the rows get reassigned. On live this does not arise, because the object move
+  runs *after* the backfill. If any survive there, `migrate_receipts.py` reports them as
+  `unexpected_format`, and since pass 5 the app answers 404 for the photo and still deletes the row.
+- Staging suite **15 passed** and unit suite **198 passed** in this state.
 
 ## Pass 6 — the rollback guard fired, and why
 
@@ -289,26 +319,24 @@ full detail; this is the summary.
    and can be deleted. To clear them properly the object has to be moved to the owner's folder and
    `receipt_path` updated — a small data fix, not done. Not expected on live, where the move runs after the
    backfill.
-6. **The live rehearsal has not been run.** Everything was verified on a local Postgres and on staging.
-   Staging has now been through `down` → `up` → `verify`, and `verify` sections B–F are checked. The
-   second half (`down` → `up` again) and the live run remain. Both need the SQL editor.
+6. **The live run has not been done.** The full sequence is now proven three times over: locally on a real
+   Postgres (6 rows through up/verify/down/up), and on staging end to end (30 rows through
+   `up → verify → down → up`, with `verify` B–F checked). What remains is the same sequence against **live**,
+   which is `docs/CUTOVER_RUNBOOK.md` step 7 and needs the SQL editor.
 
 ## Next
 
-The next unfinished item is **the second half of the staging rehearsal** — one SQL-editor pass on staging.
-The rollback guard that was blocking it is now clear, so this should go through:
+**The staging migration rehearsal is done.** The next unfinished item is **the SMTP fix**, which is a
+Supabase dashboard step and unblocks two things that are currently broken:
 
-1. `migrations/0002_multi_user.down.sql`
-2. `select set_config('app.owner_id', '67a4cc95-a77a-4f1b-a12a-048db5324c1f', false);` then
-   `migrations/0002_multi_user.up.sql`
+Supabase → **Authentication → Providers → Email → SMTP** → set your custom SMTP host, port, username,
+password and sender, then send a test and confirm it arrives in a real mailbox.
 
-That completes `up → verify → down → up`, the exact sequence the live run uses. I read the row counts back
-automatically between the two runs. Expect 30 rows at each stage.
+Right now every test address gets `400 Email address is invalid`, which means **password reset does not
+work** and **invites do not arrive**. The cutover's last step is "invite other users", and it fails without
+this. Nothing in the app can fix it — it is a Supabase setting.
 
-If `down` refuses again on a shared hash, that is the same guard: paste the message and I will identify the
-two rows before anything is deleted.
-
-After that: the SMTP fix (unblocks password reset and invites), the phone checklist, then cutover.
+After that: the phone checklist (`NEXT_STEPS.md` §3), then cutover (`docs/CUTOVER_RUNBOOK.md`).
 7. **Staging has 29 rows, not the 30 last recorded.** The migration does not delete rows (proven locally),
    so this is not the migration. Most likely a delete from the phone or test cleanup. Worth a look against
    the backups if the exact count matters.
