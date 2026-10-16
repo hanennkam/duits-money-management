@@ -32,7 +32,8 @@ and from the web UI.
 2. **Say clearly what could NOT be verified on a real iPhone.** Desktop Chrome, emulated touch and
    faked `visualViewport` are not an iPhone. Always list what remains unproven (see §4).
 3. **Before reporting, run pytest and the test harness.**
-   - `./.venv/bin/python -m pytest -q` (currently **96 passed**).
+   - `./.venv/bin/python -m pytest -q` — the full suite must pass; read the count from the summary it
+     prints, never from a number written in a doc (this one included — numbers here rot).
    - The UI test harness is **not in the repo**. The `/tmp` scripts that `Handoff.md` cites
      (`duits-ui-check.js`, the `cdp-*` probes) no longer exist. If you cannot run a UI check, say so
      explicitly. Never claim UI results you did not measure in this session.

@@ -444,8 +444,8 @@ Staging is in good shape: the migration rehearsal is complete, SMTP delivers, th
 clean, and `migrate_receipts.py` now runs clean on staging (`unexpected_format: 0`, exit 0). What is left
 before cutover:
 
-1. **You are checking whether the three non-ours accounts are yours** — they are **held, not deleted**.
-   The attribution is exported; see below.
+1. **You are checking whether the three non-ours accounts are yours** — they are **held, not deleted**, and
+   staging is **dry run only** until that lands. The attribution is exported; see below.
 2. **Repeat the SMTP settings on live.** Per-project: staging has them, live does not. Copy
    `smtp.gmail.com`, 465, sender `hanennkam@gmail.com`, name **Duits** into the live project's
    Authentication → Emails → SMTP Settings, then **send one real test message and confirm it arrives** —
@@ -454,6 +454,14 @@ before cutover:
 4. Then cutover (`docs/CUTOVER_RUNBOOK.md`).
 
 ### The three non-ours accounts: HELD, do not delete
+
+**Hard gate: no `--apply` on staging until this decision lands — dry run only.** An `--apply` would
+re-home the scanned row's object, `47ac06a8-…/2026/10/824a7d7a….jpg`, under A's folder and delete the
+original. The **bytes** are safe in the export with their sha256 verified; the **path** is not, and that
+path is the only thing tying the scan to `adeeb@gmail.com` outside the export. Evidence destroyed in
+place, with a backup taken — subtler than data loss and just as final. It costs nothing to wait: the
+staging `--apply` was always optional verification, and the live run does its own `--apply` where every
+path already belongs to a real owner and no such ambiguity exists.
 
 The instruction was revised to **hold**, and the evidence backs that up. They are **not** my accounts —
 mine are `duits-staging-a/b@example.com`. Two things make them worth treating as real until you have
@@ -501,6 +509,10 @@ It is outside the repo on purpose: it holds a real receipt photo and real transa
 counts before and after, and scan the frozen logs for anything else that arrived while sign-up was open.
 The window is `10:14:33`–`13:15:57` UTC (first and last account created), and the account list plus the
 rows in the export are the complete inventory the data shows.
+
+**Either way, the attribution recorded above stands as the record.** If the accounts turn out to be yours,
+keep them and change this heading to *OURS, KEPT* — nothing below needs rewriting, and the decision is
+closed so it cannot be re-litigated at cutover.
 
 ## Staging migration rehearsal — run, with results
 
