@@ -35,11 +35,18 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
-from app import db, extractor
+from app import db, extractor, finance
 from app.auth import CurrentUser
 from app.config import Settings, get_settings, is_production
 from app.models import (
+    Commitment,
+    CommitmentCreate,
+    CommitmentPayment,
+    CommitmentUpdate,
     Extraction,
+    FinanceSettings,
+    FinanceSettingsUpdate,
+    FinanceSummary,
     Mode,
     ReceiptUrl,
     Source,
@@ -64,7 +71,7 @@ RECEIPT_URL_TTL = 60
 IS_PRODUCTION = is_production()
 
 # API responses that must never be cached by a proxy, browser or CDN.
-NO_STORE_PREFIXES = ("/transactions", "/summary")
+NO_STORE_PREFIXES = ("/transactions", "/summary", "/finance", "/commitments")
 
 
 @asynccontextmanager
@@ -441,6 +448,206 @@ def _existing(transaction_id: UUID, user_id: UUID) -> dict[str, Any]:
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No transaction with that id.")
     return row
+
+
+# ---------------------------------------------------------------- money settings and commitments
+
+
+@app.get("/finance/summary", response_model=FinanceSummary)
+async def finance_summary(
+    user_id: CurrentUser,
+    month: Annotated[str, Query(description="Month to read, as YYYY-MM")],
+    mode: Mode = "personal",
+) -> FinanceSummary:
+    """Balance, unpaid commitments, safe-to-spend and the remaining budget.
+
+    Scope, stated because one figure does not match the others: `total_income`, `total_expense` and
+    `current_balance` are all-time and take **every mode** into account — the balance is one real-world
+    number. `unpaid_commitments`, the month's spend and `remaining_budget` are scoped to `mode`, the same
+    rows Home is showing. `remaining_budget` is null when no budget is set (0).
+
+    Every figure is derived here; none of it is stored, so it cannot drift from the transactions.
+    """
+    checked = _month(month)
+    settings_row = db.get_finance_settings(user_id=user_id) or {}
+    opening = finance.money(settings_row.get("opening_balance"))
+    budget = finance.money(settings_row.get("monthly_budget"))
+
+    totals_rows = db.transaction_totals(user_id=user_id)
+    income, expense = finance.totals(totals_rows)
+    month_spend = finance.month_expense(totals_rows, checked, mode)
+
+    unpaid = finance.unpaid_commitments(
+        db.list_commitments(user_id=user_id),
+        db.list_commitment_payments(checked, user_id=user_id),
+        month=checked,
+    )
+
+    return FinanceSummary(
+        month=checked,
+        mode=mode,
+        opening_balance=opening,
+        monthly_budget=budget,
+        total_income=income,
+        total_expense=expense,
+        unpaid_commitments=unpaid,
+        **finance.derive(
+            opening_balance=opening,
+            total_income=income,
+            total_expense=expense,
+            month_expense=month_spend,
+            unpaid=unpaid,
+            monthly_budget=budget,
+        ),
+    )
+
+
+@app.get("/finance/settings", response_model=FinanceSettings)
+async def get_finance_settings(user_id: CurrentUser) -> FinanceSettings:
+    """The caller's opening balance and monthly budget, with the defaults when nothing is saved yet."""
+    return _finance_settings(db.get_finance_settings(user_id=user_id), user_id)
+
+
+@app.put("/finance/settings", response_model=FinanceSettings)
+async def update_finance_settings(
+    payload: FinanceSettingsUpdate, user_id: CurrentUser
+) -> FinanceSettings:
+    """Set the opening balance and/or the monthly budget. An omitted field keeps the value it had.
+
+    `opening_balance` may be negative (an overdraft is a real balance); `monthly_budget` may not, and 0
+    means "no budget", which is what makes `remaining_budget` come back as null rather than as a figure.
+    """
+    patch = payload.changes()
+    if not patch:
+        return _finance_settings(db.get_finance_settings(user_id=user_id), user_id)
+    return FinanceSettings.model_validate(db.upsert_finance_settings(patch, user_id=user_id))
+
+
+@app.get("/commitments", response_model=list[Commitment])
+async def list_commitments(
+    user_id: CurrentUser,
+    month: Annotated[str, Query(description="Month whose paid marks to report, as YYYY-MM")],
+) -> list[Commitment]:
+    """The caller's commitments, active and inactive, each with `paid` for that month.
+
+    `paid` is per month because a payment mark is per month: the same commitment is paid for October and
+    unpaid for November. Inactive commitments are still listed, so Settings can switch one back on; they
+    are simply left out of the unpaid total.
+    """
+    checked = _month(month)
+    paid = finance.paid_commitment_ids(
+        db.list_commitment_payments(checked, user_id=user_id), month=checked
+    )
+    return [
+        Commitment.model_validate({**row, "paid": str(row["id"]) in paid})
+        for row in db.list_commitments(user_id=user_id)
+    ]
+
+
+@app.post("/commitments", response_model=Commitment, status_code=status.HTTP_201_CREATED)
+async def create_commitment(payload: CommitmentCreate, user_id: CurrentUser) -> Commitment:
+    """Add one monthly commitment for the caller. A brand-new commitment is unpaid in every month."""
+    row = db.insert_commitment(payload.to_row(), user_id=user_id)
+    return Commitment.model_validate({**row, "paid": False})
+
+
+@app.patch("/commitments/{commitment_id}", response_model=Commitment)
+async def update_commitment(
+    commitment_id: UUID,
+    payload: CommitmentUpdate,
+    user_id: CurrentUser,
+    month: Annotated[
+        str | None, Query(description="Month whose paid mark to echo back, as YYYY-MM")
+    ] = None,
+) -> Commitment:
+    """Correct one of the caller's commitments. Another owner's id answers 404.
+
+    `?month=` is optional and only decides what `paid` reports: without it `paid` is null, because a
+    commitment has no single paid state — the mark belongs to a month.
+    """
+    row = db.get_commitment(str(commitment_id), user_id=user_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No commitment with that id.")
+
+    patch = payload.changes()
+    updated = db.update_commitment(str(commitment_id), patch, user_id=user_id) if patch else row
+    if updated is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No commitment with that id.")
+
+    paid: bool | None = None
+    if month is not None:
+        checked = _month(month)
+        paid = str(commitment_id) in finance.paid_commitment_ids(
+            db.list_commitment_payments(checked, user_id=user_id), month=checked
+        )
+    return Commitment.model_validate({**updated, "paid": paid})
+
+
+@app.delete(
+    "/commitments/{commitment_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
+async def delete_commitment(commitment_id: UUID, user_id: CurrentUser) -> None:
+    """Delete one of the caller's commitments, and its paid marks with it."""
+    if not db.delete_commitment(str(commitment_id), user_id=user_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No commitment with that id.")
+
+
+@app.post("/commitments/{commitment_id}/paid", response_model=Commitment)
+async def mark_commitment_paid(
+    commitment_id: UUID, payload: CommitmentPayment, user_id: CurrentUser
+) -> Commitment:
+    """Mark a commitment paid for one month, so it stops counting as still due.
+
+    Idempotent: marking the same month twice answers 200 with the same state, so a retried tap cannot
+    double-subtract. The month is the one to mark, which is not always the month the transaction lands
+    in — a bill paid on the 3rd for last month is marked for last month on purpose.
+    """
+    row = db.get_commitment(str(commitment_id), user_id=user_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No commitment with that id.")
+    db.mark_commitment_paid(str(commitment_id), payload.month, user_id=user_id)
+    return Commitment.model_validate({**row, "paid": True})
+
+
+@app.delete(
+    "/commitments/{commitment_id}/paid",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
+async def unmark_commitment_paid(
+    commitment_id: UUID,
+    user_id: CurrentUser,
+    month: Annotated[str, Query(description="Month to unmark, as YYYY-MM")],
+) -> None:
+    """Remove the paid mark for one month: the undo for a mistaken tap. Idempotent."""
+    checked = _month(month)
+    if db.get_commitment(str(commitment_id), user_id=user_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No commitment with that id.")
+    db.unmark_commitment_paid(str(commitment_id), checked, user_id=user_id)
+
+
+def _finance_settings(row: dict[str, Any] | None, user_id: UUID) -> FinanceSettings:
+    """The caller's settings, or the defaults when they have never saved a row.
+
+    The defaults live here rather than as an inserted row: a user who never opens Settings has no row,
+    and that must read as "RM 0.00, no budget", not as an error or a 404.
+    """
+    if row is None:
+        return FinanceSettings(
+            user_id=str(user_id),
+            opening_balance=Decimal("0"),
+            monthly_budget=Decimal("0"),
+            currency="MYR",
+        )
+    return FinanceSettings.model_validate(row)
+
+
+def _month(month: str) -> str:
+    """Validate YYYY-MM with the same rule (and the same 400) `/summary` uses, then hand it back."""
+    _month_bounds(month)
+    return month
 
 
 def _month_bounds(month: str) -> tuple[date, date]:
