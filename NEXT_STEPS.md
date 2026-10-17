@@ -23,6 +23,7 @@ Prepared after the auth-screen polish on branch `multi-user`. Read this before t
 | Pass 12 — live `image_hash` shape, step 3 hardened | **Done except the staging rollback.** Production's `image_hash` uniqueness is a *partial unique index*, which step 3's text patterns could not see; step 3 now reads the catalog. Staging rebuilt to that shape and re-run: `up`, `verify_after_up.sql` and the 15 isolation tests all clean. `0002 down` on staging is the one rehearsal step left. *(Rollback since run — see Pass 13.)* |
 | Pass 13 — live cutover, steps 3–4 and 9 | **Done and verified.** Live was found already migrated, with the **fixed** `0002` (snapshot 2 rows, partial index with its `WHERE`). Receipts backed up (16 files / 10.8 MB), baseline audit 75 rows / 16 objects, and the 2 receipt objects moved into the owner's folder with a sha256 match against the backup. **Live is now in an open write window: the deployed code cannot insert until step 11.** |
 | Phase 1 — Add Transaction chooser (UI only) | **Done and measured in a desktop browser; not measured on a real iPhone, and no write was made.** The "+" now opens a two-option chooser — a compact sheet hugging two square cards, which expands to full height once Manual or AI is chosen; each flow has its own Back. See the Phase 1 section — it lists every number that was measured and everything that was not. |
+| Live's `0002` state, re-read by the owner | **Confirmed, 2026-10-17: `0002` is applied on live** — `public.transactions.user_id` exists on `viorpltdkpexswvofeul`. This line is the **owner's read-only check**, not something the assistant verified in this session. **Staging is behind live:** it is pre-0002 and needs `docs/migration-runbook.md` §2–§5. |
 
 ## Phase 1 — the Add Transaction chooser (UI only)
 
@@ -575,6 +576,46 @@ Three fixes follow from it:
   `app/static/index.html`** — is committed there. It is **not** merged and **not** pushed.
 - `pytest` on this branch after 2a: **282 passed, 21 skipped, 2 warnings**. Read the count from the run you make —
   this line is a checkpoint, not a constant. (15 of the 21 skips are pre-existing; 6 are the new staging tests.)
+- **Live's `0002` state, re-read by the owner (2026-10-17): applied.** `public.transactions.user_id` exists on
+  `viorpltdkpexswvofeul`, so the schema half of the cutover is already behind us. Attributed to the owner's
+  read-only check, **not** to this session — no SQL and no audit was run by the assistant here. **Staging is
+  behind live:** it is pre-0002 (the 0003 up's failure was its view reading the missing `transactions.user_id`),
+  and `docs/migration-runbook.md` §2–§5 is the sequence that brings it forward.
+
+## Phase 2, step 2a — budget, account balance and monthly commitments (code only)
+
+**What it adds.** Three tables plus a view (`migrations/0003_budget_commitments.up.sql`), all with ENABLE **and**
+FORCE row level security and four owner policies each: `user_finance_settings` (one row per user: opening balance,
+optional monthly budget, currency pinned to MYR), `monthly_commitments`, and `commitment_payments` (one paid mark
+per commitment per month — this is what stops a paid commitment being subtracted twice). A composite foreign key
+`(commitment_id, user_id)` makes "a payment points at a commitment of the same owner" a database rule.
+`public.transaction_totals` is a `security_invoker` view (owner + mode + month totals) so the all-time balance is
+summed in Postgres instead of a Python loop that PostgREST's `max-rows` would truncate; its `anon`/`authenticated`
+grants are revoked, because the view has no policy of its own and the API is its only reader.
+
+**The figures, and where they come from.** Nothing is stored: `app/finance.py` derives everything from the rows on
+every read. `current_balance = opening_balance + total_income − total_expenses`, all-time and **every mode**.
+`unpaid_commitments` = the active commitments with no paid mark for the month being viewed.
+`safe_to_spend = current_balance − unpaid_commitments`. `remaining_budget = monthly_budget − unpaid_commitments −
+this month's spend **for the requested mode**`, and `null` when `monthly_budget` is `0` ("no budget set"). The one
+rule the tests pin hardest: paying a commitment is two writes — the expense, and the paid mark — and together they
+leave safe-to-spend exactly where it was, so the money is never taken twice.
+
+**Status: 2a is complete and nothing has been executed against a database.** `pytest` after each commit; the
+staging sequence is written but unrun (see the 0003 block in `docs/migration-runbook.md`). The new staging tests are
+written and are skipped here. Step 2b — the Home card, the commitments sheet and the Settings "Money" section in
+`app/static/index.html` — has not been started.
+
+**Two prerequisites are now guards, not footnotes.** The up file checks that `0002` is applied before it creates
+anything (`run 0002 first: public.transactions.user_id is missing`, or `public.api_tokens`), because its view reads
+the column `0002` adds; the down file refuses with `nothing to roll back: 0003 is not applied` when none of the four
+objects exist, and cleans up a half-applied 0003 by snapshotting only the tables that are there.
+`verify_after_0003.sql` reports `transactions.user_id` as its first row (row 0), and `docs/migration-runbook.md` §10
+states the `0002` prerequisite and points at `verify_after_up.sql` first.
+
+**Not verified (no database, no browser, no phone):** the SQL has never been parsed or run, so
+`security_invoker`, FORCE RLS, the composite FK and the view's revoke are argued from the documentation and from
+0002's conventions, not observed on this project. The staging rehearsal is what would prove them.
 
 ## Pass 5 — what changed
 
