@@ -63,6 +63,119 @@ def test_the_add_sheet_has_one_save_and_no_pill(client: TestClient) -> None:
     assert "@container (max-height: 650px)" not in page
 
 
+def opening_tag(page: str, marker: str) -> str:
+    """The opening tag that carries `marker`, up to its first '>'.
+
+    A string harness can only read what the served markup says, so this is how a test asks an element
+    about its own attributes — whether the form starts hidden, for one — rather than about the script
+    that will move it later.
+    """
+    start = page.index(marker)
+    return page[start:page.index(">", start) + 1]
+
+
+def test_the_add_sheet_opens_on_a_two_option_chooser(client: TestClient) -> None:
+    """The "+" lands on Manual or AI first, with no field, keypad or picker on screen until then.
+
+    The sheet used to open straight onto the keypad, with Smart Entry always above it. It now opens on a
+    chooser and every open resets to it. What a test can pin down is: both options exist, the two flows
+    and the keypad start hidden, Save is not offered before there is anything to save, and opening the
+    sheet asks for the chooser.
+    """
+    page = client.get("/").text
+    assert 'id="screen-chooser"' in page
+    assert ">Manual<" in page and ">AI<" in page
+    # nothing to type into or tap a key on before the choice is made
+    assert "hidden" in opening_tag(page, '<section id="screen-add"')
+    assert "hidden" in opening_tag(page, '<section id="screen-ai"')
+    assert "hidden" in opening_tag(page, 'id="addKeypad"')
+    assert "hidden" in opening_tag(page, 'id="saveAddBtn"')
+    # every open asks for the chooser, Back asks for it too, and nothing else picks a view
+    assert page.count('showAddView("chooser")') == 2
+    opened = page[page.index("function openAddSheet("):page.index("function closeAddSheet(")]
+    assert 'showAddView("chooser")' in opened, "a fresh sheet must start on the chooser"
+    assert "function showAddView(view)" in page
+    assert '$("addKeypad").hidden = view !== "manual";' in page
+    assert '$("saveAddBtn").hidden = view !== "manual";' in page
+
+
+def test_the_chooser_is_a_compact_two_card_grid(client: TestClient) -> None:
+    """Two square cards side by side on a sheet that hugs them, until a flow is chosen.
+
+    The chooser used to be two thin full-width rows at the top of a full-height sheet, which left most
+    of the sheet blank. What markup and CSS can pin down here: the grid is two columns with a 12px gap,
+    each card is one button carrying a badge, a bold label and a wrapping sub-label and no chevron
+    (there is nowhere to go sideways), the rows that do open something keep theirs, and the sheet is
+    compact only while the chooser is up — never a size container in that state, because `contain: size`
+    would collapse an auto-height box.
+    """
+    page = client.get("/").text
+    assert ".chooser-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px;" in page
+    for card in ('<button class="chooser-card" id="chooseManualBtn" type="button">',
+                 '<button class="chooser-card" id="chooseAiBtn" type="button">'):
+        assert card in page, card
+    assert page.count('class="chooser-badge"') == 2, "one icon badge per card"
+    assert "<span class=\"chooser-sub\">Amount, merchant &amp; category</span>" in page
+    assert "<span class=\"chooser-sub\">Typed note or receipt photo</span>" in page
+    chooser = page[page.index('<section id="screen-chooser">'):page.index('<section id="screen-add"')]
+    assert "add-row-chev" not in chooser, "the cards are the tap target; no chevron"
+    assert "add-row-chev" in page, "the rows that do open something keep theirs"
+    # the sub-label wraps rather than ellipsising: it is the one control that starts every entry
+    sub = page[page.index(".chooser-sub {"):page.index("}", page.index(".chooser-sub {"))]
+    assert "ellipsis" not in sub and "nowrap" not in sub, "the sub-label must wrap, not clip"
+    assert "#addSheet.is-compact {" in page
+    compact = page[page.index("#addSheet.is-compact {"):page.index("#addSheet.is-compact #screen-chooser")]
+    assert "height: auto" in compact and "container-type: normal" in compact
+    assert "padding-bottom: calc(16px + var(--sab))" in compact, "the cards clear the home indicator"
+    assert '$("addSheet").classList.toggle("is-compact", view === "chooser");' in page
+
+
+def test_each_flow_returns_to_the_chooser_and_cancel_leaves_the_sheet(client: TestClient) -> None:
+    """Back is inside each flow; Cancel stays in the header and still closes the sheet from every view."""
+    page = client.get("/").text
+    assert 'id="addBackManual"' in page and 'id="addBackAi"' in page, "one Back per flow"
+    assert page.count('addEventListener("click", reverseAddView)') == 2, "both Backs are wired"
+    assert 'addEventListener("click", function () { showAddView("manual"); })' in page
+    assert 'addEventListener("click", function () { showAddView("ai"); })' in page
+    assert 'id="closeAddBtn"' in page
+    assert '$("closeAddBtn").addEventListener("click", closeAddSheet);' in page
+    assert page.count('isOutsideTap(event, $("') == 3, "the scrim still closes the sheet"
+    # Back takes the keyboard with it, or the chooser returns under a keyboard with nothing to type into
+    back = page[page.index("function reverseAddView("):page.index("function reverseAddView(") + 400]
+    assert "active.blur()" in back
+
+
+def test_the_chooser_moved_the_entry_point_and_not_the_submission(client: TestClient) -> None:
+    """Both flows post exactly what they posted before: same endpoints, same fields, same payload keys."""
+    page = client.get("/").text
+    for call in ('api("/transactions", {', 'api("/transactions/text", {', 'api("/transactions/scan", {'):
+        assert call in page, call
+    assert "body: JSON.stringify({ text: text, mode: addMode })" in page
+    assert 'form.append("mode", addMode);' in page
+    # the fields and rows each flow submits from still exist: they moved view, not shape
+    for element in ('id="textInput"', 'id="textBtn"', 'id="scanBtn"', 'id="addMerchant"',
+                    'id="addNote"', 'id="addDate"', 'id="keypadGrid"', 'id="addChips"'):
+        assert element in page, element
+
+
+def test_every_add_sheet_field_keeps_the_16px_ios_floor(client: TestClient) -> None:
+    """iOS zooms the whole page when a focused control is under 16px, and this sheet never resizes.
+
+    The chooser's own controls are two buttons, which iOS does not zoom for, so this is the floor over
+    the fields the two flows share: the Smart Entry text field, the merchant and note inputs, and the
+    invisible date input over the pill.
+    """
+    page = client.get("/").text
+    assert ".add-field {" in page and ".add-date-input {" in page
+    assert not re.search(r"\.(add-field|add-date-input)[^{]*\{[^}]*font-size:\s*(1[0-5]|[0-9])px", page), (
+        "a sheet field is under the 16px iOS zoom threshold"
+    )
+    # and the same floor for anything else the CSS sizes by control type
+    assert not re.search(r"(input|select|textarea)[^{]{0,60}\{[^}]*font-size:\s*(1[0-5]|[0-9])px", page), (
+        "a control is under the 16px iOS zoom threshold"
+    )
+
+
 def test_the_detail_sheet_swipes_and_keeps_its_old_edit_buttons(client: TestClient) -> None:
     """The swipe surfaces and the scroll gate stay; edit mode is back to its plain row of buttons."""
     page = client.get("/").text

@@ -548,9 +548,11 @@
   #txnSheet .sheet-title, #txnSheet .sheet-sub, #txnSheet .sheet-amount,
   #txnSheet .result-merchant, #txnSheet .result-amount, #txnSheet .result-meta,
   #txnSheet .kv, #txnSheet .card-title { touch-action: none; }
-  /* min-height: 0 keeps this column shrinkable. No bottom padding: the keypad is always the sheet's
-     last row now, so there is no case where content meets the sheet edge. */
-  #screen-add { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  /* One of the sheet's three views is on screen at a time: the chooser it opens on, then Manual or AI.
+     Each is the flexible row of the sheet's column, so its content starts at the top and the keypad
+     (Manual only) stays pinned to the bottom. min-height: 0 keeps the column shrinkable. No bottom
+     padding: the keypad is the sheet's last row whenever it is on screen. */
+  #screen-chooser, #screen-add, #screen-ai { display: flex; flex-direction: column; flex: 1; min-height: 0; }
   #addTypeToggle { flex: none; margin: 0 0 2px; }
   /* The amount owns every spare pixel between the segmented control and the pills, so a tall phone
      spends the slack as breathing room around the number instead of leaving a hole above the keys.
@@ -641,8 +643,61 @@
     transition: transform var(--dur-page) var(--ease-ios);
   }
   .add-row.is-open .add-row-chev { transform: rotate(90deg); }   /* chevron points down when open */
-  /* Smart Entry: one always-visible card at the top of the sheet — sparkle + label, then the field
-     and a fixed-width Add button. Nothing about it opens or closes, so nothing about the sheet moves
+  /* The chooser: two square cards side by side, and nothing else on the sheet. They are the whole
+     screen while they are up, so the card itself is the tap target and there is no chevron — there is
+     nowhere to go sideways. 176px rather than a 132px floor: the badge, the bold label and the help
+     line need ~146px of box at 16px padding, and 176 squares the card on a 375px phone (165.5 x 176)
+     while landing the compact sheet at 251px. The help line wraps (two lines on a 375/390px phone,
+     three at 320) rather than being cut off: the one control that starts every entry shows all of its
+     own text. It is --text-2 and not the --muted the hint under Scan Receipt uses, because measured
+     --muted is ~3:1 on --card-2 in light mode, under 4.5:1 for 13px text, where --text-2 measures
+     8.4:1 light and 5.3:1 dark. */
+  .chooser-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 4px 0 0; }
+  .chooser-card {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 10px;
+    min-height: 176px; padding: 16px;
+    border: .5px solid var(--hairline); border-radius: 16px;
+    background: var(--card-2); color: var(--text); font: inherit; text-align: left;
+  }
+  .chooser-card:active { background: var(--pressed); }
+  .chooser-badge {
+    flex: none; width: 40px; height: 40px; border-radius: 12px;
+    background: var(--accent-soft); color: var(--accent);
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .chooser-badge svg { width: 22px; height: 22px; }
+  .chooser-card .add-row-label { flex: none; font-size: 16px; font-weight: 700; }
+  .chooser-sub {
+    flex: none; margin-top: auto;                    /* the card's bottom line, under a little air */
+    font-size: 13px; font-weight: 400; line-height: 1.3; color: var(--text-2);
+    overflow-wrap: break-word;
+  }
+  /* The compact state. While the chooser is up the sheet hugs the cards at the bottom edge (the dim
+     above it shows how little of the screen it needs) instead of taking the Manual view's full height,
+     and it grows to that full height the moment Manual or AI is chosen. It is also the one state where
+     #addSheet is NOT a size container: `container-type: size` applies `contain: size`, which collapses
+     a box whose height is auto — so the cards are sized by their own rules above and not by the sheet's
+     container queries. The bottom padding is the safe area plus a little, so the cards clear the home
+     indicator rather than sitting under it. */
+  #addSheet.is-compact {
+    height: auto; max-height: calc(100dvh - var(--sheet-top-gap));
+    container-type: normal;
+    padding-bottom: calc(16px + var(--sab));
+  }
+  #addSheet.is-compact #screen-chooser { flex: none; }
+  /* Back belongs to the flow, not to the header: the header keeps Cancel, which is the one control
+     that leaves the sheet from every view. It is a chip for the same reason --text on --card-2 is
+     ~15.6:1 light / ~13.9:1 dark, where accent on the sheet's white is ~4.0:1. */
+  .add-back {
+    flex: none; align-self: flex-start; min-height: 34px; margin: 0 0 6px; padding: 0 12px;
+    border: 0; border-radius: 9999px; background: var(--card-2); color: var(--text);
+    font: inherit; font-size: 15px; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .add-back svg { width: 14px; height: 14px; color: var(--accent); }
+  .add-back:active { background: var(--pressed); }
+  /* Smart Entry: one card at the top of the AI view — sparkle + label, then the field and a
+     fixed-width Add button. Nothing about it opens or closes, so nothing about the sheet moves
      when the keyboard appears. */
   .smart-card {
     flex: none; padding: 14px; border-radius: 16px; background: var(--card-2); margin: 0 0 8px;
@@ -719,6 +774,11 @@
   .add-notice { position: absolute; left: 12px; right: 12px; bottom: 100%; margin-bottom: 6px; }
   .add-notice .card { margin: 0; }
   .add-notice .error-card { margin: 0; }
+  /* The AI view's slot, in the flow above the card: there are no keys here for a notice to float over,
+     and this view has the room. Both slots are written together; only the visible one shows. */
+  .add-notice-static { flex: none; margin: 0 0 8px; }
+  .add-notice-static .card { margin: 0; }
+  .add-notice-static .error-card { margin: 0; }
   .footnote { font-size: 12px; line-height: 1.45; color: var(--muted); margin: 10px 4px 0; }
   .empty { font-size: 15px; color: var(--muted); padding: 14px; text-align: center; }
   .error-card {
@@ -1329,26 +1389,38 @@
       <div class="sheet-grab" id="addGrab" aria-hidden="true"><span></span></div>
       <div class="sheet-head has-done">
         <button class="btn-ghost sheet-cancel" id="closeAddBtn" type="button">Cancel</button>
-        <h2 class="sheet-title">New Transaction</h2>
-        <button class="btn-ghost sheet-done" id="saveAddBtn" type="button" disabled>Save</button>
+        <h2 class="sheet-title" id="addSheetTitle">Add Transaction</h2>
+        <button class="btn-ghost sheet-done" id="saveAddBtn" type="button" disabled hidden>Save</button>
       </div>
 
-      <section id="screen-add">
-        <!-- Smart Entry: always visible, directly under the header, so the keyboard only ever covers
-             the lower half of a sheet that never resizes. -->
-        <div class="smart-card" id="smartEntry">
-          <div class="smart-card-head">
-            <span class="add-row-icon">
+      <!-- 1. The chooser. The sheet opens here, so no input, no keypad and no native picker is on
+           screen until the entry method has been chosen. It is also where the other two views return. -->
+      <section id="screen-chooser">
+        <div class="chooser-grid">
+          <button class="chooser-card" id="chooseManualBtn" type="button">
+            <span class="chooser-badge">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8.4 7.6h.01M12 7.6h.01M15.6 7.6h.01M8.4 12h.01M12 12h.01M15.6 12h.01M8.4 16.4h3.2"/></svg>
+            </span>
+            <span class="add-row-label">Manual</span>
+            <span class="chooser-sub">Amount, merchant &amp; category</span>
+          </button>
+          <button class="chooser-card" id="chooseAiBtn" type="button">
+            <span class="chooser-badge">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4.2l1.7 4.6 4.6 1.7-4.6 1.7L12 16.8l-1.7-4.6-4.6-1.7 4.6-1.7L12 4.2Z"/><path d="M18.4 15.6l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2Z"/></svg>
             </span>
-            <span class="add-row-label">Smart Entry</span>
-          </div>
-          <div class="smart-card-row">
-            <input class="add-field add-text" id="textInput" type="text" placeholder="makan tengah hari 12 ringgit"
-                   autocapitalize="sentences" enterkeyhint="done">
-            <button class="btn-primary" id="textBtn" type="button">Add</button>
-          </div>
+            <span class="add-row-label">AI</span>
+            <span class="chooser-sub">Typed note or receipt photo</span>
+          </button>
         </div>
+      </section>
+
+      <!-- 2. Manual: the keypad's own view. The amount, the date, the chips and the header's Save are
+           the only things that submit from here, and Back above them returns to the chooser. -->
+      <section id="screen-add" hidden>
+        <button class="add-back" id="addBackManual" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+          Back
+        </button>
         <div class="segmented" id="addTypeToggle" role="group" aria-label="Type">
           <button class="seg-btn is-active" type="button" data-add-type="expense">Expense</button>
           <button class="seg-btn" type="button" data-add-type="income">Income</button>
@@ -1379,8 +1451,32 @@
         </div>
 
         <div class="chip-scroll" id="addChips" role="group" aria-label="Category"></div>
+      </section>
 
-        <!-- Scan Receipt is the one row left under the chips: Smart Entry is a fixed card at the top. -->
+      <!-- 3. AI: Smart Entry, then Scan Receipt. No keypad: the real keyboard is the input here, and
+           the sheet is fixed, so it only ever covers what sits below the field. Its notice slot is in
+           the flow above the card, because this view has no keys for one to float over. -->
+      <section id="screen-ai" hidden>
+        <button class="add-back" id="addBackAi" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+          Back
+        </button>
+        <div class="add-notice-static" id="addNoticeAi" hidden></div>
+        <div class="smart-card" id="smartEntry">
+          <div class="smart-card-head">
+            <span class="add-row-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4.2l1.7 4.6 4.6 1.7-4.6 1.7L12 16.8l-1.7-4.6-4.6-1.7 4.6-1.7L12 4.2Z"/><path d="M18.4 15.6l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2Z"/></svg>
+            </span>
+            <span class="add-row-label">Smart Entry</span>
+          </div>
+          <div class="smart-card-row">
+            <input class="add-field add-text" id="textInput" type="text" placeholder="makan tengah hari 12 ringgit"
+                   autocapitalize="sentences" enterkeyhint="done">
+            <button class="btn-primary" id="textBtn" type="button">Add</button>
+          </div>
+        </div>
+
+        <!-- Scan Receipt is the view's second way in, under the card that takes the typed one. -->
         <div class="add-rows">
           <button class="add-row" id="scanBtn" type="button" aria-busy="false">
             <span class="add-row-icon" id="scanIcon"></span>
@@ -1393,7 +1489,7 @@
         <input type="file" id="fileInput" accept="image/*" capture="environment" hidden>
       </section>
 
-      <div class="keypad" id="addKeypad">
+      <div class="keypad" id="addKeypad" hidden>
         <div class="add-notice" id="addNotice" hidden></div>
         <div class="keypad-grid" id="keypadGrid"></div>
       </div>
@@ -2859,15 +2955,58 @@
     $("addDateLabel").textContent = addDateText(iso);
   }
 
-  // One notice slot, floating just above the keys: a failure can never hide below the fold.
+  // Two notice slots, one per view that can fail: the manual one floats just above the keys, the AI one
+  // sits in the flow above the card. Both are written together, so a failure is never invisible in the
+  // view that produced it, and neither slot can be left holding a stale message.
+  var ADD_NOTICE_IDS = ["addNotice", "addNoticeAi"];
+
   function showAddNotice(html) {
-    $("addNotice").innerHTML = html;
-    $("addNotice").hidden = false;
+    ADD_NOTICE_IDS.forEach(function (id) {
+      $(id).innerHTML = html;
+      $(id).hidden = false;
+    });
   }
 
   function hideAddNotice() {
-    $("addNotice").hidden = true;
-    $("addNotice").innerHTML = "";
+    ADD_NOTICE_IDS.forEach(function (id) {
+      $(id).hidden = true;
+      $(id).innerHTML = "";
+    });
+  }
+
+  /* ---------- add sheet: one view at a time ---------- */
+
+  // The sheet's three views: the chooser it opens on, Manual (the keypad and its fields) and AI (Smart
+  // Entry and Scan Receipt). Exactly one is on screen, and the keypad and the header's Save belong to
+  // Manual alone — there is no amount to type and nothing to save in the other two. One function moves
+  // all of it together, so a view and its chrome can never disagree. The sheet's own height is part of
+  // that: compact while the chooser is up (its two cards are the whole content), full height from the
+  // moment a flow is chosen, because Manual's keypad wants every pixel.
+  var ADD_VIEWS = ["chooser", "manual", "ai"];
+  var ADD_VIEW_TITLES = { chooser: "Add Transaction", manual: "New Transaction", ai: "Smart Entry" };
+  var addView = "chooser";
+
+  function addViewNode(view) {
+    return $(view === "manual" ? "screen-add" : "screen-" + view);
+  }
+
+  function showAddView(view) {
+    if (ADD_VIEWS.indexOf(view) < 0) view = "chooser";
+    addView = view;
+    ADD_VIEWS.forEach(function (name) { addViewNode(name).hidden = name !== view; });
+    $("addKeypad").hidden = view !== "manual";
+    $("saveAddBtn").hidden = view !== "manual";
+    $("addSheet").classList.toggle("is-compact", view === "chooser");
+    $("addSheetTitle").textContent = ADD_VIEW_TITLES[view];
+  }
+
+  // Back moves inside the sheet; Cancel is what leaves it, so both stay on screen in both flows. The
+  // keyboard belongs to the view being left, so it goes first: otherwise the chooser comes back under a
+  // raised keyboard that has nothing left to type into.
+  function reverseAddView() {
+    var active = document.activeElement;
+    if (active && active.blur) active.blur();
+    showAddView("chooser");
   }
 
   function keypadHtml() {
@@ -3652,7 +3791,7 @@
     paintAddAmount();
     paintAddChips();
     paintAddToggle("addTypeToggle", "addType", addType);
-    $("screen-add").hidden = false;
+    showAddView("chooser");           // every open starts on the chooser, whatever the last one did
     $("addSheet").style.transform = "";
     $("addSheet").scrollTop = 0;
     lockPageScroll(true);              // the height itself is CSS: fixed, inset: 0, 100dvh
@@ -3886,6 +4025,10 @@
       if (isOutsideTap(event, $("monthOverlay"))) closeMonthSheet();
     });
     $("addBtn").addEventListener("click", openAddSheet);   // the raised "+" in the tab bar
+    $("chooseManualBtn").addEventListener("click", function () { showAddView("manual"); });
+    $("chooseAiBtn").addEventListener("click", function () { showAddView("ai"); });
+    $("addBackManual").addEventListener("click", reverseAddView);
+    $("addBackAi").addEventListener("click", reverseAddView);
     $("closeAddBtn").addEventListener("click", closeAddSheet);
     $("addOverlay").addEventListener("click", function (event) {
       if (isOutsideTap(event, $("addOverlay"))) closeAddSheet();

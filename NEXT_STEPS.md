@@ -22,6 +22,110 @@ Prepared after the auth-screen polish on branch `multi-user`. Read this before t
 | Pass 11 — runbook read-through against the tools | **Done.** Every tool-agreeing claim verified against code; four stale-prose fixes; steps 3–4 now self-report the project ref. |
 | Pass 12 — live `image_hash` shape, step 3 hardened | **Done except the staging rollback.** Production's `image_hash` uniqueness is a *partial unique index*, which step 3's text patterns could not see; step 3 now reads the catalog. Staging rebuilt to that shape and re-run: `up`, `verify_after_up.sql` and the 15 isolation tests all clean. `0002 down` on staging is the one rehearsal step left. *(Rollback since run — see Pass 13.)* |
 | Pass 13 — live cutover, steps 3–4 and 9 | **Done and verified.** Live was found already migrated, with the **fixed** `0002` (snapshot 2 rows, partial index with its `WHERE`). Receipts backed up (16 files / 10.8 MB), baseline audit 75 rows / 16 objects, and the 2 receipt objects moved into the owner's folder with a sha256 match against the backup. **Live is now in an open write window: the deployed code cannot insert until step 11.** |
+| Phase 1 — Add Transaction chooser (UI only) | **Done and measured in a desktop browser; not measured on a real iPhone, and no write was made.** The "+" now opens a two-option chooser — a compact sheet hugging two square cards, which expands to full height once Manual or AI is chosen; each flow has its own Back. See the Phase 1 section — it lists every number that was measured and everything that was not. |
+
+## Phase 1 — the Add Transaction chooser (UI only)
+
+**Branch `feat/add-transaction-chooser`, cut from `origin/main` = `52e7a75`; nothing pushed, nothing merged, no
+schema or database change.** Files: `app/static/index.html` (the change), `tests/test_static.py` (five new page
+tests), `NEXT_STEPS.md` (this section). `app/*.py`, `schema.sql`, `migrations/`, `docs/` untouched — Phase 1 is
+the UI only.
+
+**What the sheet is now.** The header is unchanged (Cancel / title / Save), and under it sit three views:
+`#screen-chooser` (the two options, as two square cards side by side on a sheet that hugs them),
+`#screen-add` (Manual: the amount, the keypad, the date and mode pills, Details, the chips) and `#screen-ai`
+(AI: the Smart Entry card and Scan Receipt). While the chooser is up the sheet is **compact** — `height: auto`,
+growing from the bottom edge to fit the two 176px cards and nothing else — and it expands to its full height the
+moment Manual or AI is chosen. The `is-compact` class that says so is set by the same `showAddView()` call that
+switches the view and the chrome, so the height cannot disagree with what is on screen. The keypad is the sheet's
+last row and, with Save in the header, exists **only** in Manual — there is no amount to type and nothing to save
+in the other two. One function, `showAddView()`, moves the three views and that chrome together; `openAddSheet()`
+asks for the chooser on every open, so a second open cannot land on the view the last one used. Each flow has its
+own Back (`reverseAddView`, which blurs first so the chooser cannot return under a raised keyboard); Cancel, the
+scrim tap and the swipe-down drag are unchanged, so the sheet can still be dismissed from any view. Both flows
+submit exactly what they submitted before: `POST /transactions` (keypad Save), `POST /transactions/text` and
+`POST /transactions/scan`, with the same fields, the same payload keys and the same duplicate handling — only the
+entry point moved. The notice slot is now two slots (one above the keys, one in the AI view), because the manual
+slot lives inside the keypad and would be invisible in a view that has no keypad.
+
+**Measured, this session, in desktop Chromium — nothing below is an inference.** The behaviour walk was run twice:
+once against the **real served page** (`uvicorn` on `127.0.0.1:8000`, `GET` only) and once on a copy of that same
+response served on a second port so it could be framed at exact sizes, in both themes, at 375x667, 390x844 and
+320x568. The layout below is the **refined** one — a compact chooser sheet with two square cards; this branch's
+first pass had two full-width rows on a full-height sheet, and those numbers are superseded here rather than kept.
+
+- **The walk, identical in every viewport and both themes:** closed → `+` → chooser on screen, Manual and AI
+  hidden, keypad hidden, Save hidden, title **Add Transaction**, and **zero `input`/`select`/`textarea` inside the
+  sheet**; → Manual → form + keypad + Save on screen, title **New Transaction**, three inputs (date, merchant,
+  note), the amount line reading **RM 0.00** with Save still greyed (no digits were typed this session — the keys
+  themselves are unchanged by this work); → Back → chooser, keypad gone and the sheet back to its compact height
+  (251px); → AI → Smart Entry card and Scan Receipt on screen, title **Smart Entry**, keypad and Save hidden, one
+  input; → Back → chooser; → Cancel → the overlay is closed (`.open` gone, `aria-hidden="true"`, the sheet parked
+  at `translateY(251px)`). A second open lands on the chooser again, never on the last view.
+- **The sheet is compact in the chooser and full height in both flows.** Chooser: **251px** at all three sizes —
+  `height: auto` hugging two 176px cards (grab 17 + head 38 + grid margin 4 + card 176 + 16 bottom), flush to the
+  bottom edge (0px gap), `container-type: normal`. That last part is the subtle one: this is the only state where
+  `#addSheet` is **not** a size container, because `container-type: size` applies `contain: size`, which collapses
+  a box whose height is auto. The cards are therefore sized by their own rules, and the sheet's
+  `@container (max-height: 640px)` block simply does not apply while the chooser is up. Manual and AI:
+  **600.3px** at 375x667 (that block applies again), **759.6px** at 390x844, **511.2px** at 320x568 — the same
+  heights the sheet had before this change. The bottom padding is `calc(16px + var(--sab))`, so the cards clear a
+  home indicator; `--sab` is 0 in the harness.
+- **The chooser grid, from `getBoundingClientRect()`:** two cards on one row — `display: grid`,
+  `grid-template-columns: 1fr 1fr`, `gap: 12px` — 165.5x176 at 375 (w/h 0.94), 173x176 at 390 (0.98), 138x176 at
+  320 (0.78). Each card is one `<button>` (no chevron: there is nowhere to go sideways) carrying a 40x40 badge, a
+  16px/700 label and a 13px help line that **wraps** (2 lines at 375 and 390, 3 at 320) rather than ellipsising;
+  `scrollWidth == clientWidth` and `scrollHeight == clientHeight` on every card and every text node, so **nothing
+  is clipped and nothing is ellipsised**. `document.documentElement.scrollWidth - innerWidth` was **0** at every
+  size and every theme, and so was the sheet's own overflow. (The only horizontal scroller the sweep finds is
+  `#addChips`, the chips row in Manual, which pans sideways by design — 539px of content at 375.)
+- **Contrast, computed from the painted colours with alpha compositing** (foreground over the background it sits
+  on, light / dark): card label **15.59 / 13.94**; card help line **8.44 / 5.27**; sheet title **17.21 / 17.01**;
+  Cancel **4.02 / 4.66** (unchanged). Two new numbers worth stating rather than burying, because this refinement
+  added the elements they belong to: the badge icon (`--accent` on `--accent-soft` over `--card-2`) is
+  **3.14 / 3.11** — above the 3:1 floor for a graphic, but with little to spare, and it is decorative (the label
+  names the option); and the card's own surface is only **1.10 / 1.22** against the sheet's white / `#1c1c1e`,
+  with its hairline border at **1.36 / 1.44** — the same "surface + hairline, not a 3:1 ring" posture every other
+  `--card-2` control in this sheet already has (Back chip, pills, chips). The help line deliberately uses
+  `--text-2` and not the `--muted` the sheet's other secondary text uses: `--muted` measured **2.97:1** on
+  `--card-2` in light mode, under 4.5:1 for 13px text. `.add-hint` still uses `--muted` — pre-existing and left
+  alone. The Back chip (**15.59 / 13.94** text, **3.64 / 3.82** chevron) and the Smart Entry field
+  (**17.21 / 13.94**) were measured in this branch's first pass; those elements did not change.
+- **The AI failure path renders where it can be seen** (measured in this branch's first pass, not re-run since; the
+  AI view and both notice slots are untouched by the refinement): with a typed note and the framed copy's request
+  answered as unauthorised (no session there), the error card appeared **inside the AI view** (`#addNoticeAi` on
+  screen, the manual slot off screen because its keypad is hidden), sheet overflow still 0, and Back returned to a
+  clean chooser. No write was issued at any point.
+- **Console: no JavaScript errors in any run.** The real served page reported **0 messages**; the framed copies
+  reported only 18 x `404 /logo.png`, which have no file to load there — a harness artefact, not the app.
+- **Three screenshots were taken this session** (the browser tool could capture the harness page, unlike the first
+  pass of this branch): the chooser at 375x667, 390x844 and 320x568 in **light** and in **dark**, and Manual/AI
+  opened from it. They are **not in the repo** — `chooser-light-375-390-320.png`,
+  `chooser-dark-375-390-320.png` and `flows-manual-ai-manual.png` sit beside `page.html` and `harness.html` (the
+  framed copy and its wrapper) under `$TMPDIR/opencode/phase1-measure/`. The two chooser shots were taken with the
+  copy's sign-in screen hidden — see (5) below for why that was necessary.
+
+**NOT measured, and recorded as not measured.** (1) **No real iPhone and no iOS keyboard.** Nothing here was
+touched by a finger; the three device-specific questions this change raises are open — Back while the AI field has
+focus and the keyboard is up, focus zoom in the two flows, and how much of the AI view the iOS keyboard covers.
+Every iOS trap the file relies on is unchanged and pinned by test, but that is not the same as measured. (2) **No
+write was made, anywhere.** The three endpoints are asserted unchanged by the page test and by reading the calls,
+not exercised end to end; the acceptance for Phase 1 is the entry point, so nothing was posted. (3) The framed runs
+had `--sat`/`--sab` = 0 and no keyboard, and `dvh` inside a frame is the frame's height; a real 375x667 iPhone
+Safari box is not this 600.3px box, and none of the above saw a notch or a home indicator. (4) The framed copy and
+the real page are both **signed out** (no session is available to an agent), so the page behind the overlay was the
+app's sign-in screen and not a real transaction list — the sheet's geometry does not depend on what is behind it,
+but that is an assumption, not a measurement. (5) That sign-in screen sits at `z-index: 40`, above `#addOverlay`
+(20) and the tab bar (10) — **pre-existing, untouched by Phase 1**, and irrelevant on a signed-in phone, but it is
+why the visual evidence required hiding `#authScreen` first. (6) The theme was set by writing `data-theme` on
+`<html>` rather than by the OS preference, and the harness copy's own theme choice resolved to dark on this desktop
+— worth knowing before reading any single-pass number out of context.
+
+**Branch and docs, stated because they do not line up.** This branch was cut from **`origin/main` = `52e7a75`**,
+because local `main` is a **stale ref 43 commits behind** it. `multi-user` carries **Pass 14 and Pass 15**
+(`f881b67`, `19179ef`), which record PR #1's merge and the deployed commit; they are **still unmerged**, so this
+branch's copy of this file is two docs commits behind them and the `## Next` below is Pass 13's list, not the
+current one.
 
 ## Pass 13 — the live cutover: what live actually was, and steps 3–4 and 9
 
@@ -453,11 +557,15 @@ Three fixes follow from it:
 
 ## Current branch + last commit
 
-- Branch: `multi-user`, tracking `origin/multi-user`, pushed.
-- `main` is untouched and was **not** pushed. PR **#1** (`multi-user` → `main`) is open and unmerged:
-  https://github.com/hanennkam/duits-money-management/pull/1
-- `pytest` at Pass 13: **206 passed, 15 skipped, 2 warnings**. Staging suite: **15 passed**. Read the count
-  from the run you make — this line is a checkpoint, not a constant.
+- Branch: `feat/add-transaction-chooser`, cut from `origin/main` = `52e7a75` (PR #1's merge commit — the deployed
+  code) and **not pushed**. Phase 1 is committed on it; nothing is merged and `main` is untouched.
+- `origin/main` is at `52e7a75`; the previous `main` commit is the rollback target.
+- Local `main` is a **stale ref, 43 commits behind** `origin/main`; it has since been **fast-forwarded in place**
+  (`git fetch origin && git branch -f main origin/main`, authorised, nothing pushed), so the trap is gone. Branch
+  from `origin/main` if you are re-cutting this work.
+- `pytest` at Phase 1: **211 passed, 15 skipped, 2 warnings** — the 206 of Pass 13 plus the five new page tests
+  (page harness alone: 41). The staging suite was **not** re-run in this pass. Read the count from the run you
+  make — this line is a checkpoint, not a constant.
 
 ## Pass 5 — what changed
 
@@ -761,6 +869,13 @@ full detail; this is the summary.
 needs no manual bump; forgot-password delivers and the enumeration leak is closed (pass 8).
 
 ## Next
+
+> **Phase 1 (the Add Transaction chooser) is on `feat/add-transaction-chooser`** — the section at the top of this
+> file has the facts and the not-measured list. **Everything below is Pass 13's list, written while PR #1 was
+> open, and is superseded:** PR #1 has been merged (`main` = `52e7a75`), Render deployed it, and Passes 14–15
+> record that — they live on `multi-user` (`f881b67`, `19179ef`) and are **still unmerged**, which is why this
+> branch's copy of this file is behind them. Fold those in (direct merge, no PR) before treating the list below
+> as current, and do not merge this branch to `main` until the branch's own copy of this file has them.
 
 **The write window decides the schedule.** Every scan, text and manual entry against live has been failing since
 step 7 (`main` never sets `user_id`; live's `user_id` is `NOT NULL`), so closing it is the priority and the
