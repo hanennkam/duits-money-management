@@ -1,9 +1,9 @@
 # Cutover runbook — going live
 
-**Status: in progress (2026-10-17).** Steps 1–9 have run. Step 7's migration was applied to live with the fixed
-file, and steps 3, 4 and 9 were run by the assistant and verified (live's snapshot table holds 2 rows, and both
-moved receipts are sha256-identical to the pre-move backup) — see `NEXT_STEPS.md`, Pass 13. **Steps 10–14 are
-outstanding, and live is in an open write window until step 11 deploys the branch.**
+**Status: steps 1–12 have run; the migration window is closed (2026-10-17).** Live is migrated (`52e7a75` is
+deployed, and its Build row says so), sign-up is closed, the receipts are re-homed and byte-verified, and SMTP is
+confirmed by delivery. **Step 12's acceptance half — a real write on the phone — is the only unproven item**, then
+13–14. See `NEXT_STEPS.md`, Passes 13–14.
 
 **Legend.** Every step is marked:
 

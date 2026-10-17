@@ -22,6 +22,60 @@ Prepared after the auth-screen polish on branch `multi-user`. Read this before t
 | Pass 11 — runbook read-through against the tools | **Done.** Every tool-agreeing claim verified against code; four stale-prose fixes; steps 3–4 now self-report the project ref. |
 | Pass 12 — live `image_hash` shape, step 3 hardened | **Done except the staging rollback.** Production's `image_hash` uniqueness is a *partial unique index*, which step 3's text patterns could not see; step 3 now reads the catalog. Staging rebuilt to that shape and re-run: `up`, `verify_after_up.sql` and the 15 isolation tests all clean. `0002 down` on staging is the one rehearsal step left. *(Rollback since run — see Pass 13.)* |
 | Pass 13 — live cutover, steps 3–4 and 9 | **Done and verified.** Live was found already migrated, with the **fixed** `0002` (snapshot 2 rows, partial index with its `WHERE`). Receipts backed up (16 files / 10.8 MB), baseline audit 75 rows / 16 objects, and the 2 receipt objects moved into the owner's folder with a sha256 match against the backup. **Live is now in an open write window: the deployed code cannot insert until step 11.** |
+| Pass 14 — merge, deploy, smoke test | **Merged and deployed.** PR #1 merged (`main` = `52e7a75`), Render auto-deployed, live Build row `52e7a75 · fullscreen` (was `motion 6 · 2026-10-16 · fullscreen`), so the write window is **closed**. Step 12's HTTP half is clean: `/health` 200, `/` 200 with `no-store` and a matching per-response CSP nonce, the deployed `/transactions?month=2026-10` reads the migrated schema (200), and the re-homed receipt serves a 200 signed URL at 572574 bytes. **The write path itself is not yet proven by me** — that is the owner's phone half. |
+
+## Pass 14 — the merge, the deploy, and step 12's HTTP half
+
+**Merged on the owner's "env vars set".** PR #1 (`multi-user` → `main`) merged as a merge commit;
+`main` = **`52e7a75`** (`52e7a75175f48b04814cf6cbf5a96903af745835`). Render auto-deploys from `main`, and the
+Build row is what proves the *new* deploy is answering rather than the old one still being up — it moved from
+`motion 6 · 2026-10-16 · fullscreen` to **`52e7a75 · fullscreen`** within ~45 s of the merge. That transition is
+the evidence; `/health` returning 200 proves nothing about which commit is running.
+
+**The write window is closed.** The deployed code is now the branch, which sets `user_id` — so the reason every
+scan, text and manual entry had been failing since step 7 no longer applies. Entries attempted during the
+window were still never saved: see the lost-writes note in Pass 13.
+
+**Step 12, my half — measured against live, all read-only:**
+
+| Check | Result |
+| --- | --- |
+| `/health` | **200** |
+| `/` status | **200** |
+| `cache-control` | **`no-store`** |
+| `content-security-policy` | nonce present, and **the page's script tags carry exactly that nonce** within the same response (4 occurrences, 0 un-nonced scripts) |
+| Build row | **`52e7a75 · fullscreen`** = the deployed merge commit |
+| `GET /transactions?month=2026-10` (`X-API-Key`) | **200**, 63 rows — the deployed code reads live's migrated schema |
+| `GET /transactions/{id}/receipt-url` | **200**, and the signed URL fetches **200 `image/jpeg`, 572574 bytes** — the re-homed receipt loads |
+
+Note on that read: the `Transaction` response model does not expose `user_id`, so "the row came back" proves the
+read path works against the migrated schema, not that the write path does. `GET` also needs `month`; without it
+the API answers 422, which is its own contract and not a deploy fault.
+
+**The acceptance line is deliberately not met yet, and it is not mine to meet.** A real write — one scan and one
+manual entry → **201** with the rows visible — is the proof that the `user_id` write path works, and it runs on
+the phone (owner). I did not create a test row: the write is the owner's half, and a placeholder row on live
+would also break the no-dummy-data rule. Everything above is the cheap half and is reported as such.
+
+**Live SMTP is confirmed by delivery, not by a saved page (owner).** `smtp.gmail.com`, 465, sender
+`hanennkam@gmail.com`, name **Duits**; one real test message arrived, with the 60-second per-user drop respected
+(the test went to an address not mailed in the previous minute). Sign-up was already closed
+(`disable_signup: true`).
+
+**Step 2's `pg_dump` — settled, with a correction to the earlier framing.** No dump exists locally and there is
+no `pg_dump` on this Mac (Pass 13). The owner is recording the Supabase dashboard's most recent backup timestamp
+as the database's recovery reference, either way. The honest reading: a *pre-migration* dump is moot now — the
+migration has run and is verified, and there is no pre-migration state to return to except through the rehearsed
+`0002 down`. The real gap is a plain corruption/recovery gap, the same as any undumped database, and it does not
+change the recovery paths: redeploy the previous `main` commit and/or `0002 down`. Storage is covered twice
+(16 Oct and 17 Oct, 16 files each), and the 16 Oct copy holds the pre-move originals of both re-homed objects —
+**keep both copies**.
+
+**Kept for later, by instruction:** the 14 orphans are investigated only after the phone half passes, with no
+bucket cleanup before then; `schema.sql` is a separate post-deploy change; the `a2d55e96` / `b31b4f8f` citations
+get folded into the next docs touch; `migration_0002_saved_constraints` stays until steps 13–14 close the
+rollback window; and Known issue 8's three device items (`100dvh` + keyboard, `scrollIntoView` in a fixed
+container, focus zoom at exactly 16px) get measured in the same phone pass rather than reasoned about.
 
 ## Pass 13 — the live cutover: what live actually was, and steps 3–4 and 9
 
@@ -453,10 +507,10 @@ Three fixes follow from it:
 
 ## Current branch + last commit
 
-- Branch: `multi-user`, tracking `origin/multi-user`, pushed.
-- `main` is untouched and was **not** pushed. PR **#1** (`multi-user` → `main`) is open and unmerged:
-  https://github.com/hanennkam/duits-money-management/pull/1
-- `pytest` at Pass 13: **206 passed, 15 skipped, 2 warnings**. Staging suite: **15 passed**. Read the count
+- Branch: `multi-user`, tracking `origin/multi-user`, pushed — and now **merged** into `main` as PR #1 (merge
+  commit `52e7a75`), which Render deployed.
+- `main` is at `52e7a75`; the previous `main` commit is the rollback target.
+- `pytest` at Pass 14: **206 passed, 15 skipped, 2 warnings**. Staging suite: **15 passed**. Read the count
   from the run you make — this line is a checkpoint, not a constant.
 
 ## Pass 5 — what changed
@@ -762,29 +816,26 @@ needs no manual bump; forgot-password delivers and the enumeration leak is close
 
 ## Next
 
-**The write window decides the schedule.** Every scan, text and manual entry against live has been failing since
-step 7 (`main` never sets `user_id`; live's `user_id` is `NOT NULL`), so closing it is the priority and the
-order below is fixed. Step 1 is done — **PR #1 is open and unmerged**.
+**The write window is closed, and the deploy is live.** PR #1 was merged (`main` = `52e7a75`), Render deployed
+it, and live's Build row reads `52e7a75 · fullscreen` — so the deployed code is the branch and the reason new
+entries were failing no longer applies. What is left:
 
-1. **DONE — PR opened.** `multi-user` → `main`, PR #1, no merge.
-2. **Step 10 — the Render environment variables (yours).** `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`,
-   `SUPABASE_PUBLISHABLE_KEY`, `ANTHROPIC_API_KEY`, `API_KEY`, `ENVIRONMENT=production`, and
-   `ALLOW_LEGACY_API_KEY=true` + `LEGACY_USER_ID=<your auth.users id>` while the Shortcut still uses the shared
-   key. Confirm `PORT=10000` is set **in the dashboard** — do not change the Dockerfile's 8000 default. Your
-   "env vars set" is the merge trigger.
-3. **Merge (authorised) + step 12 smoke test, immediately.** Render auto-deploys from `main`. Acceptance is a
-   **real write**, not `/health`: one scan and one manual entry → 201 and the rows appear; edit one; delete one
-   test row; open one of the two re-homed receipts (photo loads, 200 signed URL); Settings → **Build** matches
-   the deployed commit. `/health` 200 with `no-store` + a CSP nonce is the cheap half.
-4. **Live SMTP, same session (yours).** Confirm `smtp.gmail.com`, 465, sender `hanennkam@gmail.com`, name
-   **Duits** are in on **live** — the per-project copy is the unproven part — then send **one** real test
-   message and confirm it arrives. If a reset and an invite go to the same address, leave a minute between them
-   or the second is silently dropped. Sign-up is already closed on live (`disable_signup: true`, audit).
-5. **After the deploy, in the next docs touch:** the 14-orphan decision (investigate only once step 12 has
-   passed — no bucket cleanup before then; if they are debris from failed inserts, decide keep-as-archive vs.
-   delete with the same explicit-method discipline as the household rows), the `schema.sql` sync (per-owner
-   comment + the global partial index live carries) as a **separate** change, the `a2d55e96` (row id, Pass 9
-   throwaway) and `b31b4f8f` citations, and one focused phone pass for Known issue 8's three device items.
+1. **DONE.** PR #1 merged; Render auto-deployed; Build row `52e7a75`.
+2. **DONE (owner).** Step 10's Render env vars set with `PORT=10000`; live SMTP confirmed by an arriving test
+   message, not by a saved settings page.
+3. **Step 12 — my half is done, the acceptance half is the owner's, on the phone.** Measured and clean:
+   `/health` 200; `/` 200 with `cache-control: no-store` and a per-response CSP nonce that the page's own script
+   tags carry; Build row `52e7a75` equal to the deployed commit; `GET /transactions?month=2026-10` 200; and the
+   re-homed receipt through `receipt-url` → a 200 signed URL at 572574 bytes. **Not yet proven, and not mine to
+   prove: a real write.** One scan and one manual entry → **201** with the rows visible is the acceptance, then
+   edit one, delete a test row. I did not create a test row — that would put placeholder data on live.
+4. **Known issue 8's three device items**, in that same phone pass: `100dvh` + keyboard, `scrollIntoView` in a
+   fixed container, focus zoom at exactly 16px. Measured this time, not reasoned about.
+5. **The owner's step 2 follow-up:** record the Supabase dashboard's most recent backup timestamp, either way.
+6. **After the phone half passes, in the next docs touch:** the 14-orphan decision (investigate only then — no
+   bucket cleanup before), the `schema.sql` sync (per-owner comment + the global partial index live carries) as a
+   **separate** change, the `a2d55e96` (row id, Pass 9 throwaway) and `b31b4f8f` citations, and the lost-writes
+   question for the household (re-enter by hand; ask, do not reconstruct from the log).
 
 **Rollback, stated once so it is ready and unneeded:** redeploy the previous `main` commit (the old code never
 reads `user_id`), and `0002 down` if the schema must go back — rows are kept, and it refuses if two owners share
