@@ -2,8 +2,9 @@
 
 **Status: in progress (2026-10-17).** Steps 1–9 have run. Step 7's migration was applied to live with the fixed
 file, and steps 3, 4 and 9 were run by the assistant and verified (live's snapshot table holds 2 rows, and both
-moved receipts are sha256-identical to the pre-move backup) — see `NEXT_STEPS.md`, Pass 13. **Steps 10–14 are
-outstanding, and live is in an open write window until step 11 deploys the branch.**
+moved receipts are sha256-identical to the pre-move backup) — see `NEXT_STEPS.md`, Pass 13. **PR #1 is merged and
+deployed, so step 11 has happened and the Pass 13 write window is closed.** What remains is step 12's real-write
+half (only `GET /health` and a read were exercised — see Pass 14) and steps 13–14.
 
 **Legend.** Every step is marked:
 

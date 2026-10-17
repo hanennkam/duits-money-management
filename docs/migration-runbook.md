@@ -13,6 +13,10 @@ objects have been migrated — see `NEXT_STEPS.md`, Pass 13.)* Do not start this
 here was rehearsed on the staging project first (see "What staging proved"). Each step names the expected
 result, and a deviation is a stop, not a judgement call.
 
+*(Added 2026-10-17: §10 records the **0003** rehearsal — budget, balance and monthly commitments. That migration
+is new, **nothing in it has been run anywhere**, and §10 is the sequence to run. It does not touch
+`public.transactions`, so it does not re-open anything in §1–§8.)*
+
 Live project ref: `viorpltdkpexswvofeul`. Staging ref: `tddigsmukmhkjrwiqdec`. Check the ref in every
 console and env file before a write. The scripts refuse live unless `--allow-live` is given, and only this
 runbook passes it.
@@ -204,3 +208,67 @@ Rehearsed on the staging project (`tddigsmukmhkjrwiqdec`), with fake data for tw
 **Open finding (not fixed in this step):** `GET /transactions/{id}/receipt-url` returns Supabase's **relative**
 signed path (`/object/sign/...`). A client cannot use it as a URL. The fix is to join it to
 `<SUPABASE_URL>/storage/v1`, and it needs a decision because it changes the response.
+
+## 10. 0003 — budget, balance and monthly commitments (staging rehearsal, NOT run)
+
+`migrations/0003_budget_commitments.up.sql` adds `public.user_finance_settings`, `public.monthly_commitments`,
+`public.commitment_payments` and the view `public.transaction_totals`. It touches **nothing** in
+`public.transactions`: no column, no row, no index, so it does not re-open anything in §1–§8. The down file drops
+the four objects, and because that destroys rows the owner typed in, it first copies every row into
+`public.migration_0003_saved_rows` (RLS enabled **and** forced, 0 policies) and refuses to start until the
+operator acknowledges the loss.
+
+Run all of this on the **staging** project (`tddigsmukmhkjrwiqdec`). Only the two migration files write; the
+verification script is `SELECT`-only and names no project. `.env.staging` drives the app, and
+`scripts/run_staging_tests.py` refuses to run if that file points at live.
+
+1. **Up.** In the staging SQL editor, in **one run**, paste the whole of
+   `migrations/0003_budget_commitments.up.sql`. It opens with `begin;` and ends with `commit;`, and its final
+   `do $$` block names whatever is missing.
+   - Expected: no error. **STOP** on any error — the run rolls back as a whole, so the project is unchanged.
+2. **Verify.** Run `migrations/staging/verify_after_0003.sql`: one statement, one grid. Compare every row with the
+   expectation written in that row's own name.
+   - Row 4 must read `true/true, true/true, true/true` — ENABLE **and** FORCE, per table.
+   - Row 5 must read `4 / 4 / 4`, and row 6 must read `6` (insert and update policies carry a `WITH CHECK`).
+   - Row 7 must name **both** columns:
+     `FOREIGN KEY (commitment_id, user_id) REFERENCES monthly_commitments(id, user_id) ON DELETE CASCADE`.
+   - Row 12 must read `v / true` (a view, `security_invoker`), and row 13 must read `false / false` — neither
+     `anon` nor `authenticated` has `SELECT` on the view, because the revoke is the whole gate for it.
+   - Row 16 (`transactions` rows) must equal what it was before step 1. 0003 must not move a transaction.
+   - **STOP** on any other value, and go to step 4.
+3. **The isolation suite.** `./.venv/bin/python scripts/run_staging_tests.py`
+   - Expected: all green, including the six 0003 tests. Those are the evidence that the service-key API still
+     reads and writes its own rows with the policies **forced** on, that anon/publishable is refused, that one
+     owner cannot see, change or delete another's commitment through PostgREST, and that a paid mark naming
+     another owner's commitment is refused by the composite foreign key.
+   - If 0003 is not applied, those six skip with that reason; the rest of the suite still runs.
+   - **STOP** if any test fails. A refusal on the API's own path would mean FORCE is stopping the service key,
+     and that is a decision, not a patch.
+4. **Down (the destructive half).** In the staging SQL editor, in one run: first
+   `select set_config('app.allow_0003_data_loss', 'yes', false);` and then the whole of
+   `migrations/0003_budget_commitments.down.sql`.
+   - The guard refuses without that `set_config`. That is the point: the step destroys the opening balance and
+     every commitment and paid mark that was typed in.
+   - Expected: no error, and `public.migration_0003_saved_rows` holds **3** rows.
+5. **Verify the rollback.** Run `verify_after_0003.sql` again. Expected: rows 1–3 report `MISSING`, row 12
+   reports `MISSING`, row 17 reports `3 row(s), rls true/true, policies 0`, and the `transactions` row count is
+   unchanged.
+6. **Up again.** Repeat steps 1 and 2. This is the idempotence check: the `if not exists` statements plus the
+   named-constraint guard must land on the same grid, and the snapshot table is left where it is.
+7. **Live, later, and only by the owner.** Live follows §0's roles and §1's discipline, and it needs its own
+   `pg_dump` (step 2) taken first. 0003 is smaller than 0002 — no backfill — but it is not reversible without
+   the snapshot, so the snapshot stays until the owner signs off.
+
+**What is verified today: nothing.** No part of 0003 has been executed by anyone. The up file's `do` blocks, the
+view's `security_invoker`, FORCE row level security and the revoke are argued from the PostgreSQL and Supabase
+documentation and from 0002's conventions; steps 1–6 are what turn that into evidence. The staging tests in step 3
+are written but have never been run.
+
+**One dependency worth knowing before step 2.** The up file's guard calls `has_table_privilege('anon', ...)`, and
+the down file's closing block asserts on `pg_class` and `pg_policies`. Both rely on the `anon`, `authenticated`
+and `service_role` roles existing, as they do in any Supabase project. A database without them fails the guard
+loudly rather than silently.
+
+**Rollback window.** Keep `public.migration_0003_saved_rows` until the owner signs off, exactly like
+`public.migration_0002_saved_constraints`. Dropping it is a separate, owner-approved step:
+`drop table public.migration_0003_saved_rows;`

@@ -557,15 +557,24 @@ Three fixes follow from it:
 
 ## Current branch + last commit
 
-- Branch: `feat/add-transaction-chooser`, cut from `origin/main` = `52e7a75` (PR #1's merge commit — the deployed
-  code) and **not pushed**. Phase 1 is committed on it; nothing is merged and `main` is untouched.
-- `origin/main` is at `52e7a75`; the previous `main` commit is the rollback target.
-- Local `main` is a **stale ref, 43 commits behind** `origin/main`; it has since been **fast-forwarded in place**
-  (`git fetch origin && git branch -f main origin/main`, authorised, nothing pushed), so the trap is gone. Branch
+- `main` and `origin/main`: `52e7a75`, "Merge pull request #1 from hanennkam/multi-user". **PR #1 is merged and
+  deployed**, which is what closed the Pass 13 write window: step 11 has happened. The previous `main` commit is
+  the rollback target, and the local `main` ref was once 43 commits stale — it has since been fast-forwarded in
+  place to `52e7a75` (`git fetch origin && git branch -f main origin/main`, authorised, nothing pushed), so branch
   from `origin/main` if you are re-cutting this work.
-- `pytest` at Phase 1: **211 passed, 15 skipped, 2 warnings** — the 206 of Pass 13 plus the five new page tests
-  (page harness alone: 41). The staging suite was **not** re-run in this pass. Read the count from the run you
-  make — this line is a checkpoint, not a constant.
+- `multi-user`: `19179ef` (Pass 15), pushed to `origin/multi-user`, **2 commits ahead of `main`** — `f881b67`
+  (Pass 14: "merged, deployed, and step 12's HTTP half") and `19179ef` (Pass 15: the orphan dates and the
+  citations). Both are notes/docs commits, and the branch is not merged into `main`.
+- Phase 1 UI branch: `feat/add-transaction-chooser` at `58110bf`, cut from `origin/main` = `52e7a75`, **1 commit
+  ahead of it** and **unpushed** (`git ls-remote origin` lists `main` and `multi-user` only). It adds the
+  Manual / AI chooser to the Add sheet; it is approved but **unmeasured on a real iPhone**. Its `pytest` is
+  **211 passed, 15 skipped, 2 warnings** — the 206 of Pass 13 plus five new page tests (page harness alone: 41).
+- Phase 2 branch: `feat/budget-balance-commitments`, cut from `52e7a75` and **rebased onto Phase 1's `58110bf`**,
+  so step 2b builds on the chooser instead of colliding with `openAddSheet`/`showAddView`. Step 2a — the 0003 SQL,
+  `app/finance.py`, the models, the db helpers, the nine routes and the tests, with **no change to
+  `app/static/index.html`** — is committed there. It is **not** merged and **not** pushed.
+- `pytest` on this branch after 2a: **282 passed, 21 skipped, 2 warnings**. Read the count from the run you make —
+  this line is a checkpoint, not a constant. (15 of the 21 skips are pre-existing; 6 are the new staging tests.)
 
 ## Pass 5 — what changed
 
