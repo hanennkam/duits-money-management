@@ -23,6 +23,57 @@ Prepared after the auth-screen polish on branch `multi-user`. Read this before t
 | Pass 12 — live `image_hash` shape, step 3 hardened | **Done except the staging rollback.** Production's `image_hash` uniqueness is a *partial unique index*, which step 3's text patterns could not see; step 3 now reads the catalog. Staging rebuilt to that shape and re-run: `up`, `verify_after_up.sql` and the 15 isolation tests all clean. `0002 down` on staging is the one rehearsal step left. *(Rollback since run — see Pass 13.)* |
 | Pass 13 — live cutover, steps 3–4 and 9 | **Done and verified.** Live was found already migrated, with the **fixed** `0002` (snapshot 2 rows, partial index with its `WHERE`). Receipts backed up (16 files / 10.8 MB), baseline audit 75 rows / 16 objects, and the 2 receipt objects moved into the owner's folder with a sha256 match against the backup. **Live is now in an open write window: the deployed code cannot insert until step 11.** |
 | Pass 14 — merge, deploy, smoke test | **Merged and deployed.** PR #1 merged (`main` = `52e7a75`), Render auto-deployed, live Build row `52e7a75 · fullscreen` (was `motion 6 · 2026-10-16 · fullscreen`), so the write window is **closed**. Step 12's HTTP half is clean: `/health` 200, `/` 200 with `no-store` and a matching per-response CSP nonce, the deployed `/transactions?month=2026-10` reads the migrated schema (200), and the re-homed receipt serves a 200 signed URL at 572574 bytes. **The write path itself is not yet proven by me** — that is the owner's phone half. |
+| Pass 15 — orphan evidence, citations, and the phone form | **Partial.** The 14 orphans are dated and characterised (all **2026-10-12**, one photo **4× byte-identical**, **10,047,308 B**, all in both backups), and they **predate this repo's first commit**, so the build that made them is not in git. `b31b4f8f` is confirmed as a **row id** with its log line named. **The phone-pass results came back as an unfilled form**, so step 12's acceptance is recorded as **reported, not evidenced**. |
+
+## Pass 15 — the orphan evidence, the citations, and a phone form that arrived unfilled
+
+**The phone pass came back as the blank form.** Every measured field arrived as its placeholder — "write path —
+[PASS/FAIL]", "manual entry → [201/row visible or error]", "Build row on the phone: [52e7a75 · fullscreen /
+other]", "Known issue 8 — measured: [shrinks correctly / does not shrink / not measurable]", "re-entered the
+household's lost writes: [n] entries" — while the surrounding sentence asserts "the acceptance line is met". So
+the record is: **the owner reports the acceptance met; the evidence for it is not in this file, and is not
+invented here.** It cannot be, and should not be: claiming a measured result nobody sent is the one failure this
+document exists to prevent. What is needed to close it is short — PASS/FAIL, the 201/row-visible result for one
+manual entry and one scan, whether the photo opened, edit and delete, the phone's Build row, how many lost
+writes were re-entered and which were remembered or forgotten, and the three Known-issue-8 measurements. Until
+those land, **step 12's acceptance half is open**, and so is Known issue 8's item 8 (`100dvh` + keyboard,
+`scrollIntoView` in a fixed container, focus zoom at exactly 16px), which is still "reasoned about, not measured
+on device" exactly as recorded in Pass 9.
+
+**The 14 orphans: dated, and the mystery is narrower than "unexplained".** Read-only — no writes, no cleanup:
+
+| | |
+| --- | --- |
+| Orphan `created_at` | all **2026-10-12**, 07:45:24Z – 14:58:51Z, in two bursts (07:45–08:52, 14:32–14:58) |
+| The 2 referenced receipts | **2026-10-16 23:57**, 25 s apart — a different day (the phone pass) |
+| Duplicate content | the 16 objects hold **13 distinct contents**; **one photo appears 4×**, byte-identical sha256, at 07:51:20 / 07:59:48 / 08:01:12 / 08:06:44 |
+| Orphan bytes | **10,047,308** (9.58 MiB) — and 11,294,015 − 10,047,308 = **1,246,707**, exactly the two re-homed objects |
+| In both backups | **14/14**, in the 16 Oct and 17 Oct copies — nothing is at risk |
+
+**Why the mechanism fits, and precisely where the evidence stops.** Repeated uploads of one photo whose rows
+were never created — or were refused — is the "debris from failed inserts" shape. But the build that produced
+them is **not in this repository**: the oldest commit is `450beb3`, dated **2026-10-14**, two days *after* these
+uploads, and the app's cleanup-on-failure line (`app/db.py:269`, `_bucket().remove([path])`) first appears in
+`b9cec61` on **2026-10-16**. So on 12 Oct there was neither a cleanup path to fail nor a commit to read.
+**The server-log half of the cross-reference is not available**: live's logs are Render's, uvicorn access lines
+carry no timestamps, and the 12 Oct ones are gone. Timestamps, byte-identity, sizes and the git dates are the
+whole of it; "which uploads failed" is answered as far as artefacts allow and **no further**. Nothing was
+deleted or moved — the decision on keep-as-archive vs. delete is the owner's, and there is no hurry: all 14 sit
+in two backups.
+
+**The citations are settled, and the log line is named rather than remembered.** `b31b4f8f` is a **transaction
+row id** (`b31b4f8f-7901-4e94-a9b0-8d16c2280457`), deleted *through* the app from `127.0.0.1` — checked
+independently: the only file on this Mac that mentions it is
+`~/Backups/duits-staging-2026-10-16/logs/shell_sh_1451de510001LF9g09wmTJ6iB6.out`, and lines 774–790 above quote
+it verbatim with that source named. `a2d55e96` is the Pass 9 throwaway **row id**, with no log line because it
+was deleted by explicit id and never reached the app. Two ids, two rows, two delete events — not two ids for one
+delete.
+
+**Two decisions taken here, stated so the next pass does not re-litigate them.** The docs catch-up is folded in
+by a **direct merge of `multi-user` into `main`, no PR** — the diff is Markdown, so a PR adds no review value —
+and it is **batched with the commit that records the phone results**, so there is one commit and one Render
+redeploy instead of two. And the `schema.sql` sync **goes on its own branch**, because it must not ride along
+with that merge.
 
 ## Pass 14 — the merge, the deploy, and step 12's HTTP half
 
@@ -507,10 +558,13 @@ Three fixes follow from it:
 
 ## Current branch + last commit
 
-- Branch: `multi-user`, tracking `origin/multi-user`, pushed — and now **merged** into `main` as PR #1 (merge
-  commit `52e7a75`), which Render deployed.
+- Branch: `multi-user`, tracking `origin/multi-user`, pushed — and **merged** into `main` as PR #1 (merge
+  commit `52e7a75`), which Render deployed and which live's Build row confirms.
 - `main` is at `52e7a75`; the previous `main` commit is the rollback target.
-- `pytest` at Pass 14: **206 passed, 15 skipped, 2 warnings**. Staging suite: **15 passed**. Read the count
+- `multi-user` is now ahead of `main` by **the docs catch-up only**. That is deliberate: it is merged
+  **directly, no PR**, batched with the commit that records the phone results — one commit and one redeploy
+  instead of two (Pass 15).
+- `pytest` at Pass 15: **206 passed, 15 skipped, 2 warnings**. Staging suite: **15 passed**. Read the count
   from the run you make — this line is a checkpoint, not a constant.
 
 ## Pass 5 — what changed
@@ -800,12 +854,16 @@ full detail; this is the summary.
    reached the app, so it has no log line; `b31b4f8f` was deleted *through* the app, from loopback, and is
    the one logged line above. What stays unresolved about that second one is only which pass it belongs to
    and what the row held — the log line does not say, and no other artefact names it. The drift is real but
-   harmless: live counts are baselined fresh at cutover from `pg_dump` and `scripts/audit_live.py` (runbook
-   steps 2–4), taken together in the same window, and staging's count is never compared against live.
+   harmless: live's counts were baselined at cutover from `scripts/audit_live.py` and today's receipt backups
+   (runbook steps 3–4), and staging's count is never compared against live. *(Corrected in Pass 13–15: this
+   sentence used to credit `pg_dump` too. **There is no `pg_dump` of live** — no dump exists on this Mac and no
+   `pg_dump` binary is installed — so the baseline is the audit plus the two receipt backups, and the database's
+   recovery paths are redeploy-previous-`main` and `0002 down`.)*
 8. **Verified on a real iPhone** in the phone pass: sign-in, keyboard behaviour, dark mode, scan, text
    entry, sign-out and Back all worked. What that pass cannot settle remains unverified: whether `100dvh`
    shrinks when the keyboard opens, `scrollIntoView` inside a fixed scroll container, and focus zoom at
-   exactly 16px — these are reasoned about, not measured on device.
+   exactly 16px — these are reasoned about, not measured on device. *(Pass 15: a later attempt to measure them
+   arrived as an unfilled form, so they are **still** reasoned about, not measured.)*
 9. **The sign-in form is taller than the keyboard strip** on a small phone (456px of content against 300px
    at 375×667), so it scrolls rather than fitting in one glance. Every control is reachable; confirmed
    acceptable on the phone.
@@ -823,19 +881,25 @@ entries were failing no longer applies. What is left:
 1. **DONE.** PR #1 merged; Render auto-deployed; Build row `52e7a75`.
 2. **DONE (owner).** Step 10's Render env vars set with `PORT=10000`; live SMTP confirmed by an arriving test
    message, not by a saved settings page.
-3. **Step 12 — my half is done, the acceptance half is the owner's, on the phone.** Measured and clean:
-   `/health` 200; `/` 200 with `cache-control: no-store` and a per-response CSP nonce that the page's own script
-   tags carry; Build row `52e7a75` equal to the deployed commit; `GET /transactions?month=2026-10` 200; and the
-   re-homed receipt through `receipt-url` → a 200 signed URL at 572574 bytes. **Not yet proven, and not mine to
-   prove: a real write.** One scan and one manual entry → **201** with the rows visible is the acceptance, then
-   edit one, delete a test row. I did not create a test row — that would put placeholder data on live.
-4. **Known issue 8's three device items**, in that same phone pass: `100dvh` + keyboard, `scrollIntoView` in a
-   fixed container, focus zoom at exactly 16px. Measured this time, not reasoned about.
-5. **The owner's step 2 follow-up:** record the Supabase dashboard's most recent backup timestamp, either way.
-6. **After the phone half passes, in the next docs touch:** the 14-orphan decision (investigate only then — no
-   bucket cleanup before), the `schema.sql` sync (per-owner comment + the global partial index live carries) as a
-   **separate** change, the `a2d55e96` (row id, Pass 9 throwaway) and `b31b4f8f` citations, and the lost-writes
-   question for the household (re-enter by hand; ask, do not reconstruct from the log).
+3. **Step 12 — my half is measured; the acceptance half arrived as an unfilled form (Pass 15).** The HTTP half is
+   clean and reported above. What is still missing is the evidence: one scan and one manual entry → **201** with
+   the rows visible, edit, delete, the phone's Build row, and the lost-write count. The owner reports the
+   acceptance met; the record stays **open** until the values are pasted, because the record has to be
+   measurable. **Also still open: Known issue 8's three device items** (`100dvh` + keyboard, `scrollIntoView` in
+   a fixed container, focus zoom at exactly 16px) — reasoned about, not measured.
+4. **The docs catch-up:** `multi-user` → `main` **directly, no PR**, batched with item 3's results so there is
+   one commit and one redeploy instead of two.
+5. **The orphan decision (owner).** The evidence is in Pass 15 and nothing has been touched: 14 objects, all
+   from 2026-10-12, one photo 4×, all in both backups. Keep-as-archive or delete — no cleanup without your say,
+   and the same explicit-method discipline as the household rows.
+6. **`schema.sql` sync, on its own branch** — the per-owner comment and the global partial index live carries.
+   It must not ride along with item 4, so it gets its own branch and PR, tests green.
+7. **The owner's step 2 follow-up:** record the Supabase dashboard's most recent backup timestamp, either way.
+8. **The lost-writes question to the household**, once the phone results are in: how many entries, and which
+   were forgotten rather than never attempted. Ask; do not reconstruct from the log.
+
+**Closed in Pass 15:** the `a2d55e96` / `b31b4f8f` citations (both row ids, the log line named and sourced), and
+the stale sentence that credited a `pg_dump` of live's baseline.
 
 **Rollback, stated once so it is ready and unneeded:** redeploy the previous `main` commit (the old code never
 reads `user_id`), and `0002 down` if the schema must go back — rows are kept, and it refuses if two owners share
