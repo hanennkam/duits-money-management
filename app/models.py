@@ -14,6 +14,7 @@ from typing import Annotated, Any, Literal, get_args
 from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, field_validator
 
 from app.db import dedupe_hash
+from app.finance import DAY_MAX, DAY_MIN, valid_day_of_month, valid_month
 
 Category = Literal[
     "food",
@@ -307,3 +308,188 @@ class Summary(BaseModel):
     total_expense: Amount
     total_income: Amount
     by_category: dict[str, Amount] = Field(default_factory=dict)
+
+
+# ---------------------------------------------------------------- money settings and commitments
+# `user_id` appears on the response models only. Every payload model uses extra="forbid", so a request
+# that carries a `user_id` is a 422 rather than a write against someone else's rows.
+
+
+def _commitment_name(value: Any) -> Any:
+    """Trim a name, and refuse one that is only spaces (the column's own check refuses it too)."""
+    if isinstance(value, str):
+        value = value.strip()
+        if not value:
+            raise ValueError("name cannot be blank")
+    return value
+
+
+def _positive_amount(value: Decimal) -> Decimal:
+    """A commitment is money due, so zero and negative are not commitments."""
+    if value <= 0:
+        raise ValueError("amount must be greater than zero")
+    return value
+
+
+def _day_in_range(value: int) -> int:
+    """1-31, display-only: nothing is scheduled, so 31 in a 30-day month is simply "the 31st"."""
+    if not valid_day_of_month(value):
+        raise ValueError(f"day_of_month must be between {DAY_MIN} and {DAY_MAX}")
+    return value
+
+
+class FinanceSettings(BaseModel):
+    """One row in `public.user_finance_settings`, as returned. The balance is never stored here."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    user_id: str | None = None  # response only
+    opening_balance: Amount = Decimal("0")
+    monthly_budget: Amount = Decimal("0")
+    currency: str = "MYR"
+    updated_at: datetime | None = None
+
+
+class FinanceSettingsUpdate(BaseModel):
+    """Body of PUT /finance/settings: the two figures a human sets.
+
+    An omitted field is left alone. An explicit `null` is treated as omitted rather than as "clear",
+    because both columns are NOT NULL and 0 is how a budget is cleared.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    opening_balance: Amount | None = None
+    monthly_budget: Amount | None = None
+
+    @field_validator("monthly_budget")
+    @classmethod
+    def _budget_is_not_negative(cls, value: Decimal | None) -> Decimal | None:
+        if value is not None and value < 0:
+            raise ValueError("monthly_budget cannot be negative; use 0 for no budget")
+        return value
+
+    def changes(self) -> dict[str, Any]:
+        """Only the fields actually sent, JSON-ready."""
+        patch = self.model_dump(mode="json", include=self.model_fields_set)
+        return {key: value for key, value in patch.items() if value is not None}
+
+
+class Commitment(BaseModel):
+    """A row in `public.monthly_commitments`, plus `paid` for the month that was asked for.
+
+    `paid` is derived from `public.commitment_payments`; it is not a column. It is `null` only when the
+    request named no month to answer for (a PATCH without `?month=`), never as a stand-in for "no".
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: str | None = None
+    user_id: str | None = None  # response only
+    created_at: datetime | None = None
+    name: str
+    amount: Amount
+    day_of_month: int
+    active: bool = True
+    paid: bool | None = None
+
+
+class CommitmentCreate(BaseModel):
+    """Body of POST /commitments."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=80)
+    amount: Amount
+    day_of_month: int
+    active: bool = True
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _name_is_not_blank(cls, value: Any) -> Any:
+        return _commitment_name(value)
+
+    @field_validator("amount")
+    @classmethod
+    def _amount_is_positive(cls, value: Decimal) -> Decimal:
+        return _positive_amount(value)
+
+    @field_validator("day_of_month")
+    @classmethod
+    def _day_is_in_range(cls, value: int) -> int:
+        return _day_in_range(value)
+
+    def to_row(self) -> dict[str, Any]:
+        """Shape this as a `public.monthly_commitments` row. The owner is set by db.py, never here."""
+        return {
+            "name": self.name,
+            "amount": float(self.amount),
+            "day_of_month": self.day_of_month,
+            "active": self.active,
+        }
+
+
+class CommitmentUpdate(BaseModel):
+    """Body of PATCH /commitments/{id}. An omitted field is left alone; nothing can be cleared."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = None
+    amount: Amount | None = None
+    day_of_month: int | None = None
+    active: bool | None = None
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _name_is_not_blank(cls, value: Any) -> Any:
+        return value if value is None else _commitment_name(value)
+
+    @field_validator("amount")
+    @classmethod
+    def _amount_is_positive(cls, value: Decimal | None) -> Decimal | None:
+        return value if value is None else _positive_amount(value)
+
+    @field_validator("day_of_month")
+    @classmethod
+    def _day_is_in_range(cls, value: int | None) -> int | None:
+        return value if value is None else _day_in_range(value)
+
+    def changes(self) -> dict[str, Any]:
+        """Only the fields actually sent, JSON-ready. `active: false` is a value, not an omission."""
+        patch = self.model_dump(mode="json", include=self.model_fields_set)
+        return {key: value for key, value in patch.items() if value is not None}
+
+
+class CommitmentPayment(BaseModel):
+    """Body of POST /commitments/{id}/paid: the month being marked paid, as YYYY-MM."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    month: str
+
+    @field_validator("month")
+    @classmethod
+    def _month_is_real(cls, value: str) -> str:
+        if not valid_month(value):
+            raise ValueError("month must be YYYY-MM with a real month number")
+        return value
+
+
+class FinanceSummary(BaseModel):
+    """Body of GET /finance/summary.
+
+    `total_income`, `total_expense` and `current_balance` are all-time and span **every** mode: the balance
+    is one real-world number. `remaining_budget` is scoped to the requested `mode` — the same rows the
+    Home screen is showing — and is `null` when no budget is set.
+    """
+
+    month: str
+    mode: Mode
+    opening_balance: Amount
+    monthly_budget: Amount
+    total_income: Amount
+    total_expense: Amount
+    current_balance: Amount
+    unpaid_commitments: Amount
+    safe_to_spend: Amount
+    remaining_budget: Amount | None = None
