@@ -25,28 +25,38 @@ from (
          coalesce((select string_agg(column_name || ' ' || data_type || '/' || is_nullable, ', ' order by ordinal_position)
                      from information_schema.columns
                     where table_schema = 'public' and table_name = 'commitment_payments'), 'MISSING')
-  -- ENABLE + FORCE on all three (each half, per table).
+  -- ENABLE + FORCE on all three (each half, per table). A missing table reads MISSING, not NULL.
   union all
   select 4, 'RLS enabled / forced: settings, commitments, payments (expect true/true, true/true, true/true)',
-         (select c.relrowsecurity::text || '/' || c.relforcerowsecurity::text from pg_class c
-           where c.oid = to_regclass('public.user_finance_settings'))
+         coalesce((select c.relrowsecurity::text || '/' || c.relforcerowsecurity::text from pg_class c
+                    where c.oid = to_regclass('public.user_finance_settings')), 'MISSING')
          || ', ' ||
-         (select c.relrowsecurity::text || '/' || c.relforcerowsecurity::text from pg_class c
-           where c.oid = to_regclass('public.monthly_commitments'))
+         coalesce((select c.relrowsecurity::text || '/' || c.relforcerowsecurity::text from pg_class c
+                    where c.oid = to_regclass('public.monthly_commitments')), 'MISSING')
          || ', ' ||
-         (select c.relrowsecurity::text || '/' || c.relforcerowsecurity::text from pg_class c
-           where c.oid = to_regclass('public.commitment_payments'))
+         coalesce((select c.relrowsecurity::text || '/' || c.relforcerowsecurity::text from pg_class c
+                    where c.oid = to_regclass('public.commitment_payments')), 'MISSING')
   union all
   select 5, 'policies: settings / commitments / payments (expect 4 / 4 / 4)',
-         (select count(*)::text from pg_policies where schemaname = 'public' and tablename = 'user_finance_settings') || ' / ' ||
-         (select count(*)::text from pg_policies where schemaname = 'public' and tablename = 'monthly_commitments') || ' / ' ||
-         (select count(*)::text from pg_policies where schemaname = 'public' and tablename = 'commitment_payments')
+         case when to_regclass('public.user_finance_settings') is null
+                or to_regclass('public.monthly_commitments') is null
+                or to_regclass('public.commitment_payments') is null
+              then 'MISSING (a 0003 table is gone, so it has no policies either)'
+              else (select count(*)::text from pg_policies where schemaname = 'public' and tablename = 'user_finance_settings') || ' / ' ||
+                   (select count(*)::text from pg_policies where schemaname = 'public' and tablename = 'monthly_commitments') || ' / ' ||
+                   (select count(*)::text from pg_policies where schemaname = 'public' and tablename = 'commitment_payments')
+         end
   union all
   select 6, 'insert/update policies carrying a WITH CHECK (expect 6: insert and update on each of the 3 tables)',
-         (select count(*)::text from pg_policies
-           where schemaname = 'public'
-             and tablename in ('user_finance_settings', 'monthly_commitments', 'commitment_payments')
-             and with_check is not null)
+         case when to_regclass('public.user_finance_settings') is null
+                or to_regclass('public.monthly_commitments') is null
+                or to_regclass('public.commitment_payments') is null
+              then 'MISSING (a 0003 table is gone, so it has no policies either)'
+              else (select count(*)::text from pg_policies
+                     where schemaname = 'public'
+                       and tablename in ('user_finance_settings', 'monthly_commitments', 'commitment_payments')
+                       and with_check is not null)
+         end
   -- The composite FK is what pins the owner: it must cover BOTH columns.
   union all
   select 7, 'commitment_payments composite FK (expect FOREIGN KEY (commitment_id, user_id) REFERENCES monthly_commitments(id, user_id) ON DELETE CASCADE)',
@@ -81,19 +91,31 @@ from (
          coalesce((select c.relkind::text || ' / ' || coalesce(('security_invoker=true' = any(c.reloptions))::text, 'false')
                      from pg_class c join pg_namespace n on n.oid = c.relnamespace
                     where n.nspname = 'public' and c.relname = 'transaction_totals'), 'MISSING')
-  -- The view has no policy, so its grants are the gate. Both must be false.
+  -- The view has no policy, so its grants are the gate. Both must be false. A missing view reads MISSING:
+  -- has_table_privilege on a relation that is not there raises, which would break the post-rollback run.
   union all
   select 13, 'SELECT privilege on transaction_totals for anon / authenticated (expect false / false)',
-         has_table_privilege('anon', 'public.transaction_totals', 'select')::text || ' / ' ||
-         has_table_privilege('authenticated', 'public.transaction_totals', 'select')::text
+         case when to_regclass('public.transaction_totals') is null
+              then 'MISSING (no view, so no grants to report)'
+              else has_table_privilege('anon', 'public.transaction_totals', 'select')::text || ' / ' ||
+                   has_table_privilege('authenticated', 'public.transaction_totals', 'select')::text
+         end
   union all
   select 14, 'transaction_totals definition',
-         coalesce((select pg_get_viewdef('public.transaction_totals'::regclass, true)), 'MISSING')
+         case when to_regclass('public.transaction_totals') is null
+              then 'MISSING'
+              else pg_get_viewdef(to_regclass('public.transaction_totals'), true)
+         end
   union all
   select 15, 'row counts: settings / commitments / payments (real data after a rehearsal; 0 on an empty project)',
-         (select count(*)::text from public.user_finance_settings) || ' / ' ||
-         (select count(*)::text from public.monthly_commitments) || ' / ' ||
-         (select count(*)::text from public.commitment_payments)
+         case when to_regclass('public.user_finance_settings') is null
+                or to_regclass('public.monthly_commitments') is null
+                or to_regclass('public.commitment_payments') is null
+              then 'MISSING (0003 is not applied, so it holds no rows)'
+              else (select count(*)::text from public.user_finance_settings) || ' / ' ||
+                   (select count(*)::text from public.monthly_commitments) || ' / ' ||
+                   (select count(*)::text from public.commitment_payments)
+         end
   union all
   select 16, 'transactions rows (0003 must not change this; compare with the count before the run)',
          (select count(*)::text from public.transactions)

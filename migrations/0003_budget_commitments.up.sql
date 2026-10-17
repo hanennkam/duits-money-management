@@ -114,7 +114,9 @@ create or replace view public.transaction_totals with (security_invoker = true) 
          sum(amount) filter (where type = 'expense') as total_expense,
          count(*) as row_count
     from public.transactions
-   group by user_id, mode, date_trunc('month', txn_date);
+   -- The cast is repeated in the GROUP BY on purpose: Postgres matches a grouped expression by its shape,
+   -- so a bare `date_trunc(...)` here with `date_trunc(...)::date` in the select list is rejected.
+   group by user_id, mode, date_trunc('month', txn_date)::date;
 
 comment on view public.transaction_totals is
   'Per owner + mode + month totals over public.transactions. The API filters user_id explicitly, like every other call.';
