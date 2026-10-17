@@ -56,7 +56,7 @@ alter table public.migration_0003_saved_rows force  row level security;
 
 -- 2. Snapshot the rows, one entry per 0003 table that EXISTS, so the shape cannot drift. A half-applied 0003
 --    has fewer than three, so the inserts are dynamic (a plain `insert ... from public.x` would raise on a
---    table that is not there). The number is kept in the session setting `app.0003_tables_present` for step
+--    table that is not there). The number is kept in the session setting `app.tables_0003_present` for step
 --    4, which then requires exactly that many entries rather than a hard-coded 3.
 do $$
 declare
@@ -73,7 +73,7 @@ begin
       present := present + 1;
     end if;
   end loop;
-  perform set_config('app.0003_tables_present', present::text, false);
+  perform set_config('app.tables_0003_present', present::text, false);
 end $$;
 
 -- 3. The view first (it reads public.transactions, not these tables, but it is ours to remove), then the
@@ -119,10 +119,10 @@ begin
     raise exception 'public.migration_0003_saved_rows is missing: the rows this rollback dropped are unrecoverable';
   end if;
 
-  if coalesce(current_setting('app.0003_tables_present', true), '') = '' then
-    raise exception 'app.0003_tables_present was not set: step 2 did not run';
+  if coalesce(current_setting('app.tables_0003_present', true), '') = '' then
+    raise exception 'app.tables_0003_present was not set: step 2 did not run';
   end if;
-  expected := current_setting('app.0003_tables_present')::int;
+  expected := current_setting('app.tables_0003_present')::int;
 
   select count(*) into saved from public.migration_0003_saved_rows;
   if saved <> expected then

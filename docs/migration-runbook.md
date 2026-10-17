@@ -266,7 +266,9 @@ four 0003 objects exist, and on a half-applied 0003 it proceeds and snapshots on
      `nothing to roll back: 0003 is not applied` when none of the four objects exist, so the script cannot
      "roll back" a project that never had 0003.
    - Expected: no error, and `public.migration_0003_saved_rows` holds **3** rows — one per 0003 table that
-     existed. On a half-applied 0003 it holds fewer, and the file's closing check requires exactly that many.
+     existed. On a half-applied 0003 it holds fewer, and the file's closing check requires exactly that many:
+     it remembers how many tables it found in the session setting `app.tables_0003_present` (alongside
+     `app.allow_0003_data_loss`, the other setting this file reads).
 5. **Verify the rollback.** Run `verify_after_0003.sql` again. Expected: row 0 still reads `uuid / NO` (0003's
    rollback must not touch `public.transactions`), rows 1–6 read `MISSING` (row 5 and 6 say a table is gone),
    rows 7–11 read `MISSING`, row 12 reads `MISSING`, rows 13–15 read `MISSING`, row 16 (the `transactions`
