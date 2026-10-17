@@ -222,12 +222,26 @@ Run all of this on the **staging** project (`tddigsmukmhkjrwiqdec`). Only the tw
 verification script is `SELECT`-only and names no project. `.env.staging` drives the app, and
 `scripts/run_staging_tests.py` refuses to run if that file points at live.
 
+**Before step 1: 0002 must already be applied to the target project.** 0003 is built on top of 0002 — step 5's
+view reads `public.transactions.user_id`, which 0002 adds, and the file expects `public.api_tokens` to exist.
+On a pre-0002 project the up file's new step 0 raises `run 0002 first: public.transactions.user_id is missing`
+(or `... public.api_tokens is missing`) instead of failing later, inside the view. So the order is §4 first —
+`select set_config('app.owner_id', '<owner auth.users id>', false);` and then the whole of
+`migrations/0002_multi_user.up.sql` — followed by `verify_after_up.sql`, whose grid is the table above. Two
+things make a skipped prerequisite obvious at a glance: that guard, and `verify_after_0003.sql`'s new **row 0**,
+which reads `MISSING (0002 is not applied: public.transactions.user_id does not exist)`.
+
+The down file is the other way round: it refuses `nothing to roll back: 0003 is not applied` when none of the
+four 0003 objects exist, and on a half-applied 0003 it proceeds and snapshots only the tables that are there.
+
 1. **Up.** In the staging SQL editor, in **one run**, paste the whole of
    `migrations/0003_budget_commitments.up.sql`. It opens with `begin;` and ends with `commit;`, and its final
    `do $$` block names whatever is missing.
    - Expected: no error. **STOP** on any error — the run rolls back as a whole, so the project is unchanged.
 2. **Verify.** Run `migrations/staging/verify_after_0003.sql`: one statement, one grid. Compare every row with the
    expectation written in that row's own name.
+   - Row 0 must read `uuid / NO` — 0002's `public.transactions.user_id`. `MISSING` there means step 1 ran
+     against a pre-0002 project: go back to the prerequisite above, apply 0002 and re-verify.
    - Row 4 must read `true/true, true/true, true/true` — ENABLE **and** FORCE, per table.
    - Row 5 must read `4 / 4 / 4`, and row 6 must read `6` (insert and update policies carry a `WITH CHECK`).
    - Row 7 must name **both** columns:
@@ -248,11 +262,16 @@ verification script is `SELECT`-only and names no project. `.env.staging` drives
    `select set_config('app.allow_0003_data_loss', 'yes', false);` and then the whole of
    `migrations/0003_budget_commitments.down.sql`.
    - The guard refuses without that `set_config`. That is the point: the step destroys the opening balance and
-     every commitment and paid mark that was typed in.
-   - Expected: no error, and `public.migration_0003_saved_rows` holds **3** rows.
-5. **Verify the rollback.** Run `verify_after_0003.sql` again. Expected: rows 1–6 read `MISSING` (row 5 and 6
-   say a table is gone), rows 7–11 read `MISSING`, row 12 reads `MISSING`, rows 13–15 read `MISSING`, row 16
-   (the `transactions` row count) is unchanged, and row 17 reads `3 row(s), rls true/true, policies 0`.
+     every commitment and paid mark that was typed in. A second guard refuses with
+     `nothing to roll back: 0003 is not applied` when none of the four objects exist, so the script cannot
+     "roll back" a project that never had 0003.
+   - Expected: no error, and `public.migration_0003_saved_rows` holds **3** rows — one per 0003 table that
+     existed. On a half-applied 0003 it holds fewer, and the file's closing check requires exactly that many.
+5. **Verify the rollback.** Run `verify_after_0003.sql` again. Expected: row 0 still reads `uuid / NO` (0003's
+   rollback must not touch `public.transactions`), rows 1–6 read `MISSING` (row 5 and 6 say a table is gone),
+   rows 7–11 read `MISSING`, row 12 reads `MISSING`, rows 13–15 read `MISSING`, row 16 (the `transactions`
+   row count) is unchanged, and row 17 reads `3 row(s), rls true/true, policies 0` (3 in a full rehearsal —
+   the number of 0003 tables that existed).
    The script names the rolled-back state rather than erroring, which is why its lookups are wrapped.
 6. **Up again.** Repeat steps 1 and 2. This is the idempotence check: the `if not exists` statements plus the
    named-constraint guard must land on the same grid, and the snapshot table is left where it is.

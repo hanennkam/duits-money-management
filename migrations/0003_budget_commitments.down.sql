@@ -10,6 +10,9 @@
 -- Run in ONE session, as the first statement:
 --   select set_config('app.allow_0003_data_loss', 'yes', false);
 --
+-- It also refuses (`nothing to roll back: 0003 is not applied`) when none of the four 0003 objects exist.
+-- A half-applied 0003 is a real state and it is cleaned up, snapshotting only the tables that are there.
+--
 -- public.transactions is not touched in either direction: no column, no row, so 0002's indexes and the
 -- 0002 rollback path are unaffected.
 
@@ -20,6 +23,20 @@ do $$
 begin
   if coalesce(current_setting('app.allow_0003_data_loss', true), '') <> 'yes' then
     raise exception 'refusing: this drops user-entered settings, commitments and paid marks. Set app.allow_0003_data_loss to ''yes'' first.';
+  end if;
+end $$;
+
+-- 0a. Nothing to roll back on a project where 0003 never ran. Refusing here beats "succeeding" by writing an
+--     empty snapshot of objects that never existed. A HALF-applied 0003 (some of the four objects) is a real
+--     state, and this file is what cleans it up, so it proceeds and snapshots whatever is there; steps 2
+--     and 3 are conditional and dynamic for exactly that case.
+do $$
+begin
+  if to_regclass('public.user_finance_settings') is null
+     and to_regclass('public.monthly_commitments') is null
+     and to_regclass('public.commitment_payments') is null
+     and to_regclass('public.transaction_totals') is null then
+    raise exception 'nothing to roll back: 0003 is not applied';
   end if;
 end $$;
 
@@ -37,31 +54,55 @@ create table if not exists public.migration_0003_saved_rows (
 alter table public.migration_0003_saved_rows enable row level security;
 alter table public.migration_0003_saved_rows force  row level security;
 
--- 2. Snapshot the rows, one entry per table, so the shape cannot drift.
-insert into public.migration_0003_saved_rows (table_name, payload)
-  select 'user_finance_settings', coalesce(jsonb_agg(to_jsonb(t)), '[]'::jsonb) from public.user_finance_settings t;
-insert into public.migration_0003_saved_rows (table_name, payload)
-  select 'monthly_commitments', coalesce(jsonb_agg(to_jsonb(t)), '[]'::jsonb) from public.monthly_commitments t;
-insert into public.migration_0003_saved_rows (table_name, payload)
-  select 'commitment_payments', coalesce(jsonb_agg(to_jsonb(t)), '[]'::jsonb) from public.commitment_payments t;
+-- 2. Snapshot the rows, one entry per 0003 table that EXISTS, so the shape cannot drift. A half-applied 0003
+--    has fewer than three, so the inserts are dynamic (a plain `insert ... from public.x` would raise on a
+--    table that is not there). The number is kept in the session setting `app.0003_tables_present` for step
+--    4, which then requires exactly that many entries rather than a hard-coded 3.
+do $$
+declare
+  name    text;
+  present int := 0;
+begin
+  foreach name in array array['user_finance_settings', 'monthly_commitments', 'commitment_payments'] loop
+    if to_regclass('public.' || name) is not null then
+      execute format(
+        'insert into public.migration_0003_saved_rows (table_name, payload)
+           select %L, coalesce(jsonb_agg(to_jsonb(t)), ''[]''::jsonb) from public.%I t',
+        name, name
+      );
+      present := present + 1;
+    end if;
+  end loop;
+  perform set_config('app.0003_tables_present', present::text, false);
+end $$;
 
 -- 3. The view first (it reads public.transactions, not these tables, but it is ours to remove), then the
 --    policies, then the tables. Dropping a table drops its policies, so the explicit drops only make the
---    intent readable.
+--    intent readable — and they sit behind `to_regclass`, because `drop policy ... on <table>` raises when
+--    the table itself is gone, which is the half-applied case above.
 drop view if exists public.transaction_totals;
 
-drop policy if exists finance_settings_owner_select on public.user_finance_settings;
-drop policy if exists finance_settings_owner_insert on public.user_finance_settings;
-drop policy if exists finance_settings_owner_update on public.user_finance_settings;
-drop policy if exists finance_settings_owner_delete on public.user_finance_settings;
-drop policy if exists commitments_owner_select on public.monthly_commitments;
-drop policy if exists commitments_owner_insert on public.monthly_commitments;
-drop policy if exists commitments_owner_update on public.monthly_commitments;
-drop policy if exists commitments_owner_delete on public.monthly_commitments;
-drop policy if exists commitment_payments_owner_select on public.commitment_payments;
-drop policy if exists commitment_payments_owner_insert on public.commitment_payments;
-drop policy if exists commitment_payments_owner_update on public.commitment_payments;
-drop policy if exists commitment_payments_owner_delete on public.commitment_payments;
+do $$
+begin
+  if to_regclass('public.user_finance_settings') is not null then
+    drop policy if exists finance_settings_owner_select on public.user_finance_settings;
+    drop policy if exists finance_settings_owner_insert on public.user_finance_settings;
+    drop policy if exists finance_settings_owner_update on public.user_finance_settings;
+    drop policy if exists finance_settings_owner_delete on public.user_finance_settings;
+  end if;
+  if to_regclass('public.monthly_commitments') is not null then
+    drop policy if exists commitments_owner_select on public.monthly_commitments;
+    drop policy if exists commitments_owner_insert on public.monthly_commitments;
+    drop policy if exists commitments_owner_update on public.monthly_commitments;
+    drop policy if exists commitments_owner_delete on public.monthly_commitments;
+  end if;
+  if to_regclass('public.commitment_payments') is not null then
+    drop policy if exists commitment_payments_owner_select on public.commitment_payments;
+    drop policy if exists commitment_payments_owner_insert on public.commitment_payments;
+    drop policy if exists commitment_payments_owner_update on public.commitment_payments;
+    drop policy if exists commitment_payments_owner_delete on public.commitment_payments;
+  end if;
+end $$;
 
 drop table if exists public.commitment_payments;
 drop table if exists public.monthly_commitments;
@@ -71,15 +112,21 @@ drop table if exists public.user_finance_settings;
 do $$
 declare
   saved      int;
+  expected   int;
   leftovers  text;
 begin
   if to_regclass('public.migration_0003_saved_rows') is null then
     raise exception 'public.migration_0003_saved_rows is missing: the rows this rollback dropped are unrecoverable';
   end if;
 
+  if coalesce(current_setting('app.0003_tables_present', true), '') = '' then
+    raise exception 'app.0003_tables_present was not set: step 2 did not run';
+  end if;
+  expected := current_setting('app.0003_tables_present')::int;
+
   select count(*) into saved from public.migration_0003_saved_rows;
-  if saved <> 3 then
-    raise exception 'the snapshot holds % row(s), expected 3 (one per table): refusing to finish', saved;
+  if saved <> expected then
+    raise exception 'the snapshot holds % row(s), expected % (one per 0003 table that existed)', saved, expected;
   end if;
 
   if not exists (

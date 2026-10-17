@@ -4,6 +4,10 @@
 -- ONE statement, ONE result grid. Read each row's `value` and compare it with the expectation written in
 -- that row's own `check_name`. Anything that does not match is a stop, not a judgement call.
 --
+-- Row 0 is the prerequisite and comes first on purpose: 0003's view reads `public.transactions.user_id`,
+-- which 0002 adds, so a pre-0002 project reads `MISSING (0002 is not applied: ...)` there and MISSING
+-- everywhere below it.
+--
 -- RLS is checked as BOTH relrowsecurity AND relforcerowsecurity: 0003 uses FORCE (0002 used ENABLE only),
 -- and a `false` in either half means the backstop is not what this migration promised.
 -- The view's privileges are checked with has_table_privilege, because the view has no policy of its own:
@@ -11,6 +15,14 @@
 
 select ord, check_name, value
 from (
+  -- Prerequisite first, as `ord 0` so every other row keeps its number: step 5's view reads
+  -- public.transactions.user_id, which 0002 adds. On a pre-0002 project every later row reads MISSING, and
+  -- this one says why. It is also the row that must still read `uuid / NO` after a 0003 rollback.
+  select 0 as ord, 'transactions.user_id from 0002 (expect uuid / NO; MISSING means run migrations/0002_multi_user.up.sql first)' as check_name,
+         coalesce((select c.data_type || ' / ' || c.is_nullable from information_schema.columns c
+                    where c.table_schema = 'public' and c.table_name = 'transactions' and c.column_name = 'user_id'),
+                  'MISSING (0002 is not applied: public.transactions.user_id does not exist)') as value
+  union all
   select 1 as ord, 'user_finance_settings columns (expect user_id uuid/NO, opening_balance numeric/NO, monthly_budget numeric/NO, currency text/NO, updated_at timestamptz/NO)' as check_name,
          coalesce((select string_agg(column_name || ' ' || data_type || '/' || is_nullable, ', ' order by ordinal_position)
                      from information_schema.columns

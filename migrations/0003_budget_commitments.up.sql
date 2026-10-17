@@ -1,6 +1,8 @@
 -- 0003_budget_commitments.up.sql
 -- NOT EXECUTED on live. Rehearse on a staging Supabase project first (docs/migration-runbook.md).
 -- New objects only: there is no backfill, so unlike 0002 nothing here needs `app.owner_id`.
+-- REQUIRES 0002 applied on the target project: this file reads `public.transactions.user_id` (added by 0002
+-- and used by step 5's view) and `public.api_tokens`. Step 0 raises and names whichever one is missing.
 -- Run in ONE session (the Supabase SQL editor runs a script in one session). Every step either does what
 -- it says or raises: a silent no-op is a failed migration, so the guards at the end name what is missing.
 --
@@ -9,6 +11,23 @@
 -- `db.month_bounds()`, which builds `datetime.date` bounds and compares them as ISO strings.
 
 begin;
+
+-- 0. Guard: 0003 is built ON 0002. `public.transactions.user_id` is the column 0002 adds, and step 5's
+--    view reads it; `public.api_tokens` is a table 0002 creates. Without either, this file fails late and
+--    in the middle (on the view, or on a policy count), so it names the missing prerequisite up front on a
+--    project that is still pre-0002. Both are read-only checks; nothing is created here.
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+     where table_schema = 'public' and table_name = 'transactions' and column_name = 'user_id'
+  ) then
+    raise exception 'run 0002 first: public.transactions.user_id is missing';
+  end if;
+  if to_regclass('public.api_tokens') is null then
+    raise exception 'run 0002 first: public.api_tokens is missing';
+  end if;
+end $$;
 
 -- 1. Per-user money settings. One row per user; `primary key (user_id)` is what makes it one row.
 create table if not exists public.user_finance_settings (
