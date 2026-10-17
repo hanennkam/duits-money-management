@@ -7,7 +7,11 @@ with Claude, store it in Supabase. Built to be called from Apple Shortcuts.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
+import os
+import re
+import secrets
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -29,10 +33,10 @@ from fastapi import (
     UploadFile,
     status,
 )
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from app import db, extractor
-from app.auth import require_api_key
+from app.auth import CurrentUser
 from app.config import Settings, get_settings, is_production
 from app.models import (
     Extraction,
@@ -67,6 +71,11 @@ NO_STORE_PREFIXES = ("/transactions", "/summary")
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Fail fast: a container with missing configuration must not start serving."""
     settings = get_settings()  # raises with the missing NAME(s), never the values
+    if not settings.supabase_publishable_key:
+        logger.warning(
+            "SUPABASE_PUBLISHABLE_KEY is not set: the web UI cannot sign in "
+            "(the API and the Apple Shortcut are unaffected)."
+        )
     logger.info(
         "Duits starting: environment=%s, model=%s, bucket=%s",
         "production" if IS_PRODUCTION else "development",
@@ -84,9 +93,6 @@ app = FastAPI(
     redoc_url=None if IS_PRODUCTION else "/redoc",
     openapi_url=None if IS_PRODUCTION else "/openapi.json",
 )
-
-PROTECTED = [Depends(require_api_key)]
-
 
 @app.middleware("http")
 async def security_headers(
@@ -118,15 +124,87 @@ async def upstream_error_handler(_request: Request, exc: extractor.UpstreamError
     )
 
 
+BUILD_PLACEHOLDER = "{{BUILD}}"
+AUTH_PLACEHOLDER = "{{AUTH_CONFIG}}"
+COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
+
+
+def build_stamp() -> str:
+    """The Build row's text: the short commit Render deployed, or "dev" when it is not running on Render.
+
+    RENDER_GIT_COMMIT is the full SHA, set by Render at runtime. Anything that is not a full SHA is dropped
+    rather than written into the page.
+    """
+    commit = os.environ.get("RENDER_GIT_COMMIT", "").strip().lower()
+    short = commit[:7] if COMMIT_SHA.fullmatch(commit) else "dev"
+    return f"{short} · fullscreen"
+
+
+def auth_config(settings: Settings) -> str:
+    """The page's sign-in settings as a JSON object, ready to paste into one script.
+
+    Only the project URL and the publishable key. The service key is server-side only and never reaches
+    the page. ``<`` is escaped so a hostile value cannot close the script tag.
+    """
+    payload = {"url": settings.supabase_url.rstrip("/"), "key": settings.supabase_publishable_key}
+    return json.dumps(payload, separators=(",", ":")).replace("<", "\\u003c")
+
+
+def content_security_policy(nonce: str, settings: Settings) -> str:
+    """A strict policy for a single-file page with no third-party code.
+
+    What it has to allow, and why:
+    - ``script-src 'self' 'nonce-…'``: the page's two inline <script> blocks carry the nonce. There is no
+      ``'unsafe-inline'``, so an injected <script> or event handler cannot run.
+    - ``style-src 'self' 'unsafe-inline'``: two inline <style> blocks, and twelve ``style="…"``
+      attributes written by the page's own templates (category colours, row stagger, bar heights). Those
+      values are escaped or drawn from constant colour maps. This is the one real loosening.
+    - ``img-src 'self' blob: <project>``: local icons, the in-memory ``blob:`` preview built while a photo
+      is downscaled, and the receipt photos Supabase signs (there are no ``data:`` URIs in the page).
+    - ``connect-src 'self' <project>``: the API is same-origin; Supabase Auth is called over the project URL.
+    """
+    project = settings.supabase_url.rstrip("/")
+    return "; ".join(
+        [
+            "default-src 'self'",
+            f"script-src 'self' 'nonce-{nonce}'",
+            "style-src 'self' 'unsafe-inline'",
+            f"img-src 'self' blob: {project}",
+            f"connect-src 'self' {project}",
+            "font-src 'self'",
+            "object-src 'none'",
+            "base-uri 'none'",
+            "form-action 'self'",
+            "frame-ancestors 'none'",
+        ]
+    )
+
+
 @app.get("/", include_in_schema=False)
-async def index() -> FileResponse:
-    """The mobile-first UI. Public, but every API call it makes needs X-API-Key.
+async def index(settings: Annotated[Settings, Depends(get_settings)]) -> HTMLResponse:
+    """The mobile-first UI. Public, but every API call it makes needs a Bearer token.
 
     ``no-store``: the page is never written to a cache at all. It carries the icon links and all of the
     CSS and JS inline, so a stale copy is a page with the wrong behaviour — and a Home Screen shortcut
     is exactly where one would survive. Freshness wins over the cost of re-sending the page.
+
+    Three values are filled in per request: the Build stamp, the sign-in settings, and a fresh CSP nonce
+    (the nonce is per response, so the page and its policy always agree).
     """
-    return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-store"})
+    nonce = secrets.token_urlsafe(18)
+    page = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    page = page.replace(BUILD_PLACEHOLDER, build_stamp())
+    page = page.replace(AUTH_PLACEHOLDER, auth_config(settings))
+    page = page.replace("<script>", f'<script nonce="{nonce}">').replace(
+        "<style>", f'<style nonce="{nonce}">'
+    )
+    return HTMLResponse(
+        page,
+        headers={
+            "Cache-Control": "no-store",
+            "Content-Security-Policy": content_security_policy(nonce, settings),
+        },
+    )
 
 
 # The app icon: iOS probes apple-touch-icon(-120x120|-152x152).png by name, and Safari wants a plain
@@ -180,14 +258,14 @@ async def health() -> dict[str, str]:
     "/transactions/scan",
     response_model=Transaction,
     status_code=status.HTTP_201_CREATED,
-    dependencies=PROTECTED,
 )
 async def scan_receipt(
+    user_id: CurrentUser,
     settings: Annotated[Settings, Depends(get_settings)],
     file: Annotated[UploadFile, File(description="Receipt image: jpg, png or webp")],
     mode: Annotated[Mode, Form()] = "personal",
 ) -> Transaction:
-    """Upload a receipt image, extract it with Claude, save the transaction."""
+    """Upload a receipt image, extract it with Claude, save the transaction for the caller."""
     media_type = (file.content_type or "").lower()
     if media_type not in IMAGE_EXTENSIONS:
         raise HTTPException(
@@ -206,7 +284,7 @@ async def scan_receipt(
 
     # Same bytes = same photo, so bail out before spending Storage space or a Claude call.
     image_hash = hashlib.sha256(image).hexdigest()
-    scanned = db.find_by_image_hash(image_hash)
+    scanned = db.find_by_image_hash(image_hash, user_id=user_id)
     if scanned is not None:
         raise _duplicate(scanned, "Already recorded.")
 
@@ -220,9 +298,12 @@ async def scan_receipt(
     )
     receipt_path = None
     if source == "receipt_scan":
-        receipt_path = f"{date.today():%Y/%m}/{uuid.uuid4().hex}{IMAGE_EXTENSIONS[media_type]}"
+        # The owner's folder comes first: user_id/YYYY/MM/<uuid>.ext
+        receipt_path = (
+            f"{user_id}/{date.today():%Y/%m}/{uuid.uuid4().hex}{IMAGE_EXTENSIONS[media_type]}"
+        )
         try:
-            db.upload_receipt(receipt_path, image, media_type)
+            db.upload_receipt(receipt_path, image, media_type, user_id=user_id)
         except Exception as exc:  # any storage failure is an upstream problem, not a client error
             logger.exception("Receipt upload to Supabase Storage failed")
             raise HTTPException(
@@ -236,10 +317,11 @@ async def scan_receipt(
             source=source,
             receipt_path=receipt_path,
             image_hash=image_hash,
+            user_id=user_id,
         )
     except Exception:
         if receipt_path:  # a rejected duplicate or a failed insert leaves no orphan
-            db.delete_receipt(receipt_path)
+            db.delete_receipt(receipt_path, user_id=user_id)
         raise
 
 
@@ -247,44 +329,50 @@ async def scan_receipt(
     "/transactions/text",
     response_model=Transaction,
     status_code=status.HTTP_201_CREATED,
-    dependencies=PROTECTED,
 )
-async def create_from_text(payload: TextTransactionRequest) -> Transaction:
+async def create_from_text(payload: TextTransactionRequest, user_id: CurrentUser) -> Transaction:
     """Extract a transaction from a short text note, e.g. "makan tengah hari 12 ringgit"."""
-    return _save(extractor.extract_from_text(payload.text), mode=payload.mode, source="text")
+    return _save(
+        extractor.extract_from_text(payload.text), mode=payload.mode, source="text", user_id=user_id
+    )
 
 
 @app.post(
     "/transactions",
     response_model=Transaction,
     status_code=status.HTTP_201_CREATED,
-    dependencies=PROTECTED,
 )
-async def create_transaction(payload: TransactionCreate) -> Transaction:
+async def create_transaction(payload: TransactionCreate, user_id: CurrentUser) -> Transaction:
     """Save one transaction typed in by hand: no receipt, no Claude, no dedupe by default."""
-    return _insert(payload.to_row())
+    return _insert(payload.to_row(), user_id=user_id)
 
 
-@app.get("/transactions", response_model=list[Transaction], dependencies=PROTECTED)
+@app.get("/transactions", response_model=list[Transaction])
 async def list_transactions(
+    user_id: CurrentUser,
     month: Annotated[str, Query(description="Month to list, as YYYY-MM")],
     mode: Mode = "personal",
 ) -> list[Transaction]:
-    """Transactions in that month for that mode, newest first."""
+    """The caller's transactions in that month for that mode, newest first."""
     start, end = _month_bounds(month)
-    return [Transaction.model_validate(row) for row in db.list_transactions(start, end, mode)]
+    return [
+        Transaction.model_validate(row)
+        for row in db.list_transactions(start, end, mode, user_id=user_id)
+    ]
 
 
-@app.get("/transactions/{transaction_id}", response_model=Transaction, dependencies=PROTECTED)
-async def get_transaction(transaction_id: UUID) -> Transaction:
-    """One transaction."""
-    return Transaction.model_validate(_existing(transaction_id))
+@app.get("/transactions/{transaction_id}", response_model=Transaction)
+async def get_transaction(transaction_id: UUID, user_id: CurrentUser) -> Transaction:
+    """One of the caller's transactions. Another user's id answers 404."""
+    return Transaction.model_validate(_existing(transaction_id, user_id))
 
 
-@app.patch("/transactions/{transaction_id}", response_model=Transaction, dependencies=PROTECTED)
-async def update_transaction(transaction_id: UUID, payload: TransactionUpdate) -> Transaction:
-    """Correct a transaction by hand. A manual edit clears the needs-review flag."""
-    row = _existing(transaction_id)
+@app.patch("/transactions/{transaction_id}", response_model=Transaction)
+async def update_transaction(
+    transaction_id: UUID, payload: TransactionUpdate, user_id: CurrentUser
+) -> Transaction:
+    """Correct one of the caller's transactions by hand. A manual edit clears the needs-review flag."""
+    row = _existing(transaction_id, user_id)
     patch = payload.changes()
     if not patch:
         return Transaction.model_validate(row)
@@ -299,49 +387,57 @@ async def update_transaction(transaction_id: UUID, payload: TransactionUpdate) -
         merged.get("merchant"),
     )
 
-    updated = db.update_transaction(str(transaction_id), patch)
-    return Transaction.model_validate(updated or _existing(transaction_id))
+    updated = db.update_transaction(str(transaction_id), patch, user_id=user_id)
+    return Transaction.model_validate(updated or _existing(transaction_id, user_id))
 
 
 @app.delete(
     "/transactions/{transaction_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
-    dependencies=PROTECTED,
 )
-async def delete_transaction(transaction_id: UUID) -> None:
-    """Delete the row, and its receipt object if it has one."""
-    row = _existing(transaction_id)
-    receipt_path = row.get("receipt_path")
+async def delete_transaction(transaction_id: UUID, user_id: CurrentUser) -> None:
+    """Delete one of the caller's rows, and its receipt object if it has one."""
+    row = _existing(transaction_id, user_id)
+    receipt_path = db.owned_receipt_path(row.get("receipt_path"), user_id=user_id)
     if receipt_path:
-        db.delete_receipt(receipt_path)
-    db.delete_transaction(str(transaction_id))
+        db.delete_receipt(receipt_path, user_id=user_id)
+    elif row.get("receipt_path"):
+        # The object sits outside this owner's folder, so it is not ours to remove. Leave it alone and say
+        # so, but never let it block deleting the row.
+        logger.warning("Leaving a receipt object in place: its path is outside the owner's folder")
+    db.delete_transaction(str(transaction_id), user_id=user_id)
 
 
-@app.get(
-    "/transactions/{transaction_id}/receipt-url", response_model=ReceiptUrl, dependencies=PROTECTED
-)
-async def receipt_url(transaction_id: UUID) -> ReceiptUrl:
-    """Short-lived signed URL for the private receipt image."""
-    row = _existing(transaction_id)
-    receipt_path = row.get("receipt_path")
+@app.get("/transactions/{transaction_id}/receipt-url", response_model=ReceiptUrl)
+async def receipt_url(transaction_id: UUID, user_id: CurrentUser) -> ReceiptUrl:
+    """Short-lived signed URL for one of the caller's private receipt images."""
+    row = _existing(transaction_id, user_id)
+    # A path outside the owner's folder is a migration leftover, not a receipt they can reach: it answers
+    # exactly like a row with no photo rather than a 500.
+    receipt_path = db.owned_receipt_path(row.get("receipt_path"), user_id=user_id)
     if not receipt_path:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "This transaction has no receipt image.")
-    return ReceiptUrl(url=db.create_receipt_url(receipt_path, RECEIPT_URL_TTL), expires_in=RECEIPT_URL_TTL)
+    url = db.create_receipt_url(receipt_path, RECEIPT_URL_TTL, user_id=user_id)
+    return ReceiptUrl(url=url, expires_in=RECEIPT_URL_TTL)
 
 
-@app.get("/summary", response_model=Summary, dependencies=PROTECTED)
+@app.get("/summary", response_model=Summary)
 async def summary(
+    user_id: CurrentUser,
     month: Annotated[str, Query(description="Month to summarise, as YYYY-MM")],
     mode: Mode = "personal",
 ) -> Summary:
-    """Total expense, total income and total per category for that month."""
+    """Total expense, total income and total per category for the caller in that month."""
     start, end = _month_bounds(month)
-    return Summary.model_validate(db.summarize(start, end, mode) | {"month": month, "mode": mode})
+    return Summary.model_validate(
+        db.summarize(start, end, mode, user_id=user_id) | {"month": month, "mode": mode}
+    )
 
 
-def _existing(transaction_id: UUID) -> dict[str, Any]:
-    row = db.get_transaction(str(transaction_id))
+def _existing(transaction_id: UUID, user_id: UUID) -> dict[str, Any]:
+    """The caller's row, or 404. Another owner's row is indistinguishable from a missing one."""
+    row = db.get_transaction(str(transaction_id), user_id=user_id)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No transaction with that id.")
     return row
@@ -359,6 +455,7 @@ def _save(
     *,
     mode: Mode,
     source: Source,
+    user_id: UUID,
     receipt_path: str | None = None,
     image_hash: str | None = None,
 ) -> Transaction:
@@ -377,24 +474,28 @@ def _save(
             reference=extraction.reference,
             txn_time=extraction.txn_time,
         ),
+        user_id=user_id,
     )
 
 
-def _insert(row: dict[str, Any], dedupe_keys: list[str] | None = None) -> Transaction:
-    """Insert a row, or answer 409 with the row that already exists.
+def _insert(
+    row: dict[str, Any], dedupe_keys: list[str] | None = None, *, user_id: UUID
+) -> Transaction:
+    """Insert a row for the caller, or answer 409 with the caller's row that already exists.
 
+    Duplicate lookups are scoped to the owner, so the 409 body can only ever carry the caller's own row.
     Rows with no dedupe hash (text notes, hand-typed rows, merchant-less scans) always insert, so only
     scans can come back as duplicates. A bank screenshot without a reference number also probes the
     ten-minute windows either side of its own, which is what makes "within ten minutes" work when the
     two scans fall on opposite sides of a window boundary.
     """
     dedupe = row["dedupe_hash"]
-    existing = db.find_by_dedupe_hash(dedupe) if dedupe else None
+    existing = db.find_by_dedupe_hash(dedupe, user_id=user_id) if dedupe else None
     if existing is None and dedupe_keys and len(dedupe_keys) > 1:
-        existing = db.find_by_dedupe_hashes(dedupe_keys[1:])
+        existing = db.find_by_dedupe_hashes(dedupe_keys[1:], user_id=user_id)
     if existing is not None:
         raise _duplicate(existing, "Already recorded.")
-    return Transaction.model_validate(db.insert_transaction(row))
+    return Transaction.model_validate(db.insert_transaction(row, user_id=user_id))
 
 
 def _duplicate(existing: dict[str, Any], message: str) -> HTTPException:

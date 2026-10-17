@@ -3,6 +3,9 @@
 Current state only. Rules for agents are in `AGENTS.md`. Older session logs (with their now-removed
 features and unreproducible `/tmp` measurements) are in `docs/handoff-archive.md`.
 
+**Status: this file is secondary.** Where it conflicts with `NEXT_STEPS.md`, `NEXT_STEPS.md` is
+authoritative — parts of this file were written before the multi-user work and have not been re-checked.
+
 Update this file after each coding task: keep it factual, don't paste source, and don't claim a test
 passed unless you ran it in that session.
 
@@ -16,7 +19,22 @@ passed unless you ran it in that session.
   `https://duits-money-tracking.onrender.com`. Render's free instance sleeps when idle; the first
   request after a sleep is slow (see the splash's "Waking up the server…" line).
 - Last verified commit: `8f39d7e` (working tree clean before the housekeeping pass on 2026-10-16).
-- `./.venv/bin/python -m pytest -q` → **96 passed** (2026-10-16).
+- **Multi-user steps 1-3 are on branch `multi-user`, not merged. The migration is rehearsed on STAGING, and NOT
+  applied to live.** The live run is `docs/migration-runbook.md`; staging results are in its section 9.
+  Step 2 detail follows. Every route is scoped to the caller's id from the verified Supabase JWT (`sub`). Every db helper
+  requires `user_id`. The 409 duplicate path only sees the caller's rows. Receipts live under `user_id/YYYY/MM/`,
+  and the owner is checked before any sign or delete. Before deploying to Render:
+  1. **Migration first.** The code writes `user_id`, and the live table has no such column, so every insert fails
+     until `migrations/0002_multi_user.up.sql` has run. Rehearse it on staging.
+  2. **Move existing receipts.** Old objects sit at `YYYY/MM/...`. Owner checks now refuse those paths, so
+     `receipt-url` and `DELETE` on the 16 existing receipt rows return 500 until a storage move (not written yet)
+     has run. Nothing is lost, because the delete fails before the row is removed.
+  3. **The browser has no sign-in screen yet.** `index.html` still sends `X-API-Key`. Until a login UI exists, the
+     app needs `ALLOW_LEGACY_API_KEY=true` and `LEGACY_USER_ID=<owner's id>`, and the iOS Shortcut depends on the
+     same flag. Personal access tokens for the Shortcut are not built.
+  4. **Sign-up is still open** in the live project. Close it in the Supabase dashboard before any second user exists.
+- `./.venv/bin/python -m pytest -q` — the full suite must pass; read the count from the summary it prints,
+  never from a number written in a doc (this one included).
 - **No automated UI test exists in the repo.** `tests/test_static.py` pins strings in the page; it does not
   run the page. See §5.
 
@@ -79,7 +97,8 @@ Icons → `public, max-age=600` (deliberately not `immutable`). Every response: 
   container queries: amount font, key height, gaps.
 - Save: `afterAdd()` waits for the sheet's close and both lists, then `flashRow(id)` highlights the row.
 - Scan Receipt: the browser downscales to 1600px, re-encodes JPEG q0.85 (strips EXIF/GPS, HEIC → JPEG), then uploads.
-- Settings → About → **Build** row: stamp + status-bar style + standalone flag.
+- Settings → About → **Build** row: the git short hash stamped by `GET /` (`dev` locally), plus status-bar
+  style and standalone flag.
 
 ## 3. Decisions that still hold
 
@@ -145,8 +164,9 @@ Icons → `public, max-age=600` (deliberately not `immutable`). Every response: 
 when unclear, account masking) has only been tested with stubbed extractions.
 
 **Config and ops:**
-- **The Build stamp is set by hand**, in two places: the `buildValue` default and `var BUILD`. It is currently
-  `motion 6 · 2026-10-16 · fullscreen`. A stamp that is not bumped tells you nothing about the deployed commit.
+- **The Build stamp is automatic.** `GET /` fills the `{{BUILD}}` placeholder in `index.html` with the git
+  short hash injected by the server, or `dev` locally. Read `RENDER_GIT_COMMIT`; a 40-character SHA is
+  required. Do not edit the stamp by hand.
 - **`CLAUDE_FALLBACK_MODEL` default `claude-sonnet-5-5`** and **`CLAUDE_MODEL` default `claude-sonnet-4-5`**
   are in `config.py`. Check both IDs against Anthropic's model docs (`.env.example` says the same).
 - **Render:** there is no `render.yaml`, so the service settings (Docker, branch, env vars, health check
@@ -166,12 +186,11 @@ custom categories.
 3. **iPhone pass** on `https://duits-money-tracking.onrender.com/` (hard refresh once, then delete and re-add the
    Home Screen shortcut so it loads the current page). Check: no zoom on the Smart Entry field; Add reachable
    on the real keyboard; keypad double tap; chips momentum; date picker inside the sheet; safe areas; one
-   receipt scan end to end; Build row stamp matches.
+   receipt scan end to end; Build row stamp matches the deployed commit.
 4. **Real-model check** of the screenshot prompt with real screenshots, kept out of the repo.
 5. **Verify the model IDs** in `config.py` and `.env.example` against Anthropic's docs.
-6. **Build stamp automation** (proposal in §8, needs approval).
-7. Insights Year: needs a `?from=&to=` API endpoint first (an API change; ask before starting).
-8. Optional polish: donut minimum slice, `Other`/`Others` clash, ring hole for 6-figure totals.
+6. Insights Year: needs a `?from=&to=` API endpoint first (an API change; ask before starting).
+7. Optional polish: donut minimum slice, `Other`/`Others` clash, ring hole for 6-figure totals.
 
 ## 7. Test coverage gap and proposed Playwright plan
 
@@ -204,19 +223,17 @@ the HTML. These behaviours have **no automated test** today:
   below 1", and to wait for animations to finish instead of sleeping.
 - Start with the sheets, tap guards and save path (highest risk), then drag, then layout. Keep the suite under ~60s.
 
-## 8. Build stamp: proposal (not implemented)
+## 8. Build stamp (implemented)
 
-Make the stamp automatic: read the git short hash at server start and render it into the page (fallback when git
-is absent, as in Docker). This changes `app/main.py`, so it needs approval. Options:
-- **A.** `GET /` replaces a placeholder token in `index.html` with the hash before serving (needs a test).
-- **B.** Read Render's commit variable at startup (`RENDER_GIT_COMMIT`, to be confirmed in Render's docs). It is set
-  on every deploy, so no git is needed at runtime. Also a backend change.
-
-Until approved, AGENTS.md applies: bump the stamp by hand on every `index.html` change.
+`GET /` reads `index.html` and replaces the `{{BUILD}}` placeholder with `<short sha> · fullscreen`, using
+Render's `RENDER_GIT_COMMIT` (full SHA, confirmed in Render's docs). When the variable is absent, or is not a
+full 40-character hex SHA, the stamp is `dev · fullscreen`. `Cache-Control: no-store` is kept. Two tests in
+`tests/test_static.py` cover both cases; a value that is not a SHA is never written into the page.
+Opening `index.html` from disk shows the raw `{{BUILD}}`; only the served page is filled in.
 
 ## 9. For the orchestrator
 
-- **Decide on the Build stamp automation** (§8, option A or B).
+- **Build stamp automation** is done (§8): the git short hash is injected by `GET /`, `dev` locally.
 - **Approve the test plan** (§7), and decide whether pytest-in-CI is wanted before the next UI change.
 - **Keypad covered while typing** is a product trade-off. Revisit only if the iPhone pass says it is unusable.
 - **Model IDs** in `config.py` and `.env.example` need a check against Anthropic's docs before the next scan.

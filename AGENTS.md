@@ -32,7 +32,8 @@ and from the web UI.
 2. **Say clearly what could NOT be verified on a real iPhone.** Desktop Chrome, emulated touch and
    faked `visualViewport` are not an iPhone. Always list what remains unproven (see §4).
 3. **Before reporting, run pytest and the test harness.**
-   - `./.venv/bin/python -m pytest -q` (currently **96 passed**).
+   - `./.venv/bin/python -m pytest -q` — the full suite must pass; read the count from the summary it
+     prints, never from a number written in a doc (this one included — numbers here rot).
    - The UI test harness is **not in the repo**. The `/tmp` scripts that `Handoff.md` cites
      (`duits-ui-check.js`, the `cdp-*` probes) no longer exist. If you cannot run a UI check, say so
      explicitly. Never claim UI results you did not measure in this session.
@@ -96,12 +97,12 @@ new routes, which looks like a bug in the UI.
 
 **The Build row (Settings → About → Build) is the deployed-version check.** It prints a stamp from
 `index.html`, the status-bar style the page ended up with, and whether the page runs standalone. The
-stamp is set in **two places that must match**: the default text on the `buildValue` span, and the
-`var BUILD = "…"` constant that `paintBuild()` writes at boot. Bump both whenever `index.html` changes.
+stamp is filled in by the server (see the note below).
 
-**Bump the Build stamp on EVERY change to `index.html`**, even a one-line CSS fix. Current format:
-`motion N · YYYY-MM-DD · fullscreen`. An unbumped stamp tells the next person nothing about what is deployed.
-Making the stamp automatic (git hash at startup) is proposed in `Handoff.md` §8 and needs approval first.
+**The Build stamp is automatic. Do not edit it by hand.** `GET /` replaces the `{{BUILD}}` placeholder in
+`index.html` with the short commit SHA from Render's `RENDER_GIT_COMMIT` variable, or `dev` when that
+variable is absent (local runs). Keep the placeholder in both spots (the `buildValue` span and `var BUILD`).
+A full 40-character SHA is required, so nothing else gets written into the page.
 If the Build row on the phone shows an older stamp, the Home Screen app is serving an old copy. Delete
 the shortcut and add it again.
 

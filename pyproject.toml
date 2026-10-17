@@ -1,3 +1,7 @@
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = [
+    "isolation: multi-user isolation tests, run against fakes (tests/test_isolation.py)",
+    "staging: runs against the real staging project; only via scripts/run_staging_tests.py",
+]

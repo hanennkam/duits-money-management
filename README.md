@@ -2,7 +2,7 @@
 
 Backend that takes a **receipt photo**, a **short text note**, or a **hand-typed row**, extracts the
 transaction with Claude (vision), and stores it in Supabase. Designed for Apple Shortcuts on an
-iPhone, and shipped with its own iPhone-first web UI — the whole API is a static `X-API-Key` away.
+iPhone, and shipped with its own iPhone-first web UI — API calls are authenticated with a Supabase sign-in token (`Authorization: Bearer`); a temporary legacy key sits behind a flag.
 
 9 protected endpoints, plus `/health` and the UI page at `GET /`. No auth/users, no dashboard, no
 CSV/PDF import, no voice, no sync.
@@ -13,7 +13,7 @@ CSV/PDF import, no voice, no sync.
 app/
   main.py          # FastAPI app, routes, error mapping, production switches
   config.py        # settings from env only: fails fast listing missing NAMEs
-  auth.py          # X-API-Key dependency + per-IP throttle on failed attempts
+  auth.py          # Supabase JWT verification (JWKS), owner id from `sub`, per-IP throttle; optional legacy key
   extractor.py     # Claude vision/text extraction -> Extraction
   db.py            # Supabase client, dedupe_hash, query/insert helpers
   models.py        # Pydantic v2 models + row/JSON shaping
@@ -21,7 +21,7 @@ app/
   static/logo.png    # the app icon (180x180): the favicon, and the source the other sizes come from
   static/apple-touch-icon*.png  # 180/152/120 slots iOS probes, opaque white, served publicly
 schema.sql         # transactions table, indexes, receipts bucket
-tests/             # pytest: dedupe, models, auth, extractor, endpoints, bank screenshots, production, static (96 tests)
+tests/             # pytest: dedupe, models, auth, extractor, endpoints, bank screenshots, production, static (167 tests)
 .env.example
 ctl.sh             # start / stop / status / restart, and whether the listener is stale
 design/            # the Stitch screens the UI was rebuilt from (screen.png + code.html + DESIGN.md)
@@ -30,6 +30,7 @@ README.md
 requirements.txt   # production runtime deps (what the Dockerfile installs)
 requirements-dev.txt  # `-r requirements.txt` plus pytest + httpx, for local tests
 Dockerfile         # production image: non-root user, no secrets baked in
+render.yaml        # Render blueprint: sets PORT=10000 and the health check. No secrets in it
 .dockerignore      # keeps .env, .venv, tests and caches out of the build context
 .gcloudignore      # UNUSED (old Google Cloud Run setup); Render does not read it, safe to delete
 pyproject.toml     # pytest config
@@ -97,8 +98,12 @@ Production runs on **Render** as a free **web service** built from the repo's `D
   the per-IP throttle described below.
 
 Deploy steps: create the web service from the GitHub repo, choose **Docker** as the runtime (the `Dockerfile`
-is used as-is; nothing is passed as build args), add the variables below, then deploy. `PORT` is supplied by
-Render and the container binds to it.
+is used as-is; nothing is passed as build args), add the variables below, then deploy.
+
+**`PORT` is set by `render.yaml` to `10000`.** The image's start command is
+`exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}`, so it binds whatever `PORT` says and falls
+back to `8000` when the variable is absent (local runs). Keep the `Dockerfile` default at `8000`; the
+platform supplies the real value. Verified locally with `PORT=10000`.
 
 The `.gcloudignore` file is **unused**. It came from an earlier Google Cloud Run setup and Render does not
 read it. It can be deleted.
@@ -112,16 +117,19 @@ store); never commit them, never bake them into the image or pass them as build 
 
 | Variable | Required | Default / notes |
 | --- | --- | --- |
-| `API_KEY` | yes | the `X-API-Key` the clients send; generate one with `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
+| `API_KEY` | yes | only used while `ALLOW_LEGACY_API_KEY` is on: the `X-API-Key` value; generate one with `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
+| `ALLOW_LEGACY_API_KEY` | no | temporary single-owner fallback, **off by default**. When `true`, `X-API-Key: <API_KEY>` acts as `LEGACY_USER_ID` |
+| `LEGACY_USER_ID` | only with the flag | the owner's `auth.users` id (a UUID). The app refuses to start with the flag on and this unset or invalid |
 | `SUPABASE_URL` | yes | your project URL |
-| `SUPABASE_SERVICE_KEY` | yes | `service_role` key — server-side only, it bypasses RLS |
+| `SUPABASE_SERVICE_KEY` | yes | `service_role` key — server-side only, it bypasses RLS. Never sent to the page |
+| `SUPABASE_PUBLISHABLE_KEY` | for the web UI | the publishable (anon) key the **browser** signs in with; injected into the page at serve time. Public by design. Empty means the web UI cannot sign in (the API and the Apple Shortcut are unaffected) |
 | `ANTHROPIC_API_KEY` | yes | Claude API key |
 | `CLAUDE_MODEL` | no | defaults to `claude-sonnet-4-5` |
 | `CLAUDE_FALLBACK_MODEL` | no | defaults to `claude-sonnet-5-5`. Check the model ID against Anthropic's docs |
 | `RECEIPTS_BUCKET` | no | defaults to `receipts` |
 | `MAX_UPLOAD_BYTES` | no | defaults to `10485760` (10 MB) |
 | `ENVIRONMENT` | no | set to `production` to switch `/docs`, `/redoc` and `/openapi.json` off |
-| `PORT` | no | port uvicorn binds inside the container, defaults to `8000` |
+| `PORT` | no | port uvicorn binds inside the container. `render.yaml` sets it to `10000`; the `Dockerfile` default is `8000` |
 
 If a required variable is missing or blank, startup aborts with a message naming exactly which
 ones — never their values. The rest of "Setup" above still applies (Supabase project, `schema.sql`,
@@ -145,7 +153,7 @@ docker run --rm -p 8000:8000 --env-file ~/.duits.env -e ENVIRONMENT=production d
 
 The platform proxy (Render) must pass the client address in `X-Forwarded-For`; only the first hop of
 that header is trusted. Failed
-`X-API-Key` attempts are limited to 10 per minute per client IP, then `429` with `Retry-After`;
+Failed sign-in attempts (bad or missing credentials) are limited to 10 per minute per client IP, then `429` with `Retry-After`;
 the counter lives in the process, so with several replicas each one throttles separately.
 
 `/transactions*` and `/summary` responses carry `Cache-Control: no-store`, and every response
@@ -293,13 +301,44 @@ Settings keeps the large title alone.
   live "Saved on this device" / "Not set" value) that opens the change-key sheet, and *About*
   lists App, **Build**, Currency and Date format as plain read-only rows. The Build row is the one
   way to see *on the phone* whether the Home Screen app is running the current page: it prints the
-  stamp plus the status bar style the meta ended up with and whether it is running standalone. Bump
-  it whenever `index.html` changes, and if the shortcut shows an older stamp it is serving a cached
-  document.
+  stamp (the git short hash, injected by `GET /`, or `dev` locally) plus the status bar style the meta
+  ended up with and whether it is running standalone. If the shortcut shows an older stamp it is
+  serving a cached document.
   There is no service worker here — the page is the only asset, with its CSS and JS inline.
 
-The API key is asked for on first load and kept in `localStorage` under `apiKey`; it is never
-in the HTML or in this repo. A `401` clears it and re-prompts. Add to Home Screen works like an
+  Opening `app/static/index.html` from disk shows `{{BUILD}}`; only the served page is filled in.
+
+**Signing in.** The page has an email + password screen (invite only, no sign-up) that talks to Supabase
+Auth over its REST endpoints — no SDK, no CDN, no build step. The session (access and refresh tokens) is
+kept in `localStorage` under `duits.session`, and every API call sends it as `Authorization: Bearer`. A
+`401` triggers one token refresh (serialised, so a burst of 401s costs one refresh request) and, if that
+fails, returns to the sign-in screen **without clearing unsaved input in the Add sheet**. Invite and
+password-reset links are handled on the page: the token in the link's hash is read once and the address bar
+is rewritten immediately, so a token never lingers in a URL. Settings shows an *Account* card (email,
+Sign out) instead of the old API key row; sign out clears the session **and** every rendered list. The
+publishable key and the project URL are injected into the page by `GET /` at serve time (like `{{BUILD}}`);
+the **service key never reaches the page**.
+
+The sign-in screen is one column, centred and sitting at **45%** from the top (the bottom padding is 10vh
+taller than the top, which is what shifts a centred block up). It is `min-height: 100dvh` — never `100vh`,
+which is what iOS breaks — and scrolls when the keyboard eats the height. The centring is `safe center`,
+because a centred flex item taller than its box overflows off the *top*, where the logo and title could
+never be scrolled back into view. Focusing a field scrolls it to the middle of what the keyboard leaves
+after ~250ms; leaving the form scrolls back to the top so the logo and title return. Fields are 16px with
+`maximum-scale=1`, `enterkeyhint` `next`/`go`, and `autocapitalize`/`autocorrect` off. The set-password and
+reset views use the same column and the same sizes. The form is taller than the strip a 45% keyboard
+leaves on a small phone (456px of content against 300px at 375×667), so it is designed to scroll rather
+than to fit in one glance; every control is reachable and lands clear of the keyboard when focused.
+
+**Content-Security-Policy.** `GET /` sends a strict policy with a fresh per-response nonce:
+`default-src 'self'`, `script-src 'self' 'nonce-…'` (no `unsafe-inline`, so an injected script cannot run),
+`style-src 'self' 'unsafe-inline'`, `img-src 'self' blob: <project>`, `connect-src 'self' <project>`,
+`font-src 'self'`, `object-src 'none'`, `base-uri 'none'`, `form-action 'self'`, `frame-ancestors 'none'`.
+Two allowances were necessary: `style-src 'unsafe-inline'` for the page's two inline `<style>` blocks and the
+twelve `style="…"` attributes its templates write (colour and stagger values, all escaped or from constant
+maps), and `blob:` for the in-memory preview built while a photo is downscaled. There are no `data:` URIs.
+
+Add to Home Screen works like an
 app: PWA meta tags plus four icon links — `apple-touch-icon.png` (180), `-152x152`, `-120x120` and
 `logo.png` as the favicon — each with a `?v=` cache-buster and served publicly with
 `Cache-Control: public, max-age=600` (deliberately *not* immutable; the `?v=` is what invalidates
@@ -344,8 +383,9 @@ The standalone app is edge to edge, in both themes:
   safe-area padding are what put content under the bar; whatever iOS decides, `env()` reports the truth
   and the layout follows it. The alternative — `black-translucent` in both themes — needs the light
   theme's top strip darkened to a band, which is the colour hack this deliberately avoids.
-- The **Build** row in Settings prints the stamp, the status bar style the meta ended up with and
-  whether it is running standalone, so a phone can be asked what it actually loaded.
+- The **Build** row in Settings prints the stamp (the git short hash, injected by `GET /`, or `dev`
+  locally), the status bar style the meta ended up with and whether it is running standalone, so a
+  phone can be asked what it actually loaded.
 
 ### Splash
 
@@ -609,7 +649,7 @@ something.
 
 ## API
 
-All of these except `/health` need the header `X-API-Key: <API_KEY>`.
+All of these except `/health` need `Authorization: Bearer <Supabase access token>`. A signed-in user sees only their own rows; another user's id answers `404`. While `ALLOW_LEGACY_API_KEY` is on, the curl examples below also work with `X-API-Key: <API_KEY>`, which acts as `LEGACY_USER_ID`.
 
 | Method | Path | Body | Returns |
 | --- | --- | --- | --- |
@@ -622,7 +662,7 @@ All of these except `/health` need the header `X-API-Key: <API_KEY>`.
 | GET | `/transactions/{id}` | – | 200 one transaction (404 unknown, 422 non-UUID id) |
 | PATCH | `/transactions/{id}` | JSON, any of `txn_date`, `amount`, `merchant`, `category`, `type`, `mode` | 200 updated transaction (422 bad value or unknown field) |
 | DELETE | `/transactions/{id}` | – | 204 empty body — deletes the row **and** its receipt object |
-| GET | `/transactions/{id}/receipt-url` | – | 200 `{"url": "…", "expires_in": 60}` (404 if the row has no receipt) |
+| GET | `/transactions/{id}/receipt-url` | – | 200 `{"url": "https://…", "expires_in": 60}` (404 if the row has no receipt). `url` is absolute and ready to open |
 
 
 ### curl
@@ -810,8 +850,9 @@ Safari. Both write the same rows.
 - **A stale Home Screen app is now ruled out by the header.** There is no service worker and no
   external CSS/JS — the page *is* the asset — and `GET /` sends `Cache-Control: no-store` (verified on
   the running server), so no copy of the document can be served from cache at all. The **Build** row
-  in Settings remains the way to check what a phone actually loaded; if its stamp is older than the
-  server, the shortcut needs deleting and re-adding. The cost is re-downloading a ~150KB page every
+  in Settings remains the way to check what a phone actually loaded (the git short hash, injected by
+  `GET /`, or `dev` locally); if its stamp does not match the deployed commit, the shortcut needs
+  deleting and re-adding. The cost is re-downloading a ~150KB page every
   launch, which is the right trade for an app whose only asset is that page.
 - **The splash's timing is measured in Chrome, not on a phone.** The probes show the minimum hold,
   the 4s waking line, the 60s backstop (in the harness, with fake timers), the side effects of a
@@ -877,7 +918,7 @@ pip install -r requirements-dev.txt   # requirements.txt alone is production-onl
 pytest
 ```
 
-96 tests, no network and no API key needed — Claude is monkeypatched at `extractor._call` and
+167 tests, no network and no API key needed — Claude is monkeypatched at `extractor._call` and
 the Supabase helpers at `app.db.*`: dedupe policy (receipts with a merchant dedupe; text notes
 and merchant-less receipts do not, and two text entries of the same amount on the same day both
 insert), hand-typed rows (`source = "manual"`, note kept in `raw_extraction.note`, empty category
