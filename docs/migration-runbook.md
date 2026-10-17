@@ -250,9 +250,10 @@ verification script is `SELECT`-only and names no project. `.env.staging` drives
    - The guard refuses without that `set_config`. That is the point: the step destroys the opening balance and
      every commitment and paid mark that was typed in.
    - Expected: no error, and `public.migration_0003_saved_rows` holds **3** rows.
-5. **Verify the rollback.** Run `verify_after_0003.sql` again. Expected: rows 1–3 report `MISSING`, row 12
-   reports `MISSING`, row 17 reports `3 row(s), rls true/true, policies 0`, and the `transactions` row count is
-   unchanged.
+5. **Verify the rollback.** Run `verify_after_0003.sql` again. Expected: rows 1–6 read `MISSING` (row 5 and 6
+   say a table is gone), rows 7–11 read `MISSING`, row 12 reads `MISSING`, rows 13–15 read `MISSING`, row 16
+   (the `transactions` row count) is unchanged, and row 17 reads `3 row(s), rls true/true, policies 0`.
+   The script names the rolled-back state rather than erroring, which is why its lookups are wrapped.
 6. **Up again.** Repeat steps 1 and 2. This is the idempotence check: the `if not exists` statements plus the
    named-constraint guard must land on the same grid, and the snapshot table is left where it is.
 7. **Live, later, and only by the owner.** Live follows §0's roles and §1's discipline, and it needs its own
