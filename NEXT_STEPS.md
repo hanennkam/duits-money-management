@@ -20,7 +20,55 @@ Prepared after the auth-screen polish on branch `multi-user`. Read this before t
 | Pass 9 — phone pass recorded + receipt paths | **Done.** The phone checklist came back clean. `migrate_receipts.py` now re-homes a path left under another owner. |
 | Pass 10 — household decision, `--apply`, byte reconciliation | **Done.** The three accounts are ours; the receipt re-homing ran (`legacy_rows: 0`); both re-homed objects are identified; the isolation suite ran clean. |
 | Pass 11 — runbook read-through against the tools | **Done.** Every tool-agreeing claim verified against code; four stale-prose fixes; steps 3–4 now self-report the project ref. |
-| Pass 12 — live `image_hash` shape, step 3 hardened | **Done except the staging rollback.** Production's `image_hash` uniqueness is a *partial unique index*, which step 3's text patterns could not see; step 3 now reads the catalog. Staging rebuilt to that shape and re-run: `up`, `verify_after_up.sql` and the 15 isolation tests all clean. `0002 down` on staging is the one rehearsal step left. |
+| Pass 12 — live `image_hash` shape, step 3 hardened | **Done except the staging rollback.** Production's `image_hash` uniqueness is a *partial unique index*, which step 3's text patterns could not see; step 3 now reads the catalog. Staging rebuilt to that shape and re-run: `up`, `verify_after_up.sql` and the 15 isolation tests all clean. `0002 down` on staging is the one rehearsal step left. *(Rollback since run — see Pass 13.)* |
+| Pass 13 — live cutover, steps 3–4 and 9 | **Done and verified.** Live was found already migrated, with the **fixed** `0002` (snapshot 2 rows, partial index with its `WHERE`). Receipts backed up (16 files / 10.8 MB), baseline audit 75 rows / 16 objects, and the 2 receipt objects moved into the owner's folder with a sha256 match against the backup. **Live is now in an open write window: the deployed code cannot insert until step 11.** |
+
+## Pass 13 — the live cutover: what live actually was, and steps 3–4 and 9
+
+**Live turned out to be further along than this file said.** `scripts/audit_live.py` against
+`viorpltdkpexswvofeul` shows `transactions.user_id` **`uuid, NOT NULL`**, plus `api_tokens` and
+`migration_0002_saved_constraints` — the `up` migration is applied. Live's snapshot table holds **2 rows**:
+
+```
+constraint transactions_dedupe_hash_key: alter table … add constraint … UNIQUE (dedupe_hash)
+index      transactions_image_hash_uidx: CREATE UNIQUE INDEX … (image_hash) WHERE (image_hash IS NOT NULL)
+```
+
+The partial index is there **with its `WHERE` clause**, so the **fixed** `0002 up` is what ran on live — the
+silent no-op did not happen there, and the 2-row snapshot is the evidence, read out of the project rather than
+taken on trust. `disable_signup` is **true**, so sign-up is already closed.
+
+**Steps 3–4.** `.env` → live (checked, step 3a). `backup_receipts.py` downloaded **16 files, 11294015 bytes
+(10.8 MB), exit 0** into `~/Backups/duits-2026-10-17/receipts/`. `audit_live.py`: **75 rows**, **16 receipts
+objects**, 2 folders, JWKS 200 with 1 `EC/ES256/P-256` key, `mailer_autoconfirm` false. Step 4 is a *baseline*,
+and it ran **after** the migration, so 75 rows / 16 objects are the **current** counts, not pre-migration ones —
+that is the pair every later step is compared against.
+
+**Step 9, the receipt objects.** Dry run `legacy_rows: 2`, `would_move: 2`, no `missing_source`, no
+`unexpected_format`, no `shared_object`, exit 0. Apply: `copied: 2`, `bytes_copied: 1246707`,
+`rows_updated: 2`, `originals_deleted: 2`, no failure counter, exit 0. Confirm: `already_moved: 2`,
+`legacy_rows: 0`. **Verified independently of the script's own counters:** both rows now sit under
+`<owner>/2026/10/…`, both objects download **sha256-identical** to the pre-move backup (572574 + 674133 =
+1246707 bytes, matching `bytes_copied`), and both legacy originals are gone. The rows are 2 of 75 — the other
+73 are 72 `manual` and 1 `text`, so 2 is the correct scope.
+
+**Open, and it is time-sensitive: live is in a write window.** The deployed code is `main`, which never sets
+`user_id` (`app/db.py` and `app/main.py` on `main` contain no reference to it), and live's `user_id` is now
+`NOT NULL`. So the live app can still **read** (and still serves the re-homed receipts, whose paths it signs
+as-is), but **every new scan, text or manual entry fails** with a not-null violation until step 11 deploys the
+branch. Steps 10 (Render env vars) and 11 (merge → deploy) are therefore not optional follow-ups — they close
+this window. Until then the household should not expect the app to accept new entries.
+
+**Open finding: 14 orphan objects on live.** The bucket holds **16 objects and only 2 are referenced by any
+row**; all 14 extras sit at the same legacy `2026/10/<uuid>.jpg` shape, and **no row points at a missing
+object**. So they are pure orphans — about 9 MB with nothing referring to them. The app deletes its upload when
+the insert fails, so this is not the design; it is not explained, and it does not block anything (step 9 touches
+only the 2 referenced objects; all 16 are in today's backup). Worth a look after the deploy, not during it.
+
+**Not done:** step 10 (Render env vars — yours), step 11 (merge to `main` — yours; **the PR has not been
+opened** and `main` has not been touched), step 12 (smoke test — mine, and it needs the deploy first), steps
+13–14. Nothing was rolled back anywhere, and no live SQL was run by me — that is not possible here, which is
+why step 7 was yours.
 
 ## Pass 12 — Production's `image_hash` shape, and the silent no-op step 3 hid
 
@@ -131,7 +179,8 @@ shape-independent. The one thing they cannot check is the catalog itself: they r
 `pg_index` / `pg_constraint` are not exposed there — which is why that check lives in `verify_after_up.sql`.
 They have now been run against the migrated staging, and they pass.
 
-**Only the staging rollback is left, and the live SQL.** The remaining rehearsal step is `0002 down` +
+**Only the staging rollback is left, and the live SQL.** *(Both have since happened — the staging `down` +
+`verify_after_down.sql` on 2026-10-17, and the live `up`; see Pass 13.)* The remaining rehearsal step is `0002 down` +
 `verify_after_down.sql` on staging — the rollback path is still proven only locally (PGlite), where it
 restores the constraint and the partial index verbatim. Nothing has been run against live.
 
@@ -689,35 +738,41 @@ needs no manual bump; forgot-password delivers and the enumeration leak is close
 
 ## Next
 
-Staging was complete, then Pass 12 reopened one step of it: production's `image_hash` uniqueness turned out to
-be a **partial unique index**, which the old step 3 could not see, so the migration that was rehearsed was not
-the migration that would run. That is now closed on staging — rebuilt to the live shape, `0002 up`,
-`verify_after_up.sql` and the 15 isolation tests all clean — and **only the staging rollback is left** before
-the live work. What is left is:
+The rehearsal is closed and **live is already partway through its cutover** — found by looking, in Pass 13, not
+assumed. Live carries the **fixed** `0002` (its `migration_0002_saved_constraints` holds **2** rows, the partial
+`image_hash` index among them *with its `WHERE` clause*), sign-up is closed, the receipts are backed up
+(16 files / 10.8 MB) and the 2 receipt objects have been moved into the owner's folder. What is left:
 
-1. **Finish the staging rehearsal: the rollback** (Pass 12). In the staging SQL editor run
-   `migrations/0002_multi_user.down.sql`, then `migrations/staging/verify_after_down.sql` (one statement, one
-   grid). Expect 29 rows, no `user_id` column, the dedupe uniqueness printed as
-   `transactions_dedupe_hash_key [constraint] :: UNIQUE (dedupe_hash)`, the image one as
-   `transactions_image_hash_uidx [index] :: ... WHERE (image_hash IS NOT NULL)`, 0 per-owner objects left, RLS
-   `true`, 0 policies, and `api_tokens` and the snapshot table `MISSING`. That is the last rehearsal step; the
-   live run is then the only thing unproven.
-2. **Live SMTP.** Per-project: staging has them, live does not. Copy `smtp.gmail.com`, 465, sender
-   `hanennkam@gmail.com`, name **Duits** into the live project's Authentication → Emails → SMTP Settings,
-   then **send one real test message and confirm it arrives** — a settings page that saves cleanly proves
-   nothing about port, TLS or the credentials. If a reset and an invite go to the same address, leave a
-   minute between them or the second is silently dropped.
-3. **Close sign-up on live**, and do it **before** the cutover window opens, not during it. Verify
-   `POST /auth/v1/signup` answers 422 `signup_disabled`.
-4. Then cutover (`docs/CUTOVER_RUNBOOK.md`). The runbook was read through against the tools in Pass 11 and is
-   trusted: every claim that had to agree with code does, the four stale-prose fixes it produced are in, and
-   Pass 12 updated its step 7/8 expectations to the real live shape.
+1. **Step 10 — the Render environment variables (yours).** Every variable in
+   `docs/CUTOVER_RUNBOOK.md` step 10, including `ALLOW_LEGACY_API_KEY`/`LEGACY_USER_ID` while the Shortcut
+   still uses the shared key.
+2. **Step 11 — merge to `main` and deploy (yours), and it is now time-critical.** This closes the **write
+   window**: the deployed code is `main`, which never sets `user_id`, and live's `user_id` is `NOT NULL`, so
+   the live app can read but **cannot insert** a new entry until the branch is deployed. The PR has not been
+   opened and `main` has not been touched; `multi-user` is 42 commits ahead.
+3. **Step 12 — smoke test (mine)**, after the deploy: `/health` 200, `/` 200 with `no-store` and a per-response
+   CSP nonce, then a real scan / edit / delete and the Settings **Build** row.
+4. **Steps 13–14** — invites, then the after-window checks.
+5. **Deferred by choice, and now the only open shelf:** the 14 orphan objects in live's bucket (Pass 13), and
+   the household-row deletion this file describes further down. Neither blocks the cutover.
 
-**What the staging re-run did and did not settle.** The `up` and the verification did: staging's snapshot
-holds **2** rows, so step 3a now captures a partial index *with its `WHERE` clause* on the real project, and
-the 15 isolation tests pass against the per-owner partial index. The **rollback on staging is not run yet** —
-its only proof so far is local (PGlite), where it restores both objects verbatim. Running it also costs
-nothing to confirm later: re-running `0002 up` is supported and recreates the snapshot.
+**Two runbooks, two orders.** `docs/migration-runbook.md` §1 merges to `main` *first* with auto-deploy paused;
+`docs/CUTOVER_RUNBOOK.md` merges at step 11, *after* the migration. The owner chose the second, which is what
+live is now doing, and the older file carries a note saying so. Why it matters: deploying before the migration
+would have shipped code that selects `user_id` against a schema without it — every request a 42703.
+
+**The staging rehearsal is now closed, rollback included.** The `up` and the verification did: staging's
+snapshot held **2** rows, so step 3a captures a partial index *with its `WHERE` clause* on the real project, and
+the 15 isolation tests pass against the per-owner partial index. The **rollback has now run** (2026-10-17) and
+was checked independently of the grid, through the API: still **29 rows**, and `user_id` gone
+(`42703 column transactions.user_id does not exist`), `api_tokens` gone, snapshot table gone (`PGRST205` both),
+14 receipts all under A's folder and none left at the legacy path. **Live's `up` is likewise verified from the
+project, not from the grid alone** — its snapshot's 2 rows are what proves the fixed step 3a ran there.
+
+**Two figures that move, so they are checkpoints and not constants.** Live's audit in Pass 13 read **75 rows /
+16 objects**; staging's settled state is **29 rows / 14 objects**. Both change the moment anyone uses either
+app — the row counts immediately, and live's object count as soon as the write window closes — so compare later
+runs to the run you took, not to these strings.
 
 **Deferred by choice, not blocking:** deleting the household rows, whenever you want — and the three
 accounts too, if you decide they go. Staging's `--apply` has already run, so an app delete now takes each

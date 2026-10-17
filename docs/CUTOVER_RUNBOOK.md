@@ -1,6 +1,9 @@
 # Cutover runbook — going live
 
-**Status: written, not run.** Nothing here has been executed against the live project.
+**Status: in progress (2026-10-17).** Steps 1–9 have run. Step 7's migration was applied to live with the fixed
+file, and steps 3, 4 and 9 were run by the assistant and verified (live's snapshot table holds 2 rows, and both
+moved receipts are sha256-identical to the pre-move backup) — see `NEXT_STEPS.md`, Pass 13. **Steps 10–14 are
+outstanding, and live is in an open write window until step 11 deploys the branch.**
 
 **Legend.** Every step is marked:
 
@@ -18,6 +21,10 @@ every console before you run anything.**
 
 **Rules.** Stop on any unexpected result. Do not fix forward. Take the backups before step 7 — the migration
 is the only irreversible-feeling step and it is the one with a rollback.
+
+> **Note from the actual run (Pass 13).** Step 7 was applied before steps 2–4 were recorded, so confirm step 2's
+> `pg_dump` exists. If it does not, the database's only recovery path is `0002 down`; the receipts backup (step
+> 3) was taken and is byte-verified, so Storage is covered either way.
 
 ---
 

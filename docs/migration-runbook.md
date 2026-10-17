@@ -1,6 +1,15 @@
 # Migration runbook: multi-user (0002) on the LIVE project
 
-**Status: written, not run.** Do not start this on live until every item in "Go / no-go" is ticked. Everything
+> **Superseded — use `docs/CUTOVER_RUNBOOK.md`.** That is the runbook the cutover is actually following, and it
+> is the one kept current. This file is kept for the pre-flight detail and the "What staging proved" record. It
+> differs on one step that matters: §1 puts the merge to `main` **first**, with Render auto-deploy paused, while
+> `docs/CUTOVER_RUNBOOK.md` merges at its step 11, **after** the migration and the env vars. The owner chose the
+> latter. Do not follow this file's merge order on a database that has not had `0002` applied: the branch selects
+> `user_id`, so deploying against the old schema answers 42703 for every request.
+
+**Status: written, not run.** *(Historical: since this was written, `0002` **has** run on live and the receipt
+objects have been migrated — see `NEXT_STEPS.md`, Pass 13.)* Do not start this on live until every item in
+"Go / no-go" is ticked. Everything
 here was rehearsed on the staging project first (see "What staging proved"). Each step names the expected
 result, and a deviation is a stop, not a judgement call.
 
