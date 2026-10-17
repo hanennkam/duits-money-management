@@ -65,10 +65,32 @@ object**. So they are pure orphans — about 9 MB with nothing referring to them
 the insert fails, so this is not the design; it is not explained, and it does not block anything (step 9 touches
 only the 2 referenced objects; all 16 are in today's backup). Worth a look after the deploy, not during it.
 
-**Not done:** step 10 (Render env vars — yours), step 11 (merge to `main` — yours; **the PR has not been
-opened** and `main` has not been touched), step 12 (smoke test — mine, and it needs the deploy first), steps
-13–14. Nothing was rolled back anywhere, and no live SQL was run by me — that is not possible here, which is
-why step 7 was yours.
+**Opened for review, and deliberately not merged: PR #1** (`multi-user` → `main`, 43 commits) —
+https://github.com/hanennkam/duits-money-management/pull/1. Its summary states live's schema is already
+migrated and verified, so the order is schema-then-code, and that `docs/migration-runbook.md`'s merge-first
+order is superseded. `main` has not been touched; the merge fires only on the owner's "env vars set".
+
+**Step 2's `pg_dump`: it does not exist on this Mac, and that is recorded rather than assumed.** A search of
+`~/Backups` (every file, not just the expected names), the repo working tree including ignored files, and a
+shallow sweep of `$HOME` found no dump — and there is no `pg_dump` binary installed here at all. Whether the
+Supabase dashboard holds a backup can only be seen in the dashboard. What *is* covered: live's receipts, twice
+over — `~/Backups/duits-2026-10-16/receipts` and `~/Backups/duits-2026-10-17/receipts`, **16 files each**, and
+the 16 Oct copy holds the pre-move originals of both re-homed objects. The database's recovery paths are
+`0002 down` plus redeploying the previous `main` commit. The merge is not blocked on this.
+
+**Writes lost while the window is open — record, do not fix.** Every scan, text and manual entry attempted
+against live since step 7 was refused by the `NOT NULL` `user_id`, so nothing was saved. Those entries need
+re-entry by hand once the deploy is up. Ask the household what they tried to add; do not guess, and do not try
+to reconstruct rows from the log.
+
+**Not done:** step 10 (Render env vars — yours), step 11 (merge → deploy, on your "env vars set"), step 12
+(smoke test — mine, immediately after the deploy; a **real write** is the acceptance criterion, not `/health`),
+steps 13–14, and the post-deploy items (the 14 orphans, the `schema.sql` sync, Known issue 8's device pass).
+Nothing has been rolled back anywhere, `main` is untouched, and no live SQL has been run by me — that is not
+possible here, which is why step 7 was yours.
+
+**Keep `public.migration_0002_saved_constraints` until the rollback window closes** (steps 13–14). It is the
+only record of the two objects' original forms; dropping it early costs the `down` its verbatim restore.
 
 ## Pass 12 — Production's `image_hash` shape, and the silent no-op step 3 hid
 
@@ -432,8 +454,10 @@ Three fixes follow from it:
 ## Current branch + last commit
 
 - Branch: `multi-user`, tracking `origin/multi-user`, pushed.
-- `main` is untouched and was **not** pushed.
-- `pytest`: **198 passed, 15 skipped**. Staging suite: **15 passed**.
+- `main` is untouched and was **not** pushed. PR **#1** (`multi-user` → `main`) is open and unmerged:
+  https://github.com/hanennkam/duits-money-management/pull/1
+- `pytest` at Pass 13: **206 passed, 15 skipped, 2 warnings**. Staging suite: **15 passed**. Read the count
+  from the run you make — this line is a checkpoint, not a constant.
 
 ## Pass 5 — what changed
 
@@ -738,23 +762,33 @@ needs no manual bump; forgot-password delivers and the enumeration leak is close
 
 ## Next
 
-The rehearsal is closed and **live is already partway through its cutover** — found by looking, in Pass 13, not
-assumed. Live carries the **fixed** `0002` (its `migration_0002_saved_constraints` holds **2** rows, the partial
-`image_hash` index among them *with its `WHERE` clause*), sign-up is closed, the receipts are backed up
-(16 files / 10.8 MB) and the 2 receipt objects have been moved into the owner's folder. What is left:
+**The write window decides the schedule.** Every scan, text and manual entry against live has been failing since
+step 7 (`main` never sets `user_id`; live's `user_id` is `NOT NULL`), so closing it is the priority and the
+order below is fixed. Step 1 is done — **PR #1 is open and unmerged**.
 
-1. **Step 10 — the Render environment variables (yours).** Every variable in
-   `docs/CUTOVER_RUNBOOK.md` step 10, including `ALLOW_LEGACY_API_KEY`/`LEGACY_USER_ID` while the Shortcut
-   still uses the shared key.
-2. **Step 11 — merge to `main` and deploy (yours), and it is now time-critical.** This closes the **write
-   window**: the deployed code is `main`, which never sets `user_id`, and live's `user_id` is `NOT NULL`, so
-   the live app can read but **cannot insert** a new entry until the branch is deployed. The PR has not been
-   opened and `main` has not been touched; `multi-user` is 42 commits ahead.
-3. **Step 12 — smoke test (mine)**, after the deploy: `/health` 200, `/` 200 with `no-store` and a per-response
-   CSP nonce, then a real scan / edit / delete and the Settings **Build** row.
-4. **Steps 13–14** — invites, then the after-window checks.
-5. **Deferred by choice, and now the only open shelf:** the 14 orphan objects in live's bucket (Pass 13), and
-   the household-row deletion this file describes further down. Neither blocks the cutover.
+1. **DONE — PR opened.** `multi-user` → `main`, PR #1, no merge.
+2. **Step 10 — the Render environment variables (yours).** `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`,
+   `SUPABASE_PUBLISHABLE_KEY`, `ANTHROPIC_API_KEY`, `API_KEY`, `ENVIRONMENT=production`, and
+   `ALLOW_LEGACY_API_KEY=true` + `LEGACY_USER_ID=<your auth.users id>` while the Shortcut still uses the shared
+   key. Confirm `PORT=10000` is set **in the dashboard** — do not change the Dockerfile's 8000 default. Your
+   "env vars set" is the merge trigger.
+3. **Merge (authorised) + step 12 smoke test, immediately.** Render auto-deploys from `main`. Acceptance is a
+   **real write**, not `/health`: one scan and one manual entry → 201 and the rows appear; edit one; delete one
+   test row; open one of the two re-homed receipts (photo loads, 200 signed URL); Settings → **Build** matches
+   the deployed commit. `/health` 200 with `no-store` + a CSP nonce is the cheap half.
+4. **Live SMTP, same session (yours).** Confirm `smtp.gmail.com`, 465, sender `hanennkam@gmail.com`, name
+   **Duits** are in on **live** — the per-project copy is the unproven part — then send **one** real test
+   message and confirm it arrives. If a reset and an invite go to the same address, leave a minute between them
+   or the second is silently dropped. Sign-up is already closed on live (`disable_signup: true`, audit).
+5. **After the deploy, in the next docs touch:** the 14-orphan decision (investigate only once step 12 has
+   passed — no bucket cleanup before then; if they are debris from failed inserts, decide keep-as-archive vs.
+   delete with the same explicit-method discipline as the household rows), the `schema.sql` sync (per-owner
+   comment + the global partial index live carries) as a **separate** change, the `a2d55e96` (row id, Pass 9
+   throwaway) and `b31b4f8f` citations, and one focused phone pass for Known issue 8's three device items.
+
+**Rollback, stated once so it is ready and unneeded:** redeploy the previous `main` commit (the old code never
+reads `user_id`), and `0002 down` if the schema must go back — rows are kept, and it refuses if two owners share
+a hash. Receipts do not move back; each row's `receipt_path` is the source of truth.
 
 **Two runbooks, two orders.** `docs/migration-runbook.md` §1 merges to `main` *first* with auto-deploy paused;
 `docs/CUTOVER_RUNBOOK.md` merges at step 11, *after* the migration. The owner chose the second, which is what
