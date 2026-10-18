@@ -139,7 +139,7 @@ def test_each_flow_returns_to_the_chooser_and_cancel_leaves_the_sheet(client: Te
     assert 'addEventListener("click", function () { showAddView("ai"); })' in page
     assert 'id="closeAddBtn"' in page
     assert '$("closeAddBtn").addEventListener("click", closeAddSheet);' in page
-    assert page.count('isOutsideTap(event, $("') == 3, "the scrim still closes the sheet"
+    assert page.count('isOutsideTap(event, $("') == 4, "the scrim still closes the sheet"
     # Back takes the keyboard with it, or the chooser returns under a keyboard with nothing to type into
     back = page[page.index("function reverseAddView("):page.index("function reverseAddView(") + 400]
     assert "active.blur()" in back
@@ -250,7 +250,7 @@ def test_the_sheet_tap_guards_are_target_based(client: TestClient) -> None:
     assert "function isOutsideTap(event, overlay)" in page
     assert 'return event.target === overlay || (!!scrim && event.target === scrim);' in page
     assert '!event.target.closest(".sheet")' not in page, "the detached-node guard is back"
-    assert page.count("isOutsideTap(event, $(") == 3, "all three overlays must use the guard"
+    assert page.count("isOutsideTap(event, $(") == 4, "all four overlays must use the guard"
 
 
 def test_the_drag_waits_for_the_threshold_before_capturing(client: TestClient) -> None:
@@ -308,3 +308,167 @@ def test_the_icon_links_are_versioned(client: TestClient) -> None:
     # and every versioned URL the page asks for is really served
     for href in links:
         assert client.get(href).status_code == 200, href
+
+
+# ---------------------------------------------------------------- money: the card, the sheet, the settings
+
+def test_home_carries_a_safe_to_spend_card_above_the_hero(client: TestClient) -> None:
+    """The balance minus the commitments still due, above "Spent this month", from one extra read.
+
+    What the served page can pin: the markup and its order, the single Promise.all that now carries a
+    third call with the same month+mode query, the one state that colours the amount (negative, in the
+    shared --danger), and the setup message a user with nothing saved sees instead of a figure.
+    """
+    page = client.get("/").text
+    assert 'id="safeCard"' in page
+    assert page.index('id="safeCard"') < page.index('class="card hero-card"'), "the card sits above the hero"
+    assert ">Safe to spend<" in page
+    for element in ('id="safeAmount"', 'id="safeMeta"', 'id="safeDetailsBtn"'):
+        assert element in page, element
+    home = page[page.index("async function loadHome("):page.index("// Re-read only the money figures")]
+    assert home.count("await Promise.all(") == 1, "the read rides in the one existing batch"
+    assert 'api("/finance/summary" + monthQuery())' in home
+    assert "renderSafeCard(loaded[2]);" in home
+    # the amount is the only coloured thing, and only when it is negative
+    assert 'classList.toggle("neg", !setup && amount < 0)' in page
+    assert ".safe-amount.neg { color: var(--danger); }" in page
+    # money() drops the sign, so the card has to put the minus back itself
+    assert '(amount < 0 ? "\\u2212" : "") + money(Math.abs(amount))' in page
+    # nothing saved yet: the card asks for the opening balance instead of showing a meaningless total
+    assert "Set your opening balance" in page
+    assert "function hasMoneySettings(summary)" in page
+    # Details opens the month's commitments, and the setup state offers a way to Settings
+    assert 'addEventListener("click", openCommitSheet)' in page
+    assert "function showMoneySettings()" in page
+
+
+def test_the_commitments_sheet_is_a_registered_overlay(client: TestClient) -> None:
+    """A fourth sheet with the same parts as the other three: a scrim, a drag, a guard and a close."""
+    page = client.get("/").text
+    overlay = page[page.index('<div class="overlay" id="commitOverlay"'):]
+    assert '<div class="scrim" aria-hidden="true"></div>' in overlay[:600]
+    assert 'id="commitSheet"' in overlay[:600]
+    assert 'openOverlay($("commitOverlay"))' in page
+    assert 'attachSheetDrag("commitSheet", "commitOverlay", closeCommitSheet, false)' in page
+    assert 'isOutsideTap(event, $("commitOverlay"))' in page
+    # it precedes the Add overlay, so a Pay tap stacks the Add sheet on top of it and comes back
+    assert page.index('id="commitOverlay"') < page.index('id="addOverlay"')
+    # the dim is the sheet-strength scrim, and it is the only thing in this overlay that fades
+    assert "#commitOverlay .scrim { background: var(--scrim-sheet); }" in page
+
+
+def test_the_commitments_sheet_reads_the_month_and_toggles_paid(client: TestClient) -> None:
+    """The list is per month, the paid mark is two-way, and the add form posts the three API fields."""
+    page = client.get("/").text
+    # /commitments requires a month, and the sheet sends the one being viewed
+    assert 'api("/commitments?month=" + encodeURIComponent(month))' in page
+    # a row: the name (user data, escaped), the amount and the due day
+    assert "escapeHtml(row.name)" in page
+    assert 'escapeHtml(money(row.amount)) + " \\u00b7 due "' in page
+    assert "escapeHtml(ordinal(row.day_of_month))" in page
+    assert "function ordinal(day)" in page
+    # the toggle is two-way: POST marks, DELETE unmarks, both for the viewed month
+    assert 'data-commit-paid="' in page and 'aria-pressed="' in page
+    assert '"/paid?month=" +' in page and 'method: "DELETE"' in page
+    assert "body: JSON.stringify({ month: state.month })" in page
+    # the inline form posts exactly what the API takes, after checking all three
+    add = page[page.index("async function addCommitment("):page.index("// One delegated handler")]
+    assert "body: JSON.stringify({ name: name, amount: amount, day_of_month: day })" in add
+    assert "amount <= 0" in add and "day >= 1 && day <= 31" in add
+    for element in ('id="commitName"', 'id="commitAmount"', 'id="commitDay"', 'id="commitAddBtn"'):
+        assert element in page, element
+    # a pause is visible and has no Pay button, so the list never lies about what it can do
+    assert ".commit-row.is-off .commit-name, .commit-row.is-off .commit-meta" in page
+    assert "active ? \"\" : \" \\u00b7 paused\"" in page
+
+
+def test_pay_is_an_add_sheet_save_and_the_mark_comes_after_it(client: TestClient) -> None:
+    """Pay opens the Add sheet prefilled; the paid mark is a second call, made only once the save lands.
+
+    The order is the whole point: a bill must never be marked paid because a POST /transactions failed.
+    The month is captured at Pay time because the transaction may land in a different month.
+    """
+    page = client.get("/").text
+    pay = page[page.index("function payCommitmentFlow(row)"):page.index("// The second half of Pay")]
+    for field in ("merchant: row.name", "amount: row.amount", 'category: "bills"', 'type: "expense"'):
+        assert field in pay, field
+    assert "month: state.month" in pay, "the month must be captured when Pay is tapped"
+    # openAddSheet takes the prefill, and a plain open still starts on the chooser
+    assert "function openAddSheet(prefill)" in page
+    assert page.count('showAddView("chooser")') == 2
+    opened = page[page.index("function openAddSheet("):page.index("// Pay hands the sheet")]
+    assert 'if (prefill) { applyAddPrefill(prefill); showAddView("manual"); }' in opened
+    prefill = page[page.index("function applyAddPrefill("):page.index("function closeAddSheet(")]
+    assert 'addCategory = prefill.category || "bills";' in prefill
+    assert "payCommitment = prefill.commitment || null;" in prefill
+    # the mark follows the transaction POST, and a failure says which half failed
+    save = page[page.index("async function saveAdd("):page.index("/* ---------- transaction sheet")]
+    assert save.index('api("/transactions", {') < save.index("if (paying) await markCommitmentPaid(paying);")
+    assert "var paying = payCommitment;" in save
+    assert "Transaction saved, but marking it paid failed." in page
+
+
+def test_settings_money_sits_above_account(client: TestClient) -> None:
+    """Opening balance and budget save one field at a time; commitments opens the one sheet."""
+    page = client.get("/").text
+    assert 'id="moneySection"' in page
+    assert page.index('id="moneySection"') < page.index(">Account<"), "Money sits above Account"
+    for element in ('id="openingBalance"', 'id="monthlyBudget"', 'id="commitmentsBtn"',
+                    'id="commitmentsValue"'):
+        assert element in page, element
+    # text + inputmode: a number input brings an iOS wheel and spinners this screen does not want
+    for field in ("openingBalance", "monthlyBudget"):
+        tag = opening_tag(page, 'id="' + field + '"')
+        assert 'type="text"' in tag and 'inputmode="decimal"' in tag, field
+    field = page[page.index(".setting-field {"):page.index("}", page.index(".setting-field {"))]
+    assert "font-size: 16px" in field, "below 16px iOS zooms the page on focus"
+    # saves on change, one field at a time, then re-reads the card
+    assert 'addEventListener("change", function () { saveMoneySetting("opening"); })' in page
+    assert 'addEventListener("change", function () { saveMoneySetting("budget"); })' in page
+    assert 'body[field === "budget" ? "monthly_budget" : "opening_balance"] = parsed;' in page
+    assert "refreshFinanceCard();" in page
+    # currency is info-only, and it lives in Money now rather than About
+    money = page[page.index('id="moneySection"'):page.index(">Account<")]
+    assert ">Currency<" in money and ">MYR<" in money
+    assert ">Currency<" not in page[page.index(">About<"):]
+    # the card's Details and the Settings row open the same sheet
+    assert page.count('addEventListener("click", openCommitSheet)') == 2
+
+
+def test_the_commitment_form_keeps_the_16px_floor(client: TestClient) -> None:
+    """Its three fields reuse .add-field (16px) and both numbers ask for the right phone keyboard."""
+    page = client.get("/").text
+    form = page[page.index('<div class="commit-form">'):page.index('<div class="overlay" id="addOverlay"')]
+    assert form.count('class="add-field"') == 3
+    assert 'id="commitAmount" type="text" inputmode="decimal"' in form
+    assert 'id="commitDay" type="text" inputmode="numeric"' in form
+
+
+def test_the_new_controls_have_no_inline_handlers(client: TestClient) -> None:
+    """The CSP has no 'unsafe-inline': an inline handler would not run, so none may exist."""
+    page = client.get("/").text
+    assert not re.search(r"\son(click|change|input|submit|pointerdown)\s*=", page)
+
+
+def test_no_overlay_or_sheet_rule_carries_opacity(client: TestClient) -> None:
+    """A sheet must never be tinted: opacity on it, or on an ancestor that animates, is a group opacity.
+
+    The phone taught us this one. The dim belongs to .scrim, and the sheet animates transform only. This
+    walks every rule whose *subject* is the overlay or the sheet itself — never a child of it — and
+    refuses an opacity declaration there.
+    """
+    page = client.get("/").text
+    css = page[page.index("<style"):page.index("</style>")]
+    subject = re.compile(
+        r"^[.#](overlay|sheet|addOverlay|addSheet|txnOverlay|txnSheet|monthOverlay|wheelSheet|"
+        r"commitOverlay|commitSheet)(?:[.:\[]|$)"
+    )
+    checked = 0
+    for selectors, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css):
+        for selector in selectors.split(","):
+            target = re.split(r"[ >+~]+", selector.strip())[-1]   # the subject: after the last combinator
+            if not subject.match(target):
+                continue
+            checked += 1
+            assert "opacity" not in body, f"{selector.strip()} carries opacity"
+    assert checked >= 6, "the overlay and sheet rules were not found"

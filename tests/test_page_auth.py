@@ -284,6 +284,7 @@ ESCAPED_FIELDS = {
     "amount": [r"escapeHtml\(money\(row\.amount\)\)", r"escapeHtml\(money\(transaction\.amount\)\)"],
     "dates and ids": [r"escapeHtml\(isoDate\(row\.txn_date\)\)", r"escapeHtml\(row\.id\)"],
     "labels": [r"escapeHtml\(label\)", r"escapeHtml\(sub\)", r"escapeHtml\(value\)"],
+    "commitment name": [r"escapeHtml\(row\.name\)"],
 }
 
 
@@ -299,6 +300,7 @@ def test_no_user_field_is_concatenated_into_html_unescaped(client: TestClient) -
     for raw in (
         "+ row.merchant", "+ transaction.merchant", "+ item.name", "+ entry.label",
         "+ row.note", "+ row.category", "+ group.date", "+ row.txn_date", "+ row.amount",
+        "+ row.name",
     ):
         assert raw not in page, f"{raw} reaches the page without escapeHtml"
 

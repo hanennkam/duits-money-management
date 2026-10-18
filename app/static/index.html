@@ -368,6 +368,21 @@
   .hero-col-value.in { color: var(--green); }
   .hero-col-value.neg { color: var(--danger); }
 
+  /* ---------- home: safe to spend (the compact card above the hero) ---------- */
+  /* One number and one line of why. It is the only place --danger appears on Home for a figure, and it
+     appears only when the number is negative: what is left after the bills still to come. */
+  .safe-card { padding: 14px 18px; }
+  .safe-card .card-head { margin-bottom: 4px; }
+  .safe-amount {
+    font-size: 28px; font-weight: 800; letter-spacing: -.03em; line-height: 1.15;
+    font-variant-numeric: tabular-nums;
+  }
+  .safe-amount.neg { color: var(--danger); }
+  /* No opening balance saved yet: the card asks for the one figure it cannot know instead of a total
+     that would only say "minus your spending". Tapping the card opens Settings' Money section. */
+  .safe-amount.is-setup { font-size: 17px; font-weight: 600; color: var(--accent); }
+  .safe-meta { margin-top: 2px; font-size: 13px; color: var(--muted); }
+
   /* ---------- home: by category ---------- */
   .cat-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
   .cat-icon {
@@ -863,6 +878,39 @@
   .item-qty { color: var(--muted); font-size: 13px; }
   .receipt-img { display: block; width: 100%; margin-top: 10px; border-radius: var(--r-md); background: var(--card-2); }
 
+  /* ---------- commitments sheet ---------- */
+  /* A list sheet like the detail one: as tall as its content, and it may scroll. It opens over Home and,
+     while a Pay flow is running, the Add sheet opens over it — which is why its markup sits before the
+     Add overlay in the document (same z-index, later element paints on top). */
+  #commitOverlay .scrim { background: var(--scrim-sheet); }
+  .commit-sub { margin: -2px 0 10px; font-size: 13px; color: var(--muted); }
+  .commit-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 0; border-top: .5px solid var(--hairline);
+  }
+  .commit-row:first-child { border-top: 0; }
+  /* Paused rows read grey rather than translucent: nothing inside a sheet fades. */
+  .commit-row.is-off .commit-name, .commit-row.is-off .commit-meta { color: var(--muted); }
+  .commit-main { flex: 1; min-width: 0; }
+  .commit-name {
+    display: block; font-size: 15px; font-weight: 600;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .commit-meta { display: block; font-size: 13px; color: var(--muted); }
+  .commit-actions { display: flex; gap: 6px; flex: none; }
+  .commit-paid, .commit-pay {
+    min-height: 36px; padding: 0 12px; border: 0; border-radius: 9999px;
+    font: inherit; font-size: 14px; font-weight: 600;
+  }
+  .commit-paid { background: var(--card-2); color: var(--text-2); }
+  .commit-paid.is-on { background: var(--green-soft); color: var(--green); }
+  .commit-pay { background: var(--accent-soft); color: var(--accent); }
+  .commit-paid[aria-busy="true"], .commit-pay[aria-busy="true"] { opacity: .5; }
+  /* The inline add form: the name gets a line of its own, amount + day + Add share the next. */
+  .commit-form { display: grid; gap: 8px; margin-top: 8px; }
+  .commit-form-row { display: grid; grid-template-columns: 1fr 76px auto; gap: 8px; }
+  .commit-form .btn-primary { width: auto; min-height: 42px; padding: 0 16px; font-size: 15px; }
+
   /* ---------- toast ---------- */
   .toast {
     position: fixed; left: 50%; transform: translateX(-50%);
@@ -1018,6 +1066,15 @@
   }
   .row-divider { height: .5px; background: var(--hairline); margin-left: 14px; }
   .row-divider.inset { margin-left: 56px; }   /* starts at the label, clear of the icon */
+  /* A setting whose value is editable: the field is the control, so the row keeps the 52px height but
+     loses the press tint. 16px is the iOS zoom floor — anything less zooms the whole page on focus. */
+  .setting-row.is-field { cursor: default; }
+  .setting-row.is-field:active { background: none; }
+  .setting-field {
+    margin-left: auto; width: 46%; min-width: 0; padding: 0; border: 0; background: none;
+    color: var(--text); font: inherit; font-size: 16px; text-align: right;
+  }
+  .setting-chev { width: 14px; height: 14px; color: var(--chevron); flex: none; margin-left: 6px; }
 
   /* ---------- misc ---------- */
   .spinner {
@@ -1188,6 +1245,17 @@
 
     <div id="homeError"></div>
 
+    <!-- Safe to spend: the balance minus every commitment still due. One number, one line of why, and
+         Details opens the month's commitments. -->
+    <div class="card safe-card" id="safeCard">
+      <div class="card-head">
+        <span class="card-title">Safe to spend</span>
+        <button class="btn-link" id="safeDetailsBtn" type="button">Details</button>
+      </div>
+      <div class="safe-amount" id="safeAmount">RM 0.00</div>
+      <div class="safe-meta" id="safeMeta"></div>
+    </div>
+
     <div class="card hero-card">
       <div class="hero-top">
         <span class="hero-label">Spent this month</span>
@@ -1318,6 +1386,32 @@
       <p class="footnote">System follows your phone's Light or Dark setting.</p>
     </div>
 
+    <div class="settings-section" id="moneySection">
+      <h3 class="form-label settings-heading">Money</h3>
+      <div class="list-card">
+        <div class="setting-row is-field">
+          <label class="setting-label" for="openingBalance">Opening balance</label>
+          <input class="setting-field" id="openingBalance" type="text" inputmode="decimal"
+                 placeholder="0.00" autocomplete="off" autocapitalize="none" spellcheck="false">
+        </div>
+        <div class="row-divider"></div>
+        <div class="setting-row is-field">
+          <label class="setting-label" for="monthlyBudget">Monthly budget</label>
+          <input class="setting-field" id="monthlyBudget" type="text" inputmode="decimal"
+                 placeholder="No budget" autocomplete="off" autocapitalize="none" spellcheck="false">
+        </div>
+        <div class="row-divider"></div>
+        <button class="setting-row" id="commitmentsBtn" type="button">
+          <span class="setting-label">Commitments</span>
+          <span class="setting-value" id="commitmentsValue">None</span>
+          <svg class="setting-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
+        </button>
+        <div class="row-divider"></div>
+        <div class="setting-row"><span class="setting-label">Currency</span><span class="setting-value">MYR</span></div>
+      </div>
+      <p class="footnote">The opening balance is what you had before Duits — cash and accounts together. Leave the budget empty for no monthly budget.</p>
+    </div>
+
     <div class="settings-section">
       <h3 class="form-label settings-heading">Account</h3>
       <div class="list-card">
@@ -1345,8 +1439,6 @@
         <div class="setting-row"><span class="setting-label">App</span><span class="setting-value">Duits</span></div>
         <div class="row-divider"></div>
         <div class="setting-row"><span class="setting-label">Build</span><span class="setting-value" id="buildValue">{{BUILD}}</span></div>
-        <div class="row-divider"></div>
-        <div class="setting-row"><span class="setting-label">Currency</span><span class="setting-value">MYR</span></div>
         <div class="row-divider"></div>
         <div class="setting-row"><span class="setting-label">Date format</span><span class="setting-value">DD/MM/YYYY</span></div>
       </div>
@@ -1380,6 +1472,36 @@
     </button>
   </div>
 </nav>
+
+  <!-- Commitments: the viewed month's fixed bills, a paid toggle each, and the inline form that adds one.
+       It precedes the Add overlay so a Pay tap stacks the Add sheet on top of this one and comes back. -->
+  <div class="overlay" id="commitOverlay" aria-hidden="true">
+    <!-- The dim is its own layer so the only animated opacity in an overlay is this one; the
+         sheet above it can never be tinted by it. -->
+    <div class="scrim" aria-hidden="true"></div>
+    <div class="sheet" id="commitSheet">
+      <div class="sheet-grab" id="commitGrab" aria-hidden="true"><span></span></div>
+      <div class="sheet-head has-done">
+        <span></span>
+        <h2 class="sheet-title">Commitments</h2>
+        <button class="btn-ghost sheet-done" id="commitDoneBtn" type="button">Done</button>
+      </div>
+      <div class="commit-sub" id="commitSub"></div>
+      <div id="commitList"></div>
+      <div class="card-title" style="margin-top:14px">Add a commitment</div>
+      <div class="commit-form">
+        <input class="add-field" id="commitName" type="text" placeholder="Name" maxlength="80"
+               autocomplete="off" autocapitalize="words">
+        <div class="commit-form-row">
+          <input class="add-field" id="commitAmount" type="text" inputmode="decimal" placeholder="RM amount"
+                 autocomplete="off" spellcheck="false">
+          <input class="add-field" id="commitDay" type="text" inputmode="numeric" placeholder="Day 1-31"
+                 autocomplete="off" spellcheck="false">
+          <button class="btn-primary" id="commitAddBtn" type="button">Add</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <div class="overlay" id="addOverlay" aria-hidden="true">
   <!-- The dim is its own layer so the only animated opacity in an overlay is this one; the
@@ -2025,6 +2147,23 @@
       var node = $(id);
       if (node) node.innerHTML = "";
     });
+    // The money figures are the previous user's too: the card, the cached replies and the two inputs.
+    financeSummary = null;
+    financeSettings = null;
+    commitRows = null;
+    commitMonth = null;
+    payCommitment = null;
+    if ($("safeAmount")) {
+      $("safeAmount").textContent = "RM 0.00";
+      $("safeAmount").classList.remove("neg", "is-setup");
+      $("safeCard").classList.remove("is-setup");
+      $("safeMeta").textContent = "";
+      $("commitSub").textContent = "";
+      $("commitList").innerHTML = "";
+      $("commitmentsValue").textContent = "None";
+      $("openingBalance").value = "";
+      $("monthlyBudget").value = "";
+    }
   }
 
   // One refresh at a time. Ten calls that all get 401 together must not send ten refresh requests:
@@ -2484,6 +2623,55 @@
     $("netTotal").classList.toggle("neg", net < 0);
   }
 
+  /* ---------- home: safe to spend ---------- */
+
+  // The last /finance/summary reply: the card is the only place it is drawn, and the same reply is what
+  // tells the setup state below. The figure itself is derived by the API — nothing is stored here.
+  var financeSummary = null;
+
+  // There is no "settings saved" flag in the reply: the defaults (RM 0.00, no budget) come back for a
+  // user who has never opened Settings, and an explicit zero looks the same. Reading the two zeros as
+  // "nothing saved yet" is therefore the only signal available — and it keeps asking, which is honest:
+  // with no opening balance there is still nothing for the card to subtract from.
+  function hasMoneySettings(summary) {
+    return !!(summary && (Number(summary.opening_balance) || Number(summary.monthly_budget)));
+  }
+
+  function renderSafeCard(summary) {
+    financeSummary = summary;
+    var setup = !hasMoneySettings(summary);
+    var amount = Number(summary.safe_to_spend) || 0;
+    var budget = Number(summary.monthly_budget) || 0;
+    var unmet = Number(summary.unpaid_commitments) || 0;
+    // money() drops the sign (the hero's Net column adds it back the same way), so a negative figure
+    // would otherwise read as a positive one.
+    $("safeAmount").textContent = setup
+      ? "Set your opening balance"
+      : (amount < 0 ? "\u2212" : "") + money(Math.abs(amount));
+    $("safeAmount").classList.toggle("neg", !setup && amount < 0);
+    $("safeAmount").classList.toggle("is-setup", setup);
+    $("safeCard").classList.toggle("is-setup", setup);
+    var bits = [];
+    if (setup) {
+      bits.push("Add what you had before Duits, and it can tell you what is safe to spend.");
+    } else {
+      if (unmet > 0) bits.push(money(unmet) + " still due this month");
+      if (budget > 0 && summary.remaining_budget != null) {
+        var left = Number(summary.remaining_budget) || 0;
+        bits.push(left < 0 ? money(Math.abs(left)) + " over budget" : money(left) + " of budget left");
+      }
+    }
+    $("safeMeta").textContent = bits.join(" \u00b7 ");
+  }
+
+  function renderSafeCardError() {
+    financeSummary = null;
+    $("safeAmount").textContent = "\u2014";
+    $("safeAmount").classList.remove("neg", "is-setup");
+    $("safeCard").classList.remove("is-setup");
+    $("safeMeta").textContent = "";
+  }
+
   // One row shape, shared by Home and the Transactions page so they cannot drift apart.
   function txnRowHtml(row, index) {
     var income = row.type === "income";
@@ -2612,11 +2800,16 @@
     $("categoryList").innerHTML = '<div class="empty">Loading\u2026</div>';
     $("txnList").innerHTML = '<div class="empty">Loading\u2026</div>';
     try {
-      var both = await Promise.all([api("/summary" + monthQuery()), api("/transactions" + monthQuery())]);
+      var loaded = await Promise.all([
+        api("/summary" + monthQuery()),
+        api("/transactions" + monthQuery()),
+        api("/finance/summary" + monthQuery())   // the balance and the commitments still due
+      ]);
       if (requested !== state.month + "|" + state.mode) return;
-      state.rows = both[1];
-      trackEarliestYear(both[1]);
-      renderSummary(both[0]);
+      state.rows = loaded[1];
+      trackEarliestYear(loaded[1]);
+      renderSummary(loaded[0]);
+      renderSafeCard(loaded[2]);
       renderHomeCategories(state.rows);   // the ring is expenses-only, so it reads the rows
       renderTransactions(state.rows);
     } catch (error) {
@@ -2625,7 +2818,20 @@
       $("txnList").innerHTML = "";
       $("totalSpent").textContent = money(0);
       $("heroSplit").hidden = true;   // no summary to split
+      renderSafeCardError();
       $("homeError").innerHTML = '<div class="error-card">' + escapeHtml(friendly(error)) + "</div>";
+    }
+  }
+
+  // Re-read only the money figures: a paid mark or a settings save moves the card, not the rows.
+  async function refreshFinanceCard() {
+    var requested = state.month + "|" + state.mode;
+    try {
+      var summary = await api("/finance/summary" + monthQuery());
+      if (requested !== state.month + "|" + state.mode) return;
+      renderSafeCard(summary);
+    } catch (error) {
+      renderSafeCardError();
     }
   }
 
@@ -3098,6 +3304,7 @@
     var iso = $("addDate").value || addToday();
     if (iso > addToday()) { toast("That date is in the future.", "warn"); return; }
 
+    var paying = payCommitment;   // Pay's commitment; the mark lands only once this save has succeeded
     var button = $("saveAddBtn");
     addSaving = true;
     hideAddNotice();
@@ -3117,8 +3324,9 @@
           note: $("addNote").value.trim() || null
         })
       });
-      closeAddSheet();
+      closeAddSheet();                    // clears payCommitment; `paying` already holds it
       afterAdd(transaction, "Added.");    // toast + refresh, sheet already gone
+      if (paying) await markCommitmentPaid(paying);   // never the other way round: no mark without a save
     } catch (error) {
       // Always say what went wrong, in the sheet and as a toast: never a silent Save.
       var duplicate = error instanceof ApiError && error.code === "duplicate" && error.transaction;
@@ -3764,16 +3972,306 @@
     }
   }
 
+  /* ---------- commitments sheet ---------- */
+
+  // One reply, one shape: the viewed month's commitments, each with the paid mark for that month.
+  // `null` means "not loaded yet" — an empty array is a real "none", which the list says out loud.
+  var commitRows = null;
+  var commitMonth = null;   // the month commitRows belongs to, so another month never shows stale rows
+  var commitError = null;
+  var payCommitment = null; // set by Pay, cleared by any close: the mark waits for the transaction
+
+  function ordinal(day) {
+    var n = Number(day) || 0;
+    var last = n % 10;
+    var teens = n % 100;
+    var suffix = teens >= 11 && teens <= 13 ? "th"
+      : last === 1 ? "st" : last === 2 ? "nd" : last === 3 ? "rd" : "th";
+    return n + suffix;
+  }
+
+  function commitRowById(id) {
+    return (commitRows || []).filter(function (row) {
+      return String(row.id) === String(id);
+    })[0] || null;
+  }
+
+  function commitmentRowHtml(row) {
+    var active = row.active !== false;
+    return '<div class="commit-row' + (active ? "" : " is-off") + '">' +
+      '<span class="commit-main">' +
+      '<span class="commit-name">' + escapeHtml(row.name) + "</span>" +
+      '<span class="commit-meta">' + escapeHtml(money(row.amount)) + " \u00b7 due " +
+      escapeHtml(ordinal(row.day_of_month)) + (active ? "" : " \u00b7 paused") + "</span>" +
+      "</span>" +
+      '<span class="commit-actions">' +
+      '<button class="commit-paid' + (row.paid ? " is-on" : "") + '" type="button"' +
+      ' data-commit-paid="' + escapeHtml(row.id) + '" aria-pressed="' +
+      (row.paid ? "true" : "false") + '">Paid</button>' +
+      (active
+        ? '<button class="commit-pay" type="button" data-commit-pay="' +
+          escapeHtml(row.id) + '">Pay</button>'
+        : "") +
+      "</span></div>";
+  }
+
+  // The one line under the title: which month is being read, and what it still owes.
+  function paintCommitSub() {
+    var due = (commitRows || []).filter(function (row) {
+      return row.active !== false && !row.paid;
+    }).reduce(function (sum, row) {
+      return sum + (Number(row.amount) || 0);
+    }, 0);
+    $("commitSub").textContent = monthName(state.month) + " \u00b7 " +
+      (due > 0 ? money(due) + " still due" : "nothing still due");
+  }
+
+  function renderCommitments() {
+    var list = $("commitList");
+    if (!list) return;
+    paintCommitSub();
+    if (commitError) {
+      list.innerHTML = '<div class="error-card">' + escapeHtml(friendly(commitError)) + "</div>";
+      return;
+    }
+    if (commitRows === null) {
+      list.innerHTML = '<div class="empty">Loading\u2026</div>';
+      return;
+    }
+    if (!commitRows.length) {
+      list.innerHTML = '<div class="empty">No commitments yet. Add one below.</div>';
+      return;
+    }
+    list.innerHTML = commitRows.map(commitmentRowHtml).join("");
+  }
+
+  async function loadCommitments() {
+    var month = state.month;
+    commitError = null;
+    try {
+      var rows = await api("/commitments?month=" + encodeURIComponent(month));
+      if (month !== state.month) return;      // the viewed month moved while we waited
+      commitRows = rows;
+      commitMonth = month;
+    } catch (error) {
+      if (month !== state.month) return;
+      commitRows = [];
+      commitMonth = month;
+      commitError = error;
+    }
+    renderCommitments();
+    paintCommitmentsSetting();
+  }
+
+  function openCommitSheet() {
+    if (commitMonth !== state.month) commitRows = null;   // never show another month's rows
+    commitMonth = state.month;
+    commitError = null;
+    renderCommitments();          // cached rows at once, or "Loading…" until the reply lands
+    $("commitSheet").scrollTop = 0;
+    openOverlay($("commitOverlay"));
+    loadCommitments();
+  }
+
+  function closeCommitSheet(fromOffset) {
+    closeOverlay($("commitOverlay"), null, fromOffset);
+  }
+
+  // The paid mark is the API's per-month state: POST marks, DELETE undoes, and both take the month the
+  // sheet is showing. Re-reading the list is what paints it, so the button never guesses the new state.
+  async function toggleCommitmentPaid(row, button) {
+    if (button.getAttribute("aria-busy") === "true") return;
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    try {
+      if (row.paid) {
+        await api("/commitments/" + encodeURIComponent(row.id) + "/paid?month=" +
+          encodeURIComponent(state.month), { method: "DELETE" });
+        toast("Marked unpaid.");
+      } else {
+        await api("/commitments/" + encodeURIComponent(row.id) + "/paid", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ month: state.month })
+        });
+        toast("Marked paid.");
+      }
+      await loadCommitments();
+      refreshFinanceCard();
+    } catch (error) {
+      button.disabled = false;
+      button.setAttribute("aria-busy", "false");
+      toast(friendly(error), "error");
+    }
+  }
+
+  // Pay is the transaction, not the mark: the Add sheet opens prefilled on Manual, and the paid mark is
+  // posted only after POST /transactions answers (see saveAdd). The month is captured here, because a
+  // bill paid today for last month must be marked for last month — and afterAdd may move the view.
+  function payCommitmentFlow(row) {
+    openAddSheet({
+      merchant: row.name,
+      amount: row.amount,
+      category: "bills",
+      type: "expense",
+      commitment: { id: row.id, name: row.name, month: state.month }
+    });
+  }
+
+  // The second half of Pay. A failed mark must not read like a failed save: the transaction is already
+  // in, so the toast says exactly which half did not land.
+  async function markCommitmentPaid(paying) {
+    try {
+      await api("/commitments/" + encodeURIComponent(paying.id) + "/paid", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ month: paying.month })
+      });
+      toast("Paid \u00b7 " + paying.name);
+    } catch (error) {
+      toast("Transaction saved, but marking it paid failed.", "warn");
+    }
+    refreshFinanceCard();
+    if ($("commitOverlay").classList.contains("open")) loadCommitments();
+  }
+
+  async function addCommitment(button) {
+    var name = $("commitName").value.trim();
+    var amount = parseMoneyInput($("commitAmount").value);
+    var day = Number(String($("commitDay").value).trim());
+    if (!name) { toast("Give the commitment a name.", "warn"); return; }
+    if (amount === null || !isFinite(amount) || amount <= 0) {
+      toast("Enter an amount above zero.", "warn");
+      return;
+    }
+    if (!(day >= 1 && day <= 31) || day !== Math.floor(day)) {
+      toast("Enter a day between 1 and 31.", "warn");
+      return;
+    }
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    try {
+      await api("/commitments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name, amount: amount, day_of_month: day })
+      });
+      $("commitName").value = "";
+      $("commitAmount").value = "";
+      $("commitDay").value = "";
+      toast("Commitment added.");
+      await loadCommitments();
+      refreshFinanceCard();
+    } catch (error) {
+      toast(friendly(error), "error");
+    } finally {
+      button.disabled = false;
+      button.setAttribute("aria-busy", "false");
+    }
+  }
+
+  // One delegated handler: the row buttons are replaced by every re-render, so binding them individually
+  // would bind the last paint's nodes and nothing after it.
+  function handleCommitClick(event) {
+    var hit = event.target.closest
+      ? event.target.closest("[data-commit-paid], [data-commit-pay], #commitAddBtn") : null;
+    if (!hit) return;
+    if (hit.id === "commitAddBtn") { addCommitment(hit); return; }
+    var row = commitRowById(hit.dataset.commitPaid || hit.dataset.commitPay);
+    if (!row) return;
+    if (hit.dataset.commitPaid) toggleCommitmentPaid(row, hit);
+    else payCommitmentFlow(row);
+  }
+
+  function paintCommitmentsSetting() {
+    var value = $("commitmentsValue");
+    if (!value) return;
+    var active = (commitRows || []).filter(function (row) { return row.active !== false; }).length;
+    value.textContent = active ? active + " monthly" : "None";
+  }
+
+  /* ---------- settings: money ---------- */
+
+  var financeSettings = null;   // the last /finance/settings reply; the two inputs are painted from it
+
+  // "1,250.00", "1250" and "-80" are numbers; an empty field is null (nothing to save); anything else is
+  // NaN, which every caller rejects with its own message. Signs are allowed: an overdraft is real.
+  function parseMoneyInput(text) {
+    var cleaned = String(text == null ? "" : text).replace(/[,\s]/g, "");
+    if (!cleaned) return null;
+    if (!/^-?\d+(\.\d{0,2})?$/.test(cleaned)) return NaN;
+    return Number(cleaned);
+  }
+
+  function paintMoneySettings() {
+    if (!financeSettings) return;
+    var opening = Number(financeSettings.opening_balance) || 0;
+    var budget = Number(financeSettings.monthly_budget) || 0;
+    $("openingBalance").value = opening ? opening.toFixed(2) : "";
+    $("monthlyBudget").value = budget ? budget.toFixed(2) : "";   // 0 is "no budget": show the placeholder
+  }
+
+  async function loadMoneySettings() {
+    try {
+      financeSettings = await api("/finance/settings");
+      paintMoneySettings();
+    } catch (error) {
+      toast(friendly(error), "error");
+    }
+    await loadCommitments();       // also paints the Commitments row's count
+  }
+
+  // One field per save: the API keeps whatever the request omits, and `change` fires once focus leaves.
+  async function saveMoneySetting(field) {
+    var input = $(field === "budget" ? "monthlyBudget" : "openingBalance");
+    var parsed = parseMoneyInput(input.value);
+    if (parsed === null) { paintMoneySettings(); return; }      // an empty field is not a change
+    if (!isFinite(parsed)) {
+      toast("Enter an amount like 1250.00.", "warn");
+      paintMoneySettings();
+      return;
+    }
+    if (field === "budget" && parsed < 0) {
+      toast("A budget cannot be negative.", "warn");
+      paintMoneySettings();
+      return;
+    }
+    var body = {};
+    body[field === "budget" ? "monthly_budget" : "opening_balance"] = parsed;
+    try {
+      financeSettings = await api("/finance/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      input.value = parsed ? parsed.toFixed(2) : "";   // tidy only once the answer is in, never mid-typing
+      toast("Saved.");
+      refreshFinanceCard();
+    } catch (error) {
+      toast(friendly(error), "error");
+      paintMoneySettings();
+    }
+  }
+
+  // The card's setup state is a dead end without this: Settings is a tab away, and the Money section is
+  // what the message asks for, so go there and put it on screen.
+  function showMoneySettings() {
+    showScreen("settings");
+    var section = $("moneySection");
+    if (section && section.scrollIntoView) section.scrollIntoView({ block: "start", behavior: "smooth" });
+  }
+
   /* ---------- shell ---------- */
 
   var SCREENS = ["home", "transactions", "insights", "settings"];
   // The bar always shows the app name; every page carries its own large title.
-  function openAddSheet() {
+  function openAddSheet(prefill) {
     // A fresh sheet every time: no amount, no category, no stale error, nothing carried over.
     addAmount = "";
     addCategory = null;
     addType = "expense";
     addSaving = false;
+    payCommitment = null;             // a plain open is never a Pay flow
     $("addDate").value = addToday();
     $("addDate").max = addToday();    // the picker cannot offer tomorrow either
     $("addMerchant").value = "";
@@ -3792,15 +4290,37 @@
     paintAddChips();
     paintAddToggle("addTypeToggle", "addType", addType);
     showAddView("chooser");           // every open starts on the chooser, whatever the last one did
+    if (prefill) { applyAddPrefill(prefill); showAddView("manual"); }
     $("addSheet").style.transform = "";
     $("addSheet").scrollTop = 0;
     lockPageScroll(true);              // the height itself is CSS: fixed, inset: 0, 100dvh
     openOverlay($("addOverlay"));
   }
 
+  // Pay hands the sheet a ready-made expense: the commitment's name as the merchant, its amount, the
+  // bills category and an expense. The paid mark is not made here — it waits for this save to succeed.
+  function applyAddPrefill(prefill) {
+    addAmount = Number(prefill.amount) > 0 ? Number(prefill.amount).toFixed(2) : "";
+    addCategory = prefill.category || "bills";
+    addType = prefill.type === "income" ? "income" : "expense";
+    $("addMerchant").value = prefill.merchant || "";
+    // The merchant lives in Details; open it so what is being paid is on screen — without focusing,
+    // because the keyboard would cover the amount the prefilled sheet is already showing.
+    if (prefill.merchant) {
+      $("addDetails").classList.add("is-open");
+      $("addDetailsPill").setAttribute("aria-expanded", "true");
+      $("addDetailsPill").classList.add("is-on");
+    }
+    paintAddAmount();
+    paintAddChips();
+    paintAddToggle("addTypeToggle", "addType", addType);
+    payCommitment = prefill.commitment || null;
+  }
+
   function closeAddSheet(fromOffset) {
     var closing = closeOverlay($("addOverlay"), null, fromOffset);   // a promise: resolves when gone
     addSheetClosing = closing;
+    payCommitment = null;                          // a cancelled Pay is no longer pending
     $("addSheet").style.transform = "";
     if ($("textInput").blur) $("textInput").blur();
     unlockPageScroll();                            // before anything can throw, not after
@@ -3810,7 +4330,7 @@
   function reloadScreen() {
     if (state.screen === "transactions") return loadTransactions();
     if (state.screen === "insights") return loadInsights();
-    if (state.screen === "settings") { renderAccount(); return Promise.resolve(); }
+    if (state.screen === "settings") { renderAccount(); return loadMoneySettings(); }
     return loadHome();
   }
 
@@ -4024,7 +4544,13 @@
     $("monthOverlay").addEventListener("click", function (event) {
       if (isOutsideTap(event, $("monthOverlay"))) closeMonthSheet();
     });
-    $("addBtn").addEventListener("click", openAddSheet);   // the raised "+" in the tab bar
+    $("commitDoneBtn").addEventListener("click", closeCommitSheet);
+    $("commitSheet").addEventListener("click", handleCommitClick);
+    $("commitOverlay").addEventListener("click", function (event) {
+      if (isOutsideTap(event, $("commitOverlay"))) closeCommitSheet();
+    });
+    attachSheetDrag("commitSheet", "commitOverlay", closeCommitSheet, false);
+    $("addBtn").addEventListener("click", function () { openAddSheet(); });   // the raised "+" in the tab bar
     $("chooseManualBtn").addEventListener("click", function () { showAddView("manual"); });
     $("chooseAiBtn").addEventListener("click", function () { showAddView("ai"); });
     $("addBackManual").addEventListener("click", reverseAddView);
@@ -4046,6 +4572,14 @@
     // Details is a real button (keyboard reachable) and its click bubbles to the card, so one
     // listener covers the whole card and the link without a second code path.
     $("categoryCard").addEventListener("click", function () { showScreen("insights"); });
+    $("safeDetailsBtn").addEventListener("click", openCommitSheet);
+    $("safeCard").addEventListener("click", function (event) {
+      // Only the setup state goes anywhere: once a balance is saved the card is just a figure.
+      if (!financeSummary || hasMoneySettings(financeSummary)) return;
+      if (event.target.closest && event.target.closest("#safeDetailsBtn")) return;
+      showMoneySettings();
+    });
+    $("commitmentsBtn").addEventListener("click", openCommitSheet);
     $("insightCats").addEventListener("click", function (event) {
       var hit = event.target.closest ? event.target.closest("#insightCatToggle") : null;
       if (hit) toggleInsightCategories();
@@ -4104,6 +4638,8 @@
     $("authForgot").addEventListener("click", function () { setAuthView("forgot"); });
     $("authBack").addEventListener("click", function () { setAuthView("signin"); });
     $("signOutBtn").addEventListener("click", signOut);
+    $("openingBalance").addEventListener("change", function () { saveMoneySetting("opening"); });
+    $("monthlyBudget").addEventListener("change", function () { saveMoneySetting("budget"); });
     AUTH_FIELDS.forEach(function (id) {
       var input = $(id);
       input.addEventListener("focus", function () { revealAuthField(input); });
