@@ -56,6 +56,37 @@ def token_for(
 
 HEADERS = {"Authorization": f"Bearer {token_for()}"}
 
+# repr() of a credential shows <redacted>. The hooks a failing pytest run uses — locals with -l, assertion
+# rewriting, saferepr — all go through repr(); str() and format() are left alone, so a Secret still works
+# as a header, a query parameter and a password.
+REDACTED_VALUE = "<redacted>"
+SECRET_MARKS = ("key", "secret", "password", "token", "authorization")
+
+
+class Secret(str):
+    """A credential that repr()s as <redacted> wherever it travels.
+
+    Wrapping the VALUE, not the dict: pytest's dict-comparison rendering does not call a dict subclass's
+    __repr__ — it walks the items and reprs each value separately, which is how a redacting *dict* still
+    leaked on 2026-10-19 (measured in the probe of tests/test_secret_redaction.py). A str subclass covers a
+    dict, a headers mapping and anything else it is poured into; equals, hash and slicing are the real
+    value, so nothing that uses it as a credential changes.
+    """
+
+    def __repr__(self) -> str:
+        return REDACTED_VALUE
+
+
+def redact_secrets(values: dict[str, str]) -> dict[str, str]:
+    """A copy of `values` with every credential-shaped value wrapped as a `Secret`.
+
+    Shape decides: a key whose name says key, secret, password, token or authorization holds one.
+    """
+    return {
+        key: Secret(value) if any(mark in key.lower() for mark in SECRET_MARKS) else value
+        for key, value in values.items()
+    }
+
 
 @pytest.fixture(autouse=True)
 def test_signing_keys(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:

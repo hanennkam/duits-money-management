@@ -7,14 +7,21 @@ instead of printing the row that says MISSING. That is not theoretical: it is wh
 `relation "public.migration_0003_saved_rows" does not exist` although its guard says "absent", and row 15 was the
 same trap one state away (`MISSING (0003 is not applied ...)`, which is also the post-rollback state of
 `docs/migration-runbook.md` §10 step 5). The bug has no syntax-level symptom, so this pins the rule: in these
-files, an object that may legitimately be absent is named only inside a string, which is read at run time.
+files, an object that may legitimately be absent is named only inside a string, which is read at run time. The
+second rule pinned here is about names Postgres rejects outright: every custom-GUC name in the SQL files
+(`app.…`) must read as dot-separated identifiers, or `set_config` raises 42602 before anything else runs.
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+
+# Every *.sql in the repo (schema.sql and scripts/audit_queries.sql included): the same rule is worth
+# pinning everywhere, and none of the files is allowed to name an invalid setting.
+SQL_FILES = sorted(path for path in REPO.rglob("*.sql") if ".venv" not in path.parts)
 
 # file -> every object that file must be able to report as MISSING, with why it may be absent in a state the file
 # is meant to run in. Each name here must appear only inside a string.
@@ -62,6 +69,31 @@ def parsed_text(sql: str) -> str:
             out.append(sql[index])
             index += 1
     return "".join(out)
+
+
+# The GUC names a file hands to set_config/current_setting. Postgres validates the NAME of a custom
+# parameter before the SQL around it runs: it must be two or more identifiers separated by dots, each
+# segment [A-Za-z_][A-Za-z0-9_$]* — `set_config('app.0003_tables_present', ...)` raised 42602 on staging on
+# 2026-10-19 for exactly that reason (digits cannot lead a segment, runbook §10 step 4). In the SQL files
+# every `app.` mention IS a GUC name — a call argument, the example inside a raise message, or a comment
+# about the same — so scanning every mention covers all three without having to parse calls.
+APP_GUC_NAME = re.compile(r"\bapp\.[A-Za-z0-9_$]+(?:\.[A-Za-z0-9_$]+)*")
+SQL_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*$")
+
+
+def test_every_app_guc_name_is_a_valid_custom_parameter_name() -> None:
+    for path in SQL_FILES:
+        sql = path.read_text()
+        for match in APP_GUC_NAME.finditer(sql):
+            name = match.group(0)
+            line = sql[: match.start()].count("\n") + 1
+            parts = name.split(".")
+            assert len(parts) >= 2, f"{path}:{line}: {name} needs two or more dot-separated segments"
+            for part in parts:
+                assert SQL_IDENTIFIER.fullmatch(part), (
+                    f"{path}:{line}: {name} raises 42602 invalid configuration parameter name — "
+                    f"segment {part!r} is not a simple identifier"
+                )
 
 
 def test_verify_scripts_never_name_a_maybe_missing_relation_in_code() -> None:

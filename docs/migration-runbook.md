@@ -279,6 +279,15 @@ four 0003 objects exist, and on a half-applied 0003 it proceeds and snapshots on
    - If 0003 is not applied, those six skip with that reason; the rest of the suite still runs.
    - **STOP** if any test fails. A refusal on the API's own path would mean FORCE is stopping the service key,
      and that is a decision, not a patch.
+   - 2026-10-19: a failure here printed the staging keys once — a pasted traceback rendered the fixtures'
+     dicts in full, and the keys were rotated by the owner the same day. Two guards went in: the runner calls
+     pytest with `--tb=short` and never `-l`/`--showlocals` (scripts/run_staging_tests.py), and the `env`/
+     `service` fixtures wrap every credential-shaped value as `Secret` (tests/conftest.py), which repr()s as
+     `<redacted>`. The value — not the dict — is what must be wrapped: pytest's dict-comparison rendering
+     walks a dict's items and reprs each one separately, so a dict subclass with a redacted repr still
+     leaked (measured by the probe in tests/test_secret_redaction.py, which runs a failing test with the
+     worst-case reporting and asserts no dummy value survives). Never paste a traceback that renders locals
+     without checking this first.
 4. **Down (the destructive half).** In the staging SQL editor, in one run: first
    `select set_config('app.allow_0003_data_loss', 'yes', false);` and then the whole of
    `migrations/0003_budget_commitments.down.sql`.
@@ -290,6 +299,11 @@ four 0003 objects exist, and on a half-applied 0003 it proceeds and snapshots on
      existed. On a half-applied 0003 it holds fewer, and the file's closing check requires exactly that many:
      it remembers how many tables it found in the session setting `app.tables_0003_present` (alongside
      `app.allow_0003_data_loss`, the other setting this file reads).
+   - `42602 invalid configuration parameter name` means a setting was spelled with a digit-led segment: an
+     older revision of this file said `app.0003_tables_present`, which Postgres refuses because a custom
+     name's segments must each be an identifier (`[A-Za-z_]` first — `0003_tables_present` is not). The
+     setting is `app.tables_0003_present`, and step 2 of the file sets it itself: nothing here is typed by
+     hand. Every `app.` name in the SQL files is pinned by tests/test_migration_sql.py.
 5. **Verify the rollback.** Run `verify_after_0003.sql` again. Expected: row 0 still reads `uuid / NO` (0003's
    rollback must not touch `public.transactions`), rows 1–6 read `MISSING` (row 5 and 6 say a table is gone),
    rows 7–11 read `MISSING`, row 12 reads `MISSING`, rows 13–15 read `MISSING`, row 16 (the `transactions`

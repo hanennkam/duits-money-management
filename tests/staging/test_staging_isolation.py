@@ -30,6 +30,7 @@ from app import auth, db
 from app.config import get_settings
 from app.main import app
 from app.models import Extraction
+from conftest import redact_secrets  # noqa: E402  (tests/ is on sys.path via the root conftest)
 
 REAL_SIGNING_KEY_FOR = auth.signing_key_for  # captured before the root conftest can replace it
 LEGACY_0_BYTES = b"fake receipt legacy-0"
@@ -62,7 +63,10 @@ def project_ref(url: str) -> str | None:
 
 @pytest.fixture(scope="module")
 def env() -> dict[str, str]:
-    """The staging settings, read from the file, after a refusal for the live project."""
+    """The staging settings, read from the file, after a refusal for the live project.
+
+    Secret-shaped values come back wrapped as `Secret`, so a traceback can never print a key from here.
+    """
     values = dotenv_values(ENV_FILE)
     ref = project_ref(values.get("SUPABASE_URL", ""))
     assert ref != LIVE_PROJECT_REF, "refusing: this is the live project"
@@ -70,7 +74,7 @@ def env() -> dict[str, str]:
     assert project_ref(os.environ.get("SUPABASE_URL", "")) == STAGING_PROJECT_REF, (
         "the app must be configured from .env.staging (use scripts/run_staging_tests.py)"
     )
-    return {key: value for key, value in values.items() if value is not None}
+    return redact_secrets({key: value for key, value in values.items() if value is not None})
 
 
 @pytest.fixture(scope="module")
@@ -80,7 +84,10 @@ def base(env: dict[str, str]) -> str:
 
 @pytest.fixture(scope="module")
 def service(env: dict[str, str]) -> dict[str, str]:
-    return {"apikey": env["SUPABASE_SERVICE_KEY"], "Authorization": f"Bearer {env['SUPABASE_SERVICE_KEY']}"}
+    """Service-key headers, wrapped the same way: `money_rows`' assertion failure once printed these."""
+    return redact_secrets(
+        {"apikey": env["SUPABASE_SERVICE_KEY"], "Authorization": f"Bearer {env['SUPABASE_SERVICE_KEY']}"}
+    )
 
 
 def sign_in(base: str, env: dict[str, str], email: str) -> str:
@@ -409,6 +416,10 @@ def test_storage_rls_stops_b_reading_a_receipt(base: str, env, token_a: str, tok
 CREATED_COMMITMENTS: list[str] = []
 SETTINGS_MONTH = "2026-10"
 MONEY_TABLES = ("user_finance_settings", "monthly_commitments", "commitment_payments")
+# The column that identifies a row: the settings table is one row per owner and is keyed by user_id, the
+# other two by id. Reads that only want to know "is a row there" name the key explicitly — the first version
+# selected `id` from all three and PostgREST refused the settings read, failing the test for the wrong reason.
+MONEY_KEY_COLUMN = {"user_finance_settings": "user_id", "monthly_commitments": "id", "commitment_payments": "id"}
 
 
 @pytest.fixture(scope="module")
@@ -521,7 +532,9 @@ def test_anon_can_neither_read_nor_write_the_money_tables(
     ghost = str(uuid.uuid4())  # an owner that exists nowhere, so every write is identifiable afterwards
 
     for table in MONEY_TABLES:
-        rows_read = httpx.get(f"{base}/rest/v1/{table}?select=id", headers=anon, timeout=30)
+        rows_read = httpx.get(
+            f"{base}/rest/v1/{table}?select={MONEY_KEY_COLUMN[table]}", headers=anon, timeout=30
+        )
         assert rows_read.status_code != 200 or rows_read.json() == [], table
 
     for table, body in (
@@ -542,7 +555,7 @@ def test_anon_can_neither_read_nor_write_the_money_tables(
 
     # And nothing slipped in behind the refusal.
     for table in MONEY_TABLES:
-        assert money_rows(base, service, table, f"user_id=eq.{ghost}&select=id") == [], table
+        assert money_rows(base, service, table, f"user_id=eq.{ghost}&select={MONEY_KEY_COLUMN[table]}") == [], table
 
 
 def test_b_cannot_see_change_or_delete_a_commitment_through_postgrest(
