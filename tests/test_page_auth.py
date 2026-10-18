@@ -209,10 +209,14 @@ def test_sign_out_clears_the_session_and_the_cached_rows(client: TestClient) -> 
     assert "state.rows = [];" in page and "state.summary = null;" in page
     # Clearing the state is not enough: a list is only re-rendered when its own tab loads, so the previous
     # user's rows would stay on screen. The rendered lists are cleared too.
-    body = page[page.index("function clearCaches()"):page.index("function clearCaches()") + 900]
-    for node in ("txnList", "categoryList", "txnGroups", "insightDonut", "insightHighlights"):
+    body = page[page.index("function clearCaches()"):page.index("function clearCaches()") + 1400]
+    for node in ("txnList", "txnGroups", "insightDonut", "insightHighlights"):
         assert node in body, f"clearCaches must empty {node}"
-    assert '"RM 0.00"' in body, "the hero total must be reset"
+    # the previous user's money must go too: the balance, the month's two cards and the budget bar
+    for node in ("balanceAmount", "incomeTotal", "expenseTotal", "safeAmount"):
+        assert node in body, f"clearCaches must reset {node}"
+    assert '"RM 0.00"' in body, "the Insights total must be reset"
+    assert "hideBudget();" in body, "the budget bar is reset with its card"
     signout = page[page.index("async function signOut()"):page.index("async function signOut()") + 700]
     assert "writeSession(null);" in signout and "clearCaches();" in signout
 

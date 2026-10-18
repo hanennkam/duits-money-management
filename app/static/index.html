@@ -354,36 +354,53 @@
     font-size: 40px; font-weight: 800; letter-spacing: -.03em; line-height: 1.1;
     margin: 10px 0 4px; font-variant-numeric: tabular-nums;
   }
-  /* Income/Net row: the hairline is the row's own top border, so hiding the row hides the divider. */
-  .hero-split {
-    display: flex; gap: 12px;
-    margin-top: 14px; padding-top: 14px; border-top: .5px solid var(--hairline);
-  }
-  .hero-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-  .hero-col-label { font-size: 13px; font-weight: 500; color: var(--muted); }
-  .hero-col-value {
-    font-size: 17px; font-weight: 600; letter-spacing: .01em;
+  /* The month's two halves, side by side at half width each. They read the /summary the hero used to. */
+  .stat-row { display: flex; gap: 12px; }
+  .stat-card { flex: 1 1 0; min-width: 0; padding: 13px 15px 15px; }
+  .stat-label { display: block; font-size: 13px; font-weight: 500; color: var(--muted); }
+  .stat-amount {
+    display: block; margin-top: 3px; font-size: 19px; font-weight: 700; letter-spacing: -.02em;
     font-variant-numeric: tabular-nums; white-space: nowrap;
   }
-  .hero-col-value.in { color: var(--green); }
-  .hero-col-value.neg { color: var(--danger); }
+  /* Income only: the green token the rows use. Expenses stay in the body colour — the leading minus is
+     the sign, and colouring every expense red would make an ordinary month look like a warning. */
+  .stat-amount.in { color: var(--green); }
 
-  /* ---------- home: safe to spend (the compact card above the hero) ---------- */
-  /* One number and one line of why. It is the only place --danger appears on Home for a figure, and it
-     appears only when the number is negative: what is left after the bills still to come. */
-  .safe-card { padding: 14px 18px; }
-  .safe-card .card-head { margin-bottom: 4px; }
-  .safe-amount {
-    font-size: 28px; font-weight: 800; letter-spacing: -.03em; line-height: 1.15;
-    font-variant-numeric: tabular-nums;
+  /* ---------- home: safe to spend, on the balance card ---------- */
+  /* One number and one line of why: what is left after the bills still to come. The whole pill is the
+     front door to the commitments sheet, so its 44px floor is the tap target — and it is the only place
+     --danger appears on Home for a figure, and only when the number is negative. */
+  .safe-pill {
+    display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px;
+    margin-top: 8px; padding: 9px 14px; border: 0; border-radius: 9999px;
+    background: var(--card-2); color: var(--text); font: inherit; text-align: left; cursor: pointer;
   }
-  .safe-amount.neg { color: var(--danger); }
-  /* No opening balance saved yet: the card asks for the one figure it cannot know instead of a total
-     that would only say "minus your spending". Tapping the card opens Settings' Money section. */
-  .safe-amount.is-setup { font-size: 17px; font-weight: 600; color: var(--accent); }
-  .safe-meta { margin-top: 2px; font-size: 13px; color: var(--muted); }
+  .safe-pill-label { flex: none; font-size: 14px; font-weight: 500; color: var(--text-2); white-space: nowrap; }
+  .safe-pill-amount {
+    margin-left: auto; font-size: 17px; font-weight: 700; letter-spacing: -.01em;
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+  .safe-pill-amount.neg { color: var(--danger); }
+  .safe-pill-chev { width: 14px; height: 14px; color: var(--chevron); flex: none; }
+  /* No opening balance saved yet: the pill asks for the one figure it cannot know instead of a total
+     that would only say "minus your spending", and it goes to Settings' Money section, not the sheet —
+     so it drops the "Safe to spend" label rather than reading as "Safe to spend: set your balance". */
+  .safe-pill.is-setup .safe-pill-label { display: none; }
+  .safe-pill.is-setup .safe-pill-amount { margin-left: 0; font-size: 15px; font-weight: 600; color: var(--accent); }
+  .safe-meta { margin-top: 9px; font-size: 13px; color: var(--muted); }
 
-  /* ---------- home: by category ---------- */
+  /* ---------- home: monthly budget limit ---------- */
+  .budget-card { padding: 16px 18px 18px; }
+  .budget-card .card-head { margin-bottom: 12px; }
+  .budget-pct { font-size: 13px; font-weight: 600; color: var(--text-2); font-variant-numeric: tabular-nums; }
+  .budget-foot {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+    margin-top: 10px; font-size: 13px; color: var(--muted);
+  }
+  .budget-days { flex: none; white-space: nowrap; }
+  .budget-left.over { color: var(--danger); font-weight: 600; }
+
+  /* ---------- category list (Insights; Home's ring used to sit on these too) ---------- */
   .cat-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
   .cat-icon {
     width: 30px; height: 30px; border-radius: 9px; flex: none;
@@ -407,7 +424,8 @@
   .cat-chevron { width: 16px; height: 16px; transition: transform var(--dur-page) var(--ease-ios); }
   .cat-toggle.is-open .cat-chevron { transform: rotate(180deg); }
   .bar { height: 8px; border-radius: 9999px; background: var(--card-2); overflow: hidden; }
-  .bar-fill { height: 100%; border-radius: 9999px; }
+  .bar-fill { height: 100%; border-radius: 9999px; background: var(--accent); }
+  .bar-fill.over { background: var(--danger); }
 
   /* ---------- home: recent list ---------- */
   .section-head {
@@ -636,7 +654,7 @@
   }
   /* ---------- category hue comes in on --cat, so one markup works in either theme ---------- */
   .cat-chip.is-on { color: var(--cat); border-color: transparent; }
-  .cat-dot, .legend-dot { background: var(--cat); }
+  .cat-dot { background: var(--cat); }
   .cat-fill { background: var(--cat); }
   .txn-icon, .cat-icon, .highlight-icon { color: var(--cat); }
   /* 12px above (after the chips) and 12px between the two rows: Smart Entry card, then Scan Receipt. */
@@ -1006,27 +1024,6 @@
   .donut-cap { fill: var(--muted); font-size: 11px; font-weight: 500; }
   .donut-total { fill: var(--text); font-size: 16px; font-weight: 700; letter-spacing: -.02em; }
   .donut-note { fill: var(--muted); font-size: 10px; font-weight: 500; }
-  /* Home's compact ring: the same donutSvg(), in a smaller box with two lines instead of three.
-     Its labels are set in viewBox units, so the 128/160 display scale lands them on 13px and 17px. */
-  .donut-sm { width: 128px; height: 128px; margin: 0; }
-  .donut-sm .donut-cap { font-size: 16.3px; }
-  .donut-sm .donut-total { font-size: 21.3px; font-weight: 600; }
-  /* A fixed ring column (~40% of the card at 375px) leaves the legend what it needs: below 360px
-     the two columns stack instead of squeezing the names to nothing. */
-  .cat-split { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-  .cat-split-donut { flex: 0 0 128px; min-width: 0; display: flex; align-items: center; justify-content: center; }
-  .cat-split-legend { flex: 1 1 150px; min-width: 0; display: flex; flex-direction: column; gap: 9px; }
-  .legend-row { display: flex; align-items: center; gap: 5px; min-width: 0; }
-  .legend-dot { width: 7px; height: 7px; border-radius: 9999px; flex: none; }
-  /* A long category name shortens rather than pushing the amount off the card. */
-  .legend-name {
-    flex: 1; min-width: 0; font-size: 13px; font-weight: 500;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .legend-amount { flex: none; font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
-  /* Sized by its own text (24px for "32%", 30px for "100%") so it never crowds the name. */
-  .legend-pct { flex: none; min-width: 24px; text-align: right; font-size: 10.5px; font-weight: 500; color: var(--muted); }
-  .card-tap { cursor: pointer; }
   .cat-pct { width: 34px; flex: none; text-align: right; font-size: 13px; font-weight: 500; color: var(--muted); }
   .day-chart { display: flex; align-items: flex-end; gap: 3px; height: 116px; padding-top: 22px; }
   .day-col { position: relative; flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; }
@@ -1245,42 +1242,50 @@
 
     <div id="homeError"></div>
 
-    <!-- Safe to spend: the balance minus every commitment still due. One number, one line of why, and
-         Details opens the month's commitments. -->
-    <div class="card safe-card" id="safeCard">
-      <div class="card-head">
-        <span class="card-title">Safe to spend</span>
-        <button class="btn-link" id="safeDetailsBtn" type="button">Details</button>
+    <!-- Balance: the one real-world number (all time, every mode), the month it is being read beside,
+         and — as a pill you can tap — what is safe to spend after the bills still to come. The pill is
+         the commitments sheet's front door. -->
+    <div class="card hero-card" id="balanceCard">
+      <div class="hero-top">
+        <span class="hero-label">Balance</span>
+        <span class="pill js-month-label">This month</span>
       </div>
-      <div class="safe-amount" id="safeAmount">RM 0.00</div>
+      <div class="hero-amount" id="balanceAmount">RM 0.00</div>
+      <button class="safe-pill" id="safeDetailsBtn" type="button">
+        <span class="safe-pill-label">Safe to spend</span>
+        <span class="safe-pill-amount" id="safeAmount">RM 0.00</span>
+        <svg class="safe-pill-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
+      </button>
       <div class="safe-meta" id="safeMeta"></div>
     </div>
 
-    <div class="card hero-card">
-      <div class="hero-top">
-        <span class="hero-label">Spent this month</span>
-        <span class="pill" id="itemsPill">0 items</span>
+    <!-- The viewed month, split in two. Both figures are this month and this mode, unlike the balance. -->
+    <div class="stat-row">
+      <div class="card stat-card">
+        <span class="stat-label">Income</span>
+        <span class="stat-amount in" id="incomeTotal">+RM 0.00</span>
       </div>
-      <div class="hero-amount" id="totalSpent">RM 0.00</div>
-      <div class="hero-split" id="heroSplit" hidden>
-        <div class="hero-col">
-          <span class="hero-col-label">Income</span>
-          <span class="hero-col-value in" id="incomeTotal">+RM 0.00</span>
-        </div>
-        <div class="hero-col">
-          <span class="hero-col-label">Net</span>
-          <span class="hero-col-value" id="netTotal">RM 0.00</span>
-        </div>
+      <div class="card stat-card">
+        <span class="stat-label">Expenses</span>
+        <span class="stat-amount" id="expenseTotal">RM 0.00</span>
       </div>
     </div>
 
-    <!-- Tapping anywhere here (or Details) opens the full breakdown on Insights. -->
-    <div class="card card-tap" id="categoryCard">
+    <!-- Shown only with a budget set, and only while the viewed month is the one we are in: a budget is a
+         live thing, and "days remaining" in a month that has ended is not a number. -->
+    <div class="card budget-card" id="budgetCard" hidden>
       <div class="card-head">
-        <span class="card-title">By category</span>
-        <button class="btn-link" id="categoryDetailsBtn" type="button">Details</button>
+        <span class="card-title">Monthly budget limit</span>
+        <span class="budget-pct" id="budgetPct">0% of RM 0.00</span>
       </div>
-      <div id="categoryList"></div>
+      <div class="bar" id="budgetBar" role="progressbar" aria-label="Monthly budget used"
+           aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div class="bar-fill" id="budgetFill"></div>
+      </div>
+      <div class="budget-foot">
+        <span class="budget-left" id="budgetLeft">RM 0.00 left to spend</span>
+        <span class="budget-days" id="budgetDays"></span>
+      </div>
     </div>
 
     <div class="section-head">
@@ -2137,27 +2142,28 @@
     state.rows = [];
     state.summary = null;
     state.earliestYear = null;
-    ["totalSpent", "insightTotal"].forEach(function (id) {
-      var node = $(id);
-      if (node) node.textContent = "RM 0.00";
-    });
-    if ($("heroSplit")) $("heroSplit").hidden = true;
-    ["txnList", "categoryList", "txnGroups", "insightDonut", "insightCats", "insightDays",
+    $("insightTotal").textContent = "RM 0.00";
+    ["txnList", "txnGroups", "insightDonut", "insightCats", "insightDays",
      "insightHighlights", "homeError", "txnError", "insightError"].forEach(function (id) {
       var node = $(id);
       if (node) node.innerHTML = "";
     });
-    // The money figures are the previous user's too: the card, the cached replies and the two inputs.
+    // The money figures are the previous user's too: the balance, the month, the budget, the cached
+    // replies and the two inputs.
     financeSummary = null;
     financeSettings = null;
     commitRows = null;
     commitMonth = null;
     payCommitment = null;
-    if ($("safeAmount")) {
+    if ($("balanceAmount")) {
+      $("balanceAmount").textContent = "\u2014";
+      $("incomeTotal").textContent = "+" + money(0);
+      $("expenseTotal").textContent = "\u2212" + money(0);
       $("safeAmount").textContent = "RM 0.00";
-      $("safeAmount").classList.remove("neg", "is-setup");
-      $("safeCard").classList.remove("is-setup");
+      $("safeAmount").classList.remove("neg");
+      $("safeDetailsBtn").classList.remove("is-setup");
       $("safeMeta").textContent = "";
+      hideBudget();
       $("commitSub").textContent = "";
       $("commitList").innerHTML = "";
       $("commitmentsValue").textContent = "None";
@@ -2521,10 +2527,9 @@
 
   // Home stays short on purpose: the full list and the full breakdown live on their own tabs.
   var HOME_LIST_ROWS = 3;
-  var HOME_DONUT_ROWS = 3;   // top three slices; everything else becomes one grey "Others"
 
-  // One pass over a month of rows, shared by Home's ring and Insights's ring, so the two totals can
-  // never disagree. Income is excluded by definition: this is spending by category.
+  // One pass over a month of rows, for Insights's ring and its day chart, so their totals can never
+  // disagree. Income is excluded by definition: this is spending by category.
   function expenseSummary(rows) {
     var spent = (rows || []).filter(function (row) { return row.type !== "income"; });
     var byCategory = {};
@@ -2540,47 +2545,6 @@
     });
     return { spent: spent, entries: sortCategories(byCategory), byCategory: byCategory,
       byDay: byDay, total: total, count: spent.length };
-  }
-
-  // Top three by amount, then every remaining category folded into one grey row.
-  // "others" is not an API category, so categoryColour() hands back the grey used for "other".
-  function homeCategoryGroups(entries) {
-    var top = entries.slice(0, HOME_DONUT_ROWS);
-    var rest = entries.slice(HOME_DONUT_ROWS);
-    if (!rest.length) return top;
-    return top.concat([{
-      name: "others", label: "Others",
-      total: rest.reduce(function (sum, entry) { return sum + entry.total; }, 0)
-    }]);
-  }
-
-  function legendRowHtml(entry, total) {
-    var share = total > 0 ? Math.round((entry.total / total) * 100) : 0;
-    return '<div class="legend-row">' +
-      '<span class="legend-dot" style="--cat:' + categoryColour(entry.name) + '"></span>' +
-      '<span class="legend-name">' + escapeHtml(entry.label || capitalise(entry.name)) + "</span>" +
-      '<span class="legend-amount">' + escapeHtml(money(entry.total)) + "</span>" +
-      '<span class="legend-pct">' + share + "%</span></div>";
-  }
-
-  // Donut on the left, four rows at most on the right; the ring is Insights' drawing at 40% width.
-  function renderHomeCategories(rows) {
-    var summary = expenseSummary(rows);
-    if (!summary.entries.length) {
-      $("categoryList").innerHTML = '<div class="empty">Nothing recorded this month yet.</div>';
-      return;
-    }
-    var groups = homeCategoryGroups(summary.entries);
-    $("categoryList").innerHTML = '<div class="cat-split">' +
-      '<div class="cat-split-donut">' +
-      donutSvg(groups, summary.total, { cap: "Total", radius: 71, width: 18, gap: 4, small: true }) +
-      "</div>" +
-      '<div class="cat-split-legend">' +
-      groups.map(function (group) { return legendRowHtml(group, summary.total); }).join("") +
-      "</div></div>";
-    replay($("categoryList"), "is-fresh");
-    replay($("categoryList").querySelector(".donut"), "is-drawn");   // the ring draws itself in
-    slideScreen();
   }
 
   // ---------- Insights keeps the full list, behind its own "show all" row ----------
@@ -2609,24 +2573,36 @@
     if (text) text.textContent = expanded ? openText : closedText;
   }
 
+  // The viewed month's two halves, from the same /summary the old hero carried. Both are this month and
+  // this mode, unlike the balance above them.
   function renderSummary(summary) {
-    state.summary = summary; // kept for the hero card; the category ring reads the rows instead
-    var expense = Number(summary.total_expense) || 0;
-    var income = Number(summary.total_income) || 0;
-    $("totalSpent").textContent = money(expense);
-
-    // Income and Net only earn their place when something actually came in this month.
-    var net = income - expense;
-    $("heroSplit").hidden = !income;
-    $("incomeTotal").textContent = "+" + money(income);
-    $("netTotal").textContent = (net < 0 ? "\u2212" : "") + money(Math.abs(net));
-    $("netTotal").classList.toggle("neg", net < 0);
+    state.summary = summary; // kept for the month's figures; the balance comes from /finance/summary
+    $("incomeTotal").textContent = "+" + money(Number(summary.total_income) || 0);
+    // money() drops the sign (the safe pill puts it back the same way), so an expense figure adds its own.
+    $("expenseTotal").textContent = "\u2212" + money(Number(summary.total_expense) || 0);
+    // Half of a 375px phone is a narrow box, and a month can reach five figures in MYR.
+    fitText($("incomeTotal"), 19, 14);
+    fitText($("expenseTotal"), 19, 14);
   }
 
-  /* ---------- home: safe to spend ---------- */
+  // A figure can be wider than the box it sits in — a five-figure month total in half of a phone's width,
+  // or a six-figure balance — and the number must neither clip nor spill over the card. Step the font
+  // down until it fits. Skipped when the element has no layout (a screen painted while it is hidden):
+  // every tab switch reloads the screen it shows, so the figure is fitted the moment it is on screen.
+  function fitText(el, max, min) {
+    if (!el.clientWidth) return;
+    var size = max;
+    el.style.fontSize = size + "px";
+    while (size > min && el.scrollWidth > el.clientWidth) {
+      size -= 1;
+      el.style.fontSize = size + "px";
+    }
+  }
 
-  // The last /finance/summary reply: the card is the only place it is drawn, and the same reply is what
-  // tells the setup state below. The figure itself is derived by the API — nothing is stored here.
+  /* ---------- home: balance, safe to spend, monthly budget ---------- */
+
+  // The last /finance/summary reply: the balance hero, the safe pill and the budget card are all drawn
+  // from it, and the same reply is what tells the setup state below. Nothing is stored here.
   var financeSummary = null;
 
   // There is no "settings saved" flag in the reply: the defaults (RM 0.00, no budget) come back for a
@@ -2637,41 +2613,86 @@
     return !!(summary && (Number(summary.opening_balance) || Number(summary.monthly_budget)));
   }
 
-  function renderSafeCard(summary) {
+  function paintFinance(summary) {
     financeSummary = summary;
     var setup = !hasMoneySettings(summary);
-    var amount = Number(summary.safe_to_spend) || 0;
-    var budget = Number(summary.monthly_budget) || 0;
+    var balance = Number(summary.current_balance) || 0;
+    var safe = Number(summary.safe_to_spend) || 0;
     var unmet = Number(summary.unpaid_commitments) || 0;
-    // money() drops the sign (the hero's Net column adds it back the same way), so a negative figure
-    // would otherwise read as a positive one.
+
+    // Without an opening balance the balance is just this month's net, which is not a balance: the hero
+    // asks for the missing figure instead of showing a number that would read as one.
+    $("balanceAmount").textContent = setup
+      ? "\u2014"
+      : (balance < 0 ? "\u2212" : "") + money(Math.abs(balance));
+    // money() drops the sign, so the pill puts the minus back itself — the one figure on Home that is
+    // allowed to go red.
     $("safeAmount").textContent = setup
       ? "Set your opening balance"
-      : (amount < 0 ? "\u2212" : "") + money(Math.abs(amount));
-    $("safeAmount").classList.toggle("neg", !setup && amount < 0);
-    $("safeAmount").classList.toggle("is-setup", setup);
-    $("safeCard").classList.toggle("is-setup", setup);
-    var bits = [];
-    if (setup) {
-      bits.push("Add what you had before Duits, and it can tell you what is safe to spend.");
-    } else {
-      if (unmet > 0) bits.push(money(unmet) + " still due this month");
-      if (budget > 0 && summary.remaining_budget != null) {
-        var left = Number(summary.remaining_budget) || 0;
-        bits.push(left < 0 ? money(Math.abs(left)) + " over budget" : money(left) + " of budget left");
-      }
-    }
-    $("safeMeta").textContent = bits.join(" \u00b7 ");
+      : (safe < 0 ? "\u2212" : "") + money(Math.abs(safe));
+    $("safeAmount").classList.toggle("neg", !setup && safe < 0);
+    $("safeDetailsBtn").classList.toggle("is-setup", setup);
+    $("safeMeta").textContent = setup
+      ? "Add what you had before Duits, and it can tell you what is safe to spend."
+      : (unmet > 0 ? money(unmet) + " still due this month" : "");
+    fitText($("balanceAmount"), 40, 22);
+    // The setup pill is sized by its own class (15px), so only a real figure is stepped down; the inline
+    // size from a previous paint is cleared either way.
+    if (setup) $("safeAmount").style.fontSize = "";
+    else fitText($("safeAmount"), 17, 12);
+    paintBudget(summary);
   }
 
-  function renderSafeCardError() {
+  // The budget is a live thing: the card is for the month we are actually in, and only while one is set.
+  function paintBudget(summary) {
+    var budget = Number(summary.monthly_budget) || 0;
+    var remaining = summary.remaining_budget;
+    if (!(budget > 0) || remaining == null || state.month !== currentMonth()) {
+      hideBudget();
+      return;
+    }
+    $("budgetCard").hidden = false;
+    var left = Number(remaining) || 0;
+    // What is used: the budget minus what is left, clamped — the bar cannot overfill, but "over budget"
+    // still has to be sayable in words.
+    var pct = Math.round(Math.min(Math.max((budget - left) / budget, 0), 1) * 100);
+    $("budgetPct").textContent = pct + "% of " + money(budget);
+    $("budgetBar").setAttribute("aria-valuenow", String(pct));
+    $("budgetFill").style.width = pct + "%";
+    $("budgetFill").classList.toggle("over", left < 0);
+    $("budgetLeft").textContent = left < 0
+      ? money(Math.abs(left)) + " over budget"
+      : money(left) + " left to spend";
+    $("budgetLeft").classList.toggle("over", left < 0);
+    $("budgetDays").textContent = daysLeftLabel();
+  }
+
+  // Days left after today, in the month being viewed. Only ever asked about the current month.
+  function daysLeftLabel() {
+    var left = daysInMonth(state.month) - Number(localIso(new Date()).slice(8, 10));
+    if (left <= 0) return "Last day";
+    return left + (left === 1 ? " day remaining" : " days remaining");
+  }
+
+  // Hidden and reset together: a hidden card must not hold the last month's bar, nor let a screen reader
+  // hear the last month's percentage the next time it is shown.
+  function hideBudget() {
+    $("budgetCard").hidden = true;
+    $("budgetFill").style.width = "0%";
+    $("budgetFill").classList.remove("over");
+    $("budgetBar").setAttribute("aria-valuenow", "0");
+  }
+
+  function paintFinanceError() {
     financeSummary = null;
+    $("balanceAmount").textContent = "\u2014";
     $("safeAmount").textContent = "\u2014";
-    $("safeAmount").classList.remove("neg", "is-setup");
-    $("safeCard").classList.remove("is-setup");
+    $("safeAmount").classList.remove("neg");
+    $("safeDetailsBtn").classList.remove("is-setup");
     // Not the setup prompt: this is the figures being unreachable, which is a different thing to a user
     // who has simply never put an opening balance in.
     $("safeMeta").textContent = "Not available right now.";
+    hideBudget();                       // no figures to draw a budget from
   }
 
   // One row shape, shared by Home and the Transactions page so they cannot drift apart.
@@ -2716,7 +2737,6 @@
     $("reviewChip").setAttribute("aria-pressed", state.reviewOnly ? "true" : "false");
 
     var visible = state.reviewOnly ? rows.filter(needsReview) : rows;
-    $("itemsPill").textContent = rows.length + (rows.length === 1 ? " item" : " items");
     if (!visible.length) {
       $("txnList").innerHTML = '<div class="empty">' + (state.reviewOnly
         ? "Nothing needs review this month."
@@ -2799,44 +2819,45 @@
   async function loadHome() {
     var requested = state.month + "|" + state.mode; // a newer request wins over a slow reply
     $("homeError").innerHTML = "";
-    $("categoryList").innerHTML = '<div class="empty">Loading\u2026</div>';
     $("txnList").innerHTML = '<div class="empty">Loading\u2026</div>';
     try {
       var loaded = await Promise.all([
         api("/summary" + monthQuery()),
         api("/transactions" + monthQuery()),
-        // Guarded on its own. The card is one extra read, so its failure must never take the hero, the
-        // ring and the list down with it — it did, until this line: a 500 from /finance/summary rejected
-        // the whole batch and Home rendered empty with a server error, while /transactions had answered.
+        // Guarded on its own. The balance is one extra read, so its failure must never take the month,
+        // the list and the rows down with it — it did, until this line: a 500 from /finance/summary
+        // rejected the whole batch and Home rendered empty with a server error, while /transactions had
+        // answered 200 with rows.
         api("/finance/summary" + monthQuery()).catch(function () { return null; })
       ]);
       if (requested !== state.month + "|" + state.mode) return;
       state.rows = loaded[1];
       trackEarliestYear(loaded[1]);
       renderSummary(loaded[0]);
-      if (loaded[2]) renderSafeCard(loaded[2]); else renderSafeCardError();
-      renderHomeCategories(state.rows);   // the ring is expenses-only, so it reads the rows
+      if (loaded[2]) paintFinance(loaded[2]); else paintFinanceError();
       renderTransactions(state.rows);
     } catch (error) {
       state.rows = [];
-      $("categoryList").innerHTML = "";
       $("txnList").innerHTML = "";
-      $("totalSpent").textContent = money(0);
-      $("heroSplit").hidden = true;   // no summary to split
-      renderSafeCardError();
+      // "—" rather than RM 0.00: we did not learn this month's figures, and an error card above them
+      // should not be sitting under two numbers that read like facts.
+      $("incomeTotal").textContent = "\u2014";
+      $("expenseTotal").textContent = "\u2014";
+      paintFinanceError();
       $("homeError").innerHTML = '<div class="error-card">' + escapeHtml(friendly(error)) + "</div>";
     }
   }
 
-  // Re-read only the money figures: a paid mark or a settings save moves the card, not the rows.
+  // Re-read only the money figures: a paid mark or a settings save moves the balance and the budget,
+  // not the rows.
   async function refreshFinanceCard() {
     var requested = state.month + "|" + state.mode;
     try {
       var summary = await api("/finance/summary" + monthQuery());
       if (requested !== state.month + "|" + state.mode) return;
-      renderSafeCard(summary);
+      paintFinance(summary);
     } catch (error) {
-      renderSafeCardError();
+      paintFinanceError();
     }
   }
 
@@ -3735,8 +3756,7 @@
     // than Insights' three smaller lines; both blocks stay centred in the ring.
     var capY = 72;
     var totalY = opts.note ? 93 : 100;
-    return '<svg class="donut' + (opts.small ? " donut-sm" : "") +
-      '" viewBox="0 0 160 160" role="img" ' +
+    return '<svg class="donut" viewBox="0 0 160 160" role="img" ' +
       'aria-label="Spending by category">' +
       '<circle class="donut-track" cx="80" cy="80" r="' + radius +
       '" fill="none" stroke-width="' + ring + '"></circle>' + arcs +
@@ -4589,15 +4609,12 @@
       renderTransactions(state.rows);
     });
     $("seeAllBtn").addEventListener("click", function () { showScreen("transactions"); });
-    // Details is a real button (keyboard reachable) and its click bubbles to the card, so one
-    // listener covers the whole card and the link without a second code path.
-    $("categoryCard").addEventListener("click", function () { showScreen("insights"); });
-    $("safeDetailsBtn").addEventListener("click", openCommitSheet);
-    $("safeCard").addEventListener("click", function (event) {
-      // Only the setup state goes anywhere: once a balance is saved the card is just a figure.
-      if (!financeSummary || hasMoneySettings(financeSummary)) return;
-      if (event.target.closest && event.target.closest("#safeDetailsBtn")) return;
-      showMoneySettings();
+    // One pill, two targets. With no opening balance there is nothing for the sheet to subtract from, so
+    // the setup state goes to the field that fixes it instead of opening a list of bills; otherwise the
+    // pill is the commitments sheet's front door. Either way it is the same 44px tap target.
+    $("safeDetailsBtn").addEventListener("click", function () {
+      if (financeSummary && !hasMoneySettings(financeSummary)) { showMoneySettings(); return; }
+      openCommitSheet();
     });
     $("commitmentsBtn").addEventListener("click", openCommitSheet);
     $("insightCats").addEventListener("click", function (event) {

@@ -310,55 +310,165 @@ def test_the_icon_links_are_versioned(client: TestClient) -> None:
         assert client.get(href).status_code == 200, href
 
 
-# ---------------------------------------------------------------- money: the card, the sheet, the settings
+# ---------------------------------------------------------------- money: the hero, the sheet, the settings
 
-def test_home_carries_a_safe_to_spend_card_above_the_hero(client: TestClient) -> None:
-    """The balance minus the commitments still due, above "Spent this month", from one extra read.
+def test_home_is_a_balance_hero_with_a_safe_to_spend_pill(client: TestClient) -> None:
+    """The all-time balance, the month beside it, and what is safe to spend as the sheet's front door.
 
-    What the served page can pin: the markup and its order, the single Promise.all that now carries a
-    third call with the same month+mode query, the one state that colours the amount (negative, in the
-    shared --danger), and the setup message a user with nothing saved sees instead of a figure.
+    What the served page can pin: the balance is /finance/summary's current_balance (never a total the
+    page works out itself), the pill is a real button with a 44px floor so the tap target is the whole
+    row, the one state that colours a figure is a negative safe-to-spend in the shared --danger, and the
+    setup state still asks for the opening balance instead of showing a number that would read as one.
     """
     page = client.get("/").text
-    assert 'id="safeCard"' in page
-    assert page.index('id="safeCard"') < page.index('class="card hero-card"'), "the card sits above the hero"
-    assert ">Safe to spend<" in page
+    assert 'id="balanceCard"' in page and ">Balance<" in page
+    assert 'class="hero-amount" id="balanceAmount"' in page
+    # the balance comes from the reply, not from arithmetic on the page
+    assert '$("balanceAmount").textContent = setup' in page
+    assert "var balance = Number(summary.current_balance) || 0;" in page
+    # the month rides on the shared paintMonth() hook, so it follows a month change with no extra wiring
+    hero = page[page.index('id="balanceCard"'):page.index('id="budgetCard"')]
+    assert 'class="pill js-month-label"' in hero
+    # the pill is the button: >=44px, so the whole row is the target, and a chevron says it opens
+    assert 'class="pill js-month-label"' in page
+    assert '<button class="safe-pill" id="safeDetailsBtn" type="button">' in page
+    assert "min-height: 44px" in page[page.index(".safe-pill {"):page.index("}", page.index(".safe-pill {"))]
+    assert 'class="safe-pill-chev"' in page
     for element in ('id="safeAmount"', 'id="safeMeta"', 'id="safeDetailsBtn"'):
         assert element in page, element
-    home = page[page.index("async function loadHome("):page.index("// Re-read only the money figures")]
-    assert home.count("await Promise.all(") == 1, "the read rides in the one existing batch"
-    assert 'api("/finance/summary" + monthQuery())' in home
-    assert "renderSafeCard(loaded[2]);" in home
-    # the amount is the only coloured thing, and only when it is negative
-    assert 'classList.toggle("neg", !setup && amount < 0)' in page
-    assert ".safe-amount.neg { color: var(--danger); }" in page
-    # money() drops the sign, so the card has to put the minus back itself
-    assert '(amount < 0 ? "\\u2212" : "") + money(Math.abs(amount))' in page
-    # nothing saved yet: the card asks for the opening balance instead of showing a meaningless total
+    # money() drops the sign, so the pill puts the minus back itself
+    assert '(safe < 0 ? "\\u2212" : "") + money(Math.abs(safe))' in page
+    assert 'classList.toggle("neg", !setup && safe < 0)' in page
+    assert ".safe-pill-amount.neg { color: var(--danger); }" in page
+    # nothing saved yet: the pill asks for the opening balance instead of showing a meaningless total
     assert "Set your opening balance" in page
     assert "function hasMoneySettings(summary)" in page
-    # Details opens the month's commitments, and the setup state offers a way to Settings
-    assert 'addEventListener("click", openCommitSheet)' in page
+    # one pill, two targets, and the commitments sheet keeps a second way in from Settings
     assert "function showMoneySettings()" in page
+    assert 'addEventListener("click", openCommitSheet)' in page
+    assert 'if (financeSummary && !hasMoneySettings(financeSummary)) { showMoneySettings(); return; }' in page
+
+
+def test_the_month_is_split_into_two_half_cards(client: TestClient) -> None:
+    """"Spent this month" and its Net cell are gone: the month is Income and Expenses, side by side.
+
+    Both read the existing /summary for the viewed month and mode — the balance above them is all-time
+    and every mode, so the two must not be confused with it.
+    """
+    page = client.get("/").text
+    assert "Spent this month" not in page
+    assert 'id="totalSpent"' not in page and 'id="netTotal"' not in page and 'id="heroSplit"' not in page
+    assert 'id="itemsPill"' not in page
+    assert 'class="stat-row"' in page
+    assert page.count('class="card stat-card"') == 2
+    assert 'class="stat-label">Income<' in page and 'class="stat-label">Expenses<' in page
+    for element in ('id="incomeTotal"', 'id="expenseTotal"'):
+        assert element in page, element
+    # half width each, and the income figure carries the green token
+    stat = page[page.index(".stat-card {"):page.index("}", page.index(".stat-card {"))]
+    assert "flex: 1 1 0" in stat
+    assert 'class="stat-amount in" id="incomeTotal"' in page
+    assert ".stat-amount.in { color: var(--green); }" in page
+    # both from the one /summary, and money() drops the sign so Expenses puts its own minus back
+    assert '$("incomeTotal").textContent = "+" + money(Number(summary.total_income) || 0);' in page
+    assert '$("expenseTotal").textContent = "\\u2212" + money(Number(summary.total_expense) || 0);' in page
+    # Half a phone is a narrow box and a month can reach five figures: the figure steps its own font down
+    # until it fits, so it never clips and never spills over the card.
+    assert "function fitText(el, max, min)" in page
+    assert "while (size > min && el.scrollWidth > el.clientWidth)" in page
+    for call in ('fitText($("incomeTotal"), 19, 14);', 'fitText($("expenseTotal"), 19, 14);',
+                 'fitText($("balanceAmount"), 40, 22);', 'fitText($("safeAmount"), 17, 12);'):
+        assert call in page, call
+    # the setup pill is sized by its class, so a previous paint's inline size must not survive into it
+    assert 'if (setup) $("safeAmount").style.fontSize = "";' in page
+    assert 'else fitText($("safeAmount"), 17, 12);' in page
+
+
+def test_the_budget_card_only_appears_with_a_budget_in_the_current_month(client: TestClient) -> None:
+    """One card, hidden unless a budget is set and the viewed month is this one.
+
+    The bar is the used share — budget minus what is left, clamped — and it is a real progressbar, so a
+    screen reader hears the same percentage the card prints. Over budget is said in words, not colour.
+    """
+    page = client.get("/").text
+    assert '<div class="card budget-card" id="budgetCard" hidden>' in page
+    assert ">Monthly budget limit<" in page
+    for element in ('id="budgetPct"', 'id="budgetLeft"', 'id="budgetDays"', 'id="budgetFill"'):
+        assert element in page, element
+    # the progressbar contract
+    bar = page[page.index('id="budgetBar"'):page.index('id="budgetFill"')]
+    assert 'role="progressbar"' in bar and 'aria-valuemin="0"' in bar and 'aria-valuemax="100"' in bar
+    assert 'aria-valuenow="0"' in bar and "aria-label=" in bar
+    assert '$("budgetBar").setAttribute("aria-valuenow", String(pct));' in page
+    # shown only with a budget, only for the month we are in, and never without a remaining figure
+    assert "if (!(budget > 0) || remaining == null || state.month !== currentMonth()) {" in page
+    # hidden and reset in one place, so the card never holds the last month's bar
+    assert "function hideBudget()" in page
+    assert '$("budgetCard").hidden = true;' in page
+    # used share, clamped; over budget still sayable
+    assert "Math.round(Math.min(Math.max((budget - left) / budget, 0), 1) * 100)" in page
+    assert '$("budgetPct").textContent = pct + "% of " + money(budget);' in page
+    assert '.bar-fill.over { background: var(--danger); }' in page
+    assert '.budget-left.over { color: var(--danger); font-weight: 600; }' in page
+    assert 'money(Math.abs(left)) + " over budget"' in page
+    assert 'money(left) + " left to spend"' in page
+    # days remaining is computed here, in the month being viewed
+    assert "function daysLeftLabel()" in page
+    assert "daysInMonth(state.month) - Number(localIso(new Date()).slice(8, 10))" in page
+    assert '" day remaining" : " days remaining"' in page
+
+
+def test_the_category_ring_is_gone_from_home_and_insights_keeps_it(client: TestClient) -> None:
+    """The Home card is deleted; the breakdown it linked to is Insights' own, so nothing is orphaned.
+
+    It was never a sheet: the whole card navigated to Insights, which renders the same categories from
+    the same rows (donutSvg + insightCategoryList). Removing it leaves no dead end — and no dead code.
+    """
+    page = client.get("/").text
+    assert 'id="categoryCard"' not in page and 'id="categoryList"' not in page
+    home = page[page.index('id="screen-home"'):page.index('id="screen-transactions"')]
+    assert "By category" not in home
+    # Insights still has the donut, the list and the "show all" row
+    assert '>Spending by category<' in page
+    for element in ('id="insightDonut"', 'id="insightCats"'):
+        assert element in page, element
+    assert 'toggle: "insightCatToggle"' in page and "function categoryToggleHtml(" in page
+    assert "function insightCategoryList(" in page
+    assert "function donutSvg(" in page
+    # the Home-only renderers and their CSS went with the card
+    for gone in ("function renderHomeCategories(", "function homeCategoryGroups(",
+                 "function legendRowHtml(", "HOME_DONUT_ROWS", ".cat-split", ".legend-row",
+                 "donut-sm", "card-tap"):
+        assert gone not in page, gone
+    # Recent Transactions is untouched: three rows and the same See All
+    assert "var HOME_LIST_ROWS = 3;" in page
+    assert "visible.slice(0, HOME_LIST_ROWS)" in page
+    assert 'id="seeAllBtn"' in page and ">See All<" in page
 
 
 def test_a_failing_finance_read_never_blanks_home(client: TestClient) -> None:
-    """The card's own read is guarded, so a missing money table costs the card and not the month.
+    """The balance's own read is guarded, so a missing money table costs the balance and not the month.
 
     Seen for real: live is at schema 0002 while 2b reads /finance/summary, the reply was a 500
     (PGRST205, no user_finance_settings), the rejection took the whole Promise.all with it, and Home
-    rendered "0 items" and a server error while /transactions had answered 200 with rows.
+    rendered an empty month and a server error while /transactions had answered 200 with rows.
     """
     page = client.get("/").text
     home = page[page.index("async function loadHome("):page.index("// Re-read only the money figures")]
     assert 'api("/finance/summary" + monthQuery()).catch(function () { return null; })' in home
-    assert "if (loaded[2]) renderSafeCard(loaded[2]); else renderSafeCardError();" in home
+    assert "if (loaded[2]) paintFinance(loaded[2]); else paintFinanceError();" in home
     # guarded per request: still one batch, and no second try of the same read
     assert home.count("await Promise.all(") == 1
     assert home.count("catch(function () { return null; })") == 1
     # "could not read it" must not read as "you have not set it up yet"
     assert '$("safeMeta").textContent = "Not available right now.";' in page
     assert "Set your opening balance" in page
+    # the budget card cannot be drawn from figures that never arrived
+    error = page[page.index("function paintFinanceError()"):page.index("// One row shape")]
+    assert "hideBudget();" in error
+    # and the month's two cards say so too rather than claiming zero
+    assert '$("incomeTotal").textContent = "\\u2014";' in home
+    assert '$("expenseTotal").textContent = "\\u2014";' in home
 
 
 def test_the_commitments_sheet_is_a_registered_overlay(client: TestClient) -> None:
@@ -451,7 +561,7 @@ def test_settings_money_sits_above_account(client: TestClient) -> None:
     assert ">Currency<" in money and ">MYR<" in money
     assert ">Currency<" not in page[page.index(">About<"):]
     # the card's Details and the Settings row open the same sheet
-    assert page.count('addEventListener("click", openCommitSheet)') == 2
+    assert 'addEventListener("click", openCommitSheet)' in page
 
 
 def test_an_unreadable_month_is_never_painted_as_owing_nothing(client: TestClient) -> None:
