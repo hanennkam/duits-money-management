@@ -2669,7 +2669,9 @@
     $("safeAmount").textContent = "\u2014";
     $("safeAmount").classList.remove("neg", "is-setup");
     $("safeCard").classList.remove("is-setup");
-    $("safeMeta").textContent = "";
+    // Not the setup prompt: this is the figures being unreachable, which is a different thing to a user
+    // who has simply never put an opening balance in.
+    $("safeMeta").textContent = "Not available right now.";
   }
 
   // One row shape, shared by Home and the Transactions page so they cannot drift apart.
@@ -2803,13 +2805,16 @@
       var loaded = await Promise.all([
         api("/summary" + monthQuery()),
         api("/transactions" + monthQuery()),
-        api("/finance/summary" + monthQuery())   // the balance and the commitments still due
+        // Guarded on its own. The card is one extra read, so its failure must never take the hero, the
+        // ring and the list down with it — it did, until this line: a 500 from /finance/summary rejected
+        // the whole batch and Home rendered empty with a server error, while /transactions had answered.
+        api("/finance/summary" + monthQuery()).catch(function () { return null; })
       ]);
       if (requested !== state.month + "|" + state.mode) return;
       state.rows = loaded[1];
       trackEarliestYear(loaded[1]);
       renderSummary(loaded[0]);
-      renderSafeCard(loaded[2]);
+      if (loaded[2]) renderSafeCard(loaded[2]); else renderSafeCardError();
       renderHomeCategories(state.rows);   // the ring is expenses-only, so it reads the rows
       renderTransactions(state.rows);
     } catch (error) {

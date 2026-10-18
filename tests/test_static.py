@@ -342,6 +342,25 @@ def test_home_carries_a_safe_to_spend_card_above_the_hero(client: TestClient) ->
     assert "function showMoneySettings()" in page
 
 
+def test_a_failing_finance_read_never_blanks_home(client: TestClient) -> None:
+    """The card's own read is guarded, so a missing money table costs the card and not the month.
+
+    Seen for real: live is at schema 0002 while 2b reads /finance/summary, the reply was a 500
+    (PGRST205, no user_finance_settings), the rejection took the whole Promise.all with it, and Home
+    rendered "0 items" and a server error while /transactions had answered 200 with rows.
+    """
+    page = client.get("/").text
+    home = page[page.index("async function loadHome("):page.index("// Re-read only the money figures")]
+    assert 'api("/finance/summary" + monthQuery()).catch(function () { return null; })' in home
+    assert "if (loaded[2]) renderSafeCard(loaded[2]); else renderSafeCardError();" in home
+    # guarded per request: still one batch, and no second try of the same read
+    assert home.count("await Promise.all(") == 1
+    assert home.count("catch(function () { return null; })") == 1
+    # "could not read it" must not read as "you have not set it up yet"
+    assert '$("safeMeta").textContent = "Not available right now.";' in page
+    assert "Set your opening balance" in page
+
+
 def test_the_commitments_sheet_is_a_registered_overlay(client: TestClient) -> None:
     """A fourth sheet with the same parts as the other three: a scrim, a drag, a guard and a close."""
     page = client.get("/").text
