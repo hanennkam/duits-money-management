@@ -4020,14 +4020,26 @@
       "</span></div>";
   }
 
-  // The one line under the title: which month is being read, and what it still owes.
+  // The one line under the title: which month is being read, and what it still owes. The month is always
+  // true; the claim about what is due only appears once that month has really been read — an empty list
+  // left by a failed read is not a month that owes nothing, and saying so over an error card states as
+  // fact the one thing the reply did not tell us.
   function paintCommitSub() {
+    var head = monthName(state.month);
+    if (commitError) {
+      $("commitSub").textContent = head + " \u00b7 could not be read";
+      return;
+    }
+    if (commitRows === null) {
+      $("commitSub").textContent = head;      // nothing read yet: claim nothing about it
+      return;
+    }
     var due = (commitRows || []).filter(function (row) {
       return row.active !== false && !row.paid;
     }).reduce(function (sum, row) {
       return sum + (Number(row.amount) || 0);
     }, 0);
-    $("commitSub").textContent = monthName(state.month) + " \u00b7 " +
+    $("commitSub").textContent = head + " \u00b7 " +
       (due > 0 ? money(due) + " still due" : "nothing still due");
   }
 
@@ -4191,6 +4203,9 @@
   function paintCommitmentsSetting() {
     var value = $("commitmentsValue");
     if (!value) return;
+    // Neither of these is a count: a failed read and a read that has not landed are not "None".
+    if (commitError) { value.textContent = "Could not be read"; return; }
+    if (commitRows === null) { value.textContent = "\u2026"; return; }
     var active = (commitRows || []).filter(function (row) { return row.active !== false; }).length;
     value.textContent = active ? active + " monthly" : "None";
   }

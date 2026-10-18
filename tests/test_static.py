@@ -454,6 +454,25 @@ def test_settings_money_sits_above_account(client: TestClient) -> None:
     assert page.count('addEventListener("click", openCommitSheet)') == 2
 
 
+def test_an_unreadable_month_is_never_painted_as_owing_nothing(client: TestClient) -> None:
+    """A failed read must not be stated as a fact about the user's month.
+
+    Live showed it: schema 0002 has no commitments tables, so GET /commitments answered 500, and the
+    sheet read "October 2026 · nothing still due" over its own error card while Settings → Money read
+    "None" — two claims about money that was never read.
+    """
+    page = client.get("/").text
+    sub = page[page.index("function paintCommitSub()"):page.index("function renderCommitments()")]
+    assert "if (commitError) {" in sub
+    assert "could not be read" in sub
+    assert "if (commitRows === null) {" in sub, "nothing read yet: claim nothing about what is due"
+    assert "nothing still due" in sub, "the read answer is still the one that says it"
+    setting = page[page.index("function paintCommitmentsSetting()"):page.index("/* ---------- settings: money")]
+    assert 'if (commitError) { value.textContent = "Could not be read"; return; }' in setting
+    assert "if (commitRows === null)" in setting
+    assert 'value.textContent = active ? active + " monthly" : "None";' in setting
+
+
 def test_the_commitment_form_keeps_the_16px_floor(client: TestClient) -> None:
     """Its three fields reuse .add-field (16px) and both numbers ask for the right phone keyboard."""
     page = client.get("/").text
