@@ -24,6 +24,8 @@ Prepared after the auth-screen polish on branch `multi-user`. Read this before t
 | Pass 13 — live cutover, steps 3–4 and 9 | **Done and verified.** Live was found already migrated, with the **fixed** `0002` (snapshot 2 rows, partial index with its `WHERE`). Receipts backed up (16 files / 10.8 MB), baseline audit 75 rows / 16 objects, and the 2 receipt objects moved into the owner's folder with a sha256 match against the backup. **Live is now in an open write window: the deployed code cannot insert until step 11.** |
 | Phase 1 — Add Transaction chooser (UI only) | **Done and measured in a desktop browser; not measured on a real iPhone, and no write was made.** The "+" now opens a two-option chooser — a compact sheet hugging two square cards, which expands to full height once Manual or AI is chosen; each flow has its own Back. See the Phase 1 section — it lists every number that was measured and everything that was not. |
 | Live's `0002` state, re-read by the owner | **Confirmed, 2026-10-17: `0002` is applied on live** — `public.transactions.user_id` exists on `viorpltdkpexswvofeul`. This line is the **owner's read-only check**, not something the assistant verified in this session. **Staging is behind live:** it is pre-0002 and needs `docs/migration-runbook.md` §2–§5. |
+| Phase 2, step 2a — budget, balance, commitments (SQL + API) | **Done; staging run reported clean by the owner** (up → verify → isolation suite → down → verify → up). Not observed by the assistant. See the 2a section. |
+| Phase 2, step 2b — the money UI | **Done, measured in desktop Chromium with the network stubbed; nothing has been on a phone or against staging.** `295 passed, 21 skipped`. See the 2b section and the phone checklist at the end of this file. |
 
 ## Phase 1 — the Add Transaction chooser (UI only)
 
@@ -594,17 +596,19 @@ summed in Postgres instead of a Python loop that PostgREST's `max-rows` would tr
 grants are revoked, because the view has no policy of its own and the API is its only reader.
 
 **The figures, and where they come from.** Nothing is stored: `app/finance.py` derives everything from the rows on
-every read. `current_balance = opening_balance + total_income − total_expenses`, all-time and **every mode**.
+every read. `current_balance = opening_balance + total_income − total_expense` (the wire field is `total_expense`,
+singular — step 2b's UI reads that name), all-time and **every mode**.
 `unpaid_commitments` = the active commitments with no paid mark for the month being viewed.
 `safe_to_spend = current_balance − unpaid_commitments`. `remaining_budget = monthly_budget − unpaid_commitments −
 this month's spend **for the requested mode**`, and `null` when `monthly_budget` is `0` ("no budget set"). The one
 rule the tests pin hardest: paying a commitment is two writes — the expense, and the paid mark — and together they
 leave safe-to-spend exactly where it was, so the money is never taken twice.
 
-**Status: 2a is complete and nothing has been executed against a database.** `pytest` after each commit; the
-staging sequence is written but unrun (see the 0003 block in `docs/migration-runbook.md`). The new staging tests are
-written and are skipped here. Step 2b — the Home card, the commitments sheet and the Settings "Money" section in
-`app/static/index.html` — has not been started.
+**Status: 2a is complete.** `pytest` after each commit. **The staging sequence has since been run**, by the owner
+and not by this assistant: up → `verify_after_0003.sql` → the isolation suite → down → verify → up, all clean, no
+data lost. That run is what closes the "never parsed or run" note below; nothing in it was observed by the assistant.
+Step 2b — the Home card, the commitments sheet and the Settings "Money" section in `app/static/index.html` — is
+**done**; see the 2b section directly after this one.
 
 **Two prerequisites are now guards, not footnotes.** The up file checks that `0002` is applied before it creates
 anything (`run 0002 first: public.transactions.user_id is missing`, or `public.api_tokens`), because its view reads
@@ -613,11 +617,90 @@ objects exist, and cleans up a half-applied 0003 by snapshotting only the tables
 `verify_after_0003.sql` reports `transactions.user_id` as its first row (row 0), and `docs/migration-runbook.md` §10
 states the `0002` prerequisite and points at `verify_after_up.sql` first.
 
-**Not verified (no database, no browser, no phone):** the SQL has never been parsed or run, so
-`security_invoker`, FORCE RLS, the composite FK and the view's revoke are argued from the documentation and from
-0002's conventions, not observed on this project. The staging rehearsal is what would prove them.
+**Not verified by the assistant:** the SQL was never parsed or run here, so `security_invoker`, FORCE RLS, the
+composite FK and the view's revoke are argued from the documentation and from 0002's conventions, not observed on
+this project. The staging run (owner's, above) is what gates the claims in this section; this session only read the
+files.
 
-## Pass 5 — what changed
+## Phase 2, step 2b — the money UI (UI only)
+
+**Branch `feat/budget-balance-commitments`, on top of 2a; nothing pushed, nothing merged, no schema or database
+change, no live write.** Files: `app/static/index.html` (the change), `tests/test_static.py` (eight new page tests
+plus two guards re-counted from three overlays to four), `tests/test_page_auth.py` (the commitment name joins the
+escaped-field pins), `NEXT_STEPS.md` (this section). `app/*.py`, `schema.sql` and `migrations/` are untouched.
+
+**What it adds.** Three surfaces, all reading the 2a routes and nothing else:
+
+- **Home, "Safe to spend"** — one compact card **above** the "Spent this month" hero: the figure, and one line
+  saying what it is made of (`RM 54.90 still due this month · RM 700.00 of budget left`; over budget reads
+  `RM 50.00 over budget`). A negative figure is the only coloured state on the page and it uses `--danger`, with
+  the minus put back by hand because `money()` drops the sign. With no opening balance and no budget saved, the
+  card asks for the opening balance instead of drawing a total that would only mean "minus your spending", and a
+  tap on the card goes to Settings → Money. **Details** opens the commitments sheet. The read is a third call in
+  `loadHome()`'s existing `Promise.all`, with the same `monthQuery()` (month + mode) as `/summary`.
+- **The commitments sheet** (`#commitOverlay` / `#commitSheet`) — the viewed month's commitments, each with
+  `RM amount · due Nth` (proper ordinal suffixes), a two-way **Paid** toggle (POST to mark, DELETE to undo, both
+  carrying the month) and a **Pay** button. Paused commitments show greyed with `· paused` and no Pay. An inline
+  form adds one (name, amount, day 1–31) and validates all three before posting. The list comes from
+  `GET /commitments?month=`, which is required by the API; committing a month change resets the cache, so one
+  month can never show another's rows.
+- **Settings, "Money"** (above Account) — Opening balance and Monthly budget as text fields with
+  `inputmode="decimal"` at 16px, saving one field at a time on `change` (the API keeps what a request omits), a
+  Commitments row that opens the same sheet and shows how many are active, and Currency MYR as info only. The
+  Currency row moved here out of About rather than being duplicated.
+
+**Pay is two writes, and the order is the feature.** Pay opens the Add sheet prefilled (`merchant = name`,
+`amount`, `category = "bills"`, `type = "expense"`) on its Manual view, with Details expanded so the merchant is
+visible but no keyboard raised. The paid mark is posted **only after** `POST /transactions` answers, and it is
+posted for the month captured when Pay was tapped — not `state.month` at save time, because `afterAdd()` may move
+the view to the transaction's own month. If the mark fails, the transaction stays saved and the toast says
+`Transaction saved, but marking it paid failed.` A cancelled or failed save clears the pending mark, so nothing is
+ever marked paid without its expense.
+
+**One API-shape limitation, stated rather than worked around.** The summary has no "settings saved" flag, so "no
+opening balance yet" is read as `opening_balance == 0 && monthly_budget == 0` — exactly what a user who has never
+saved a row gets back (the defaults are not stored). A genuine RM 0.00 opening balance with no budget is
+indistinguishable from "not set" and keeps seeing the prompt. That is honest rather than wrong (there is still
+nothing to subtract from), and fixing it properly needs a response field — which is an API change this step was not
+allowed to make.
+
+**Measured, this session, in desktop Chromium — with the network stubbed, not on a phone, not on staging.** The
+real page was served from the working tree on `127.0.0.1:8771` with `fetch` replaced by a harness that answered the
+money routes; every call it received was recorded. `pytest` at the end: **295 passed, 21 skipped** (287 before this
+step, i.e. eight new tests). What the walk showed:
+
+- boot → `safeAmount` `RM 945.10`, meta `RM 54.90 still due this month · RM 700.00 of budget left`, and the only
+  three reads `GET /summary`, `GET /transactions`, `GET /finance/summary` — the third carries `month=2026-10&mode=personal`;
+- a negative figure → text `−RM 120.50`, class `neg`, computed colour `rgb(255, 69, 58)` = `--danger`;
+- opening 0 / budget 0 → `Set your opening balance`, class `is-setup`, and a tap on the card lands on Settings with
+  the Money fields filled;
+- **Details** → sheet open (aria-hidden `false`), sub-line `October 2026 · RM 54.90 still due`, rows
+  `Netflix … due 12th` / `Spotify … due 3rd` / `Gym … due 28th · paused` (no Pay on Gym), and a name sent as
+  `Netflix <b>` reached the DOM as `Netflix &lt;b&gt;` — the raw tag was **not** there;
+- the Paid toggle → `DELETE /commitments/c2/paid?month=2026-10` unmarks, `POST /commitments/c1/paid
+  {"month":"2026-10"}` marks, each followed by a fresh `GET /commitments` and `GET /finance/summary`; the sub-line
+  moved 54.90 → 74.80 → 19.90;
+- **Pay** → Add sheet on top of the still-open sheet, `RM 54.90`, merchant `Netflix <b>`, bills chip on, Expense
+  active, Details expanded, Save enabled; Save fired `POST /transactions` (bills/expense/54.9/today) **then**
+  `POST /commitments/c1/paid {"month":"2026-10"}`, toast `Paid · Netflix <b>`, the Add sheet closed and the row
+  behind it went paid;
+- the same flow with the mark forced to 500 → toast `Transaction saved, but marking it paid failed.`, row still
+  unpaid, sub-line still counting it;
+- the inline form → day 32 rejected with no request; `Astro / 1,299.90 / 31` posted
+  `{"name":"Astro","amount":1299.9,"day_of_month":31}`, cleared the fields and rendered `RM 1,299.90 · due 31st`;
+- Settings → inputs `1000.00` / `2000.00`, Commitments `2 monthly`; `2,500.5` posted
+  `{"opening_balance":2500.5}` (one field, commas stripped), tidied to `2500.50`, toast `Saved.`; `-5` budget and
+  `abc` were both refused with a toast and **zero** requests, the field restored;
+- Done and the scrim each closed the sheet (`class="overlay"`, aria-hidden `true`, sheet translated fully down);
+- the console held no messages and no uncaught errors through the whole walk.
+
+**Not verified, and what would verify it.** No iPhone, no Safari, no real touch: the sheet's drag-to-dismiss, the
+`touch-action`, the 16px no-zoom rule, the safe-area insets and the visual feel are **not** measured here — desktop
+Chromium with a mouse proves none of them. No staging and no real data: every figure above came from the harness,
+so the wire shapes are trusted from 2a's tests (`total_expense`, nullable `remaining_budget`, `paid` per month)
+rather than observed. The two things to check on a phone against **staging** are listed at the end of this file.
+
+
 
 **You checked `verify_after_up.sql` sections B–F** against staging, so the catalog side of the migration is
 confirmed: `user_id` NOT NULL, the two per-owner unique keys present with no global `UNIQUE (dedupe_hash)`,
@@ -1093,3 +1176,51 @@ invite flow. Re-run on staging with a fresh invite link:
 | After saving the password | signed in, Home empty (`RM 0.00`, 0 rows) |
 
 So the fix holds on the path it was written for.
+
+## Phase 2, step 2b — the phone pass, against STAGING
+
+Nothing below has been done. It is the checklist for the one environment a desktop browser cannot stand in for.
+**Staging only: no live account, no real money, no write anywhere else.**
+
+**Setup.** Staging's API (`https://<staging-service>.onrender.com`, the Render service that points at the staging
+Supabase project) must first be brought to schema 0003 (`docs/migration-runbook.md` §10) and seeded with the two
+`--phase after` fixtures (`scripts/staging_seed.py`, which needs a `user_id` after the 0002 up). Then, on the
+iPhone, open the staging URL in **Safari** (not the Home Screen copy — that can be an old build; check
+Settings → About → Build matches the deploy) and sign in as **the staging test account**, the same one
+`scripts/run_staging_tests.py` uses. Personal mode, current month.
+
+**What to look at, and what "right" is:**
+
+1. **The card.** Home shows **Safe to spend** above **Spent this month**. It is the opening balance plus everything
+   in, minus everything out, minus the unpaid commitments of the month being viewed. Set Opening balance in
+   Settings → Money to a number you can check by hand (e.g. 1000), add one commitment of RM 50 due this month, and
+   the card must drop by exactly 50 against the same card before the commitment existed. Overspend on purpose and
+   the figure must go **red with a minus sign** (light theme `#ba1a1a`, dark `#ff453a`), not just red.
+2. **Fresh account.** With the settings row deleted (or a brand-new staging user), the card reads **Set your
+   opening balance**; tapping it lands on Settings with the Money section on screen; saving an opening balance and
+   coming back to Home replaces the message with a figure.
+3. **The sheet, by touch.** Details opens the commitments sheet and it comes up from the bottom with the page dimmed
+   behind it, **not see-through at any point**. The title stays put while the list scrolls. Swipe down on the drag
+   handle or the header closes it and nothing else moves; a swipe that starts on a row at the top of the list closes
+   it too (by design), and one that starts mid-list scrolls. The dim is not reachable while the sheet is animating.
+4. **Paid.** Tapping **Paid** marks it (green) and the line under the title drops by that amount; tapping again
+   unmarks it. The card behind updates without closing the sheet. Kill the network mid-tap: the row must come back
+   to where it was, with a toast, not stay half-toggled.
+5. **Pay, and the month trap.** Tap **Pay** on an unpaid bill: the Add sheet must open **on Manual**, prefilled with
+   the name as merchant, the amount, bills, Expense, Details already open, and **no keyboard covering the amount**.
+   Save: the transaction lands, the sheet closes back to the commitments list, the row is paid and the toast names
+   it. **Then view last month (month pill) with an unpaid bill from last month, tap Pay, and save.** The
+   transaction is dated today but the *last* month's bill must be the one marked paid — that is the whole point of
+   capturing the month at tap time.
+6. **The mark failing.** Hard to force on staging; if you can pull the network between the save and the mark, the
+   toast must say the transaction was saved and the mark failed, and the bill must stay unpaid.
+7. **The inline form.** Add a commitment by touch: name, `1,299.90`, day `31`. It must accept the comma, reject day
+   `32` and an empty name with a toast, and the new row must appear in the list without a reload. A long name must
+   ellipsize, not push the buttons off the row.
+8. **The fields.** Opening balance and Monthly budget must **never zoom the page** when focused (that is the 16px
+   floor), the numeric keyboard must come up (a `,` and `.` must both work — `NaN` is rejected with a toast), and
+   flipping the phone to dark must keep every field and the dim readable.
+9. **Sign out.** Settings → Sign out, then sign in as the other staging user: the card must not show the first
+   user's figure for even a frame, and the commitments list must be empty rather than the other account's.
+
+Record what is seen; anything that fails belongs in a new section here, not in a silent fix.
