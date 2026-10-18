@@ -25,7 +25,8 @@ Prepared after the auth-screen polish on branch `multi-user`. Read this before t
 | Phase 1 — Add Transaction chooser (UI only) | **Done and measured in a desktop browser; not measured on a real iPhone, and no write was made.** The "+" now opens a two-option chooser — a compact sheet hugging two square cards, which expands to full height once Manual or AI is chosen; each flow has its own Back. See the Phase 1 section — it lists every number that was measured and everything that was not. |
 | Live's `0002` state, re-read by the owner | **Confirmed, 2026-10-17: `0002` is applied on live** — `public.transactions.user_id` exists on `viorpltdkpexswvofeul`. This line is the **owner's read-only check**, not something the assistant verified in this session. **Staging is behind live:** it is pre-0002 and needs `docs/migration-runbook.md` §2–§5. |
 | Phase 2, step 2a — budget, balance, commitments (SQL + API) | **Done; staging run reported clean by the owner** (up → verify → isolation suite → down → verify → up). Not observed by the assistant. See the 2a section. |
-| Phase 2, step 2b — the money UI | **Done, measured in desktop Chromium with the network stubbed; nothing has been on a phone or against staging.** `295 passed, 21 skipped`. See the 2b section and the phone checklist at the end of this file. |
+| Phase 2, step 2b — the money UI | **Done, measured in desktop Chromium with the network stubbed; nothing has been on a phone or against staging.** The suite printed `296 passed, 21 skipped` then and prints `300 / 21` now. See the 2b section and the phone checklist at the end of this file. |
+| Phase 2, step 2b — Home reworked to the reference layout | **Done, measured in desktop Chromium at 390px and 375px in both themes; no phone and no real touch.** `300 passed, 21 skipped`. The four money states, the deleted card and where its breakdown still lives are recorded in the "Home reworked" section at the end. |
 
 ## Phase 1 — the Add Transaction chooser (UI only)
 
@@ -1191,14 +1192,18 @@ Settings → About → Build matches the deploy) and sign in as **the staging te
 
 **What to look at, and what "right" is:**
 
-1. **The card.** Home shows **Safe to spend** above **Spent this month**. It is the opening balance plus everything
-   in, minus everything out, minus the unpaid commitments of the month being viewed. Set Opening balance in
+1. **The balance card.** Home opens with **Balance** (all time, every mode), a pill on the right naming the month
+   being viewed, and under it a tappable pill reading **Safe to spend** — the opening balance plus everything in,
+   minus everything out, minus the unpaid commitments of the month being viewed. Set Opening balance in
    Settings → Money to a number you can check by hand (e.g. 1000), add one commitment of RM 50 due this month, and
-   the card must drop by exactly 50 against the same card before the commitment existed. Overspend on purpose and
-   the figure must go **red with a minus sign** (light theme `#ba1a1a`, dark `#ff453a`), not just red.
-2. **Fresh account.** With the settings row deleted (or a brand-new staging user), the card reads **Set your
-   opening balance**; tapping it lands on Settings with the Money section on screen; saving an opening balance and
-   coming back to Home replaces the message with a figure.
+   the pill must drop by exactly 50 against the same pill before the commitment existed. Overspend on purpose and
+   the **pill** must go **red with a minus sign** (light theme `#ba1a1a`, dark `#ff453a`), not just red — the
+   balance above it keeps the body colour and only grows a minus sign.
+2. **Fresh account.** With the settings row deleted (or a brand-new staging user), the balance reads **—** and the
+   pill reads **Set your opening balance** (no "Safe to spend" label beside it); tapping the pill lands on Settings
+   with the Money section on screen; saving an opening balance and coming back to Home replaces both with figures.
+   Then the budget card below: absent until a Monthly budget is saved, and absent again when you browse to an
+   earlier month, because "days remaining" only means something in the month you are in.
 3. **The sheet, by touch.** Details opens the commitments sheet and it comes up from the bottom with the page dimmed
    behind it, **not see-through at any point**. The title stays put while the list scrolls. Swipe down on the drag
    handle or the header closes it and nothing else moves; a swipe that starts on a row at the top of the list closes
@@ -1244,3 +1249,67 @@ render and the card reads "—" / "Not available right now." — so `b5ef265` is
 sheet's copy was captured afterwards in the desktop harness and has **not** been re-checked on the phone.
 
 **To see 2b work, the database it points at needs `0003`.** Nothing in the UI changes that.
+
+## 2026-10-18 — Home reworked to the reference layout (UI only)
+
+**Branch `feat/budget-balance-commitments`; UI only — no API, no SQL, no schema, no migration, nothing pushed.**
+Files: `app/static/index.html` (the layout), `tests/test_static.py` and `tests/test_page_auth.py` (the pins),
+`NEXT_STEPS.md` (this section).
+
+**The order now** (top to bottom): the header as it was (title, month pill, Personal/Business); the **Balance**
+card — the label, a month pill on its right, `current_balance` big, and under it the **Safe to spend** pill you tap
+to open the commitments sheet; **Income** and **Expenses** as two half-width cards, both from the existing
+`/summary`; the **Monthly budget limit** card — percentage of the budget, a progressbar, "left to spend" (or "over
+budget"), and the days remaining computed client-side; then **Recent Transactions** unchanged at three rows plus
+See All. The old "Spent this month" hero and its Income/Net split are gone, along with the item-count pill. The
+balance still comes from the one guarded `/finance/summary` inside `loadHome`'s existing `Promise.all`: this pass
+added no request.
+
+**The category card is deleted from Home and nothing was orphaned by it.** It was never a sheet — a tap anywhere on
+it called `showScreen("insights")` — so the breakdown it pointed at is Insights' own "Spending by category" card
+(`donutSvg` + `insightCategoryList`), reachable from the tab bar and untouched. Everything that existed only to draw
+the Home ring went with it: `renderHomeCategories`, `homeCategoryGroups`, `legendRowHtml`, `HOME_DONUT_ROWS`, the
+`small` option in `donutSvg`, and the `.cat-split*`, `.legend-*`, `.donut-sm` and `.card-tap` rules.
+
+**Measured, this session, in desktop Chromium, offline, with every network call answered by a local stub** (the
+harness is not in the repo). The page was framed at exact sizes — an iframe of 390x844 and one of 375x812 — and read
+back through `getBoundingClientRect` and `getComputedStyle`, in both themes. Four states, all eight combinations:
+
+| | budget set, under | budget set, over | budget 0 | `/finance/summary` 500 |
+| --- | --- | --- | --- | --- |
+| balance | `RM 1,400.00` | `−RM 50.00` | `RM 900.00` | `—` |
+| safe pill | `RM 945.10`, 44px | `−RM 325.00`, `#ba1a1a` / `#ff453a` | `RM 845.10` | `—` |
+| budget card | `65% of RM 2,000.00`, `RM 700.00 left to spend`, `13 days remaining`, bar 65% `#007aff` / `#0a84ff`, `progressbar now=65` | `100% of RM 1,000.00`, `RM 250.00 over budget` red, bar full red, `now=100` | absent | absent |
+| month cards | `+RM 1,200.00` green, `−RM 800.00` | same | same | same (`/summary` answered) |
+| recent rows | 3 | 3 | 3 | 3 |
+| sideways overflow | 0 px | 0 px | 0 px | 0 px |
+
+- **The pill is the tap target**: 321x44 at 390px, 306x44 at 375px, with the same 14px `--chevron` the settings rows
+  use. The budget card's bar is 8px on `--card-2`, its fill `--accent` (or `--danger` when over).
+- **Browsing to September**, driven through the real month picker (open, `monthCol.scrollTop`, Done): the budget
+  card hides, its bar resets to `0%` / `now=0`, the hero pill follows to `Sep 2026`, and the three reads re-ran once
+  each for `2026-09`. **The balance does not move with the month** — `RM 1,400.00` in both — because it is all time
+  and every mode.
+- **A five-figure month does not fit half of a 375px phone** at the 19px the design asked for: `+RM 12,345.67` is
+  139px in a 135px box, measured rather than guessed. The figure now steps its own font down until it fits
+  (`fitText`: 19→14px for the two month cards, 40→22px for the balance, 17→12px for the pill). `123,456.78` lands
+  at 17px with its right edge exactly on the card's padding, at both widths, and ordinary figures are left at
+  19px / 40px / 17px. The fit skips an element with no layout, so a screen painted while hidden is fitted when its
+  tab is next shown (checked by leaving Home and coming back).
+- **Nothing removed is left behind**: `categoryCard`, `categoryList`, `itemsPill`, `totalSpent`, `netTotal`,
+  `heroSplit` and `safeCard` are absent from the served DOM in every state above.
+
+**Three judgement calls, any of which is one line to change:**
+- **The hero carries the month pill you asked for, and the header already has one.** Both read `Oct 2026`, one line
+  apart, because the shared `paintMonth()` paints every `.js-month-label`. Say the word and it goes, or becomes the
+  item count this pass dropped as instructed.
+- **Expenses are not red.** Only Income carries a token (green); the expense figure keeps the body colour with a
+  leading minus, because colouring an ordinary month red would read as a warning. The budget card is where
+  `--danger` is earned.
+- **A negative balance is not red either** — it grows a minus sign. Only Safe to spend turns red, as asked.
+
+**Not verified:** no iPhone and no real touch (no swipe, no keyboard, no zoom, no safe-area behaviour — the 44px
+floor, the target-based guards and the sheet's opacity rule are pinned in the page tests, not felt); **no
+screenshot**, because this machine had no visible browser window for `browser.screenshot` to capture; no staging and
+no live database, so every figure above is the stub's; nothing saved through Settings in this pass; and the two
+rewritten items in the phone checklist above are still unrun.
