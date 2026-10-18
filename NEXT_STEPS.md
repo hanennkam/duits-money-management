@@ -1224,3 +1224,23 @@ Settings → About → Build matches the deploy) and sign in as **the staging te
    user's figure for even a frame, and the commitments list must be empty rather than the other account's.
 
 Record what is seen; anything that fails belongs in a new section here, not in a silent fix.
+
+## 2026-10-18 — the money UI against live (`0003` is not on it)
+
+Ran the app locally against the live project (what `.env` holds) to look at 2b. **Home is fine; every money read
+500s**, because live is at `0002` and 2b reads the `0003` tables — `PGRST205` on `public.user_finance_settings`,
+then on `public.monthly_commitments` and `public.commitment_payments`. That is the schema being one migration
+behind the UI, not a UI fault, and **no write landed** (the one `POST /commitments` attempt answered 500).
+
+Looking at it turned up two real UI faults of the same kind — a value that was never read, painted as a fact:
+
+| Fixed in | Was | Now |
+| --- | --- | --- |
+| `b5ef265` | a 500 from `/finance/summary` rode in the same `Promise.all` as `/summary` and `/transactions`, so Home rendered `RM 0.00`, "0 items" and a server error *while `/transactions` had answered 200 with rows* | the card's read is guarded on its own; its failure costs the card and nothing else |
+| `f0b9a8f` | the sheet read "October 2026 · nothing still due" directly over its own error card, and Settings → Money → Commitments read "None" | "could not be read" in both, and the sub claims nothing about a month before that month has been read |
+
+Seen on the owner's **iPhone** (the Home half only): with the finance read failing, the hero, the ring and the rows
+render and the card reads "—" / "Not available right now." — so `b5ef265` is confirmed on a real device. The
+sheet's copy was captured afterwards in the desktop harness and has **not** been re-checked on the phone.
+
+**To see 2b work, the database it points at needs `0003`.** Nothing in the UI changes that.
