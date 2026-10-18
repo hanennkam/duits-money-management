@@ -250,6 +250,27 @@ four 0003 objects exist, and on a half-applied 0003 it proceeds and snapshots on
      `anon` nor `authenticated` has `SELECT` on the view, because the revoke is the whole gate for it.
    - Row 16 (`transactions` rows) must equal what it was before step 1. 0003 must not move a transaction.
    - **STOP** on any other value, and go to step 4.
+   - **A parse-time bug in that grid was found on staging and fixed (2026-10-18).** The file is ONE statement, and
+     Postgres resolves every relation name in a statement while it **parses** it — *before* any `case` or
+     `to_regclass(...)` guard is evaluated. Rows 15 and 17 therefore raised
+     `42P01 relation "public.migration_0003_saved_rows" does not exist` instead of printing their value:
+     `migration_0003_saved_rows` is created by the **down** file, so it is absent in the normal post-`up` state,
+     and the three 0003 tables are absent on a pre-0003 project and again after step 4's rollback. (The error
+     naming row 17 rather than row 15 is itself the evidence that `0003 up` had run: had the 0003 tables been
+     missing too, row 15's reference would have failed first.) The fix: an object that may legitimately be absent
+     is now read through a **string** — `to_regclass(...)`, or
+     `coalesce((xpath('//c/text()', query_to_xml('select count(*) as c from public.x', false, true, '')))[1]::text, 'UNREADABLE')`,
+     which resolves the relation only when the branch actually runs — while `to_regclass` still guards the branch.
+     (`//c` rather than the usual `/row/c/text()`: it is a descendant search, so it does not depend on which
+     wrapper element `tableforest` picks, and the `coalesce` keeps an empty read from printing as a blank cell.)
+     Row 15 needed this as much as row 17: it is the row that reports `MISSING (0003 is not applied ...)`, so
+     without the fix **step 5 could never have run either**. **Re-run the grid after the fix**, in both states (up
+     and post-rollback).
+   - **The rule for any future verify file: guard with `to_regclass`, but never name the object directly in the
+     same statement.** The migration files themselves are not affected — their guards sit inside `do $$` bodies,
+     where each statement is planned when it is executed, which is why `0002_multi_user.down.sql` may read
+     `public.migration_0002_saved_constraints` directly behind its step-0 guard, and why
+     `0003_budget_commitments.down.sql` may name `migration_0003_saved_rows` after creating it in step 1.
 3. **The isolation suite.** `./.venv/bin/python scripts/run_staging_tests.py`
    - Expected: all green, including the six 0003 tests. Those are the evidence that the service-key API still
      reads and writes its own rows with the policies **forced** on, that anon/publishable is refused, that one
@@ -281,10 +302,11 @@ four 0003 objects exist, and on a half-applied 0003 it proceeds and snapshots on
    `pg_dump` (step 2) taken first. 0003 is smaller than 0002 — no backfill — but it is not reversible without
    the snapshot, so the snapshot stays until the owner signs off.
 
-**What is verified today: nothing.** No part of 0003 has been executed by anyone. The up file's `do` blocks, the
-view's `security_invoker`, FORCE row level security and the revoke are argued from the PostgreSQL and Supabase
-documentation and from 0002's conventions; steps 1–6 are what turn that into evidence. The staging tests in step 3
-are written but have never been run.
+**What is verified today: `0003 up` on staging, and nothing more.** *(2026-10-18: the up has now been run on the
+staging project and this grid was run against it; that run is what found the parse-time bug noted under step 2. The
+grid is fixed, so re-run it.)* The up file's `do` blocks, the view's `security_invoker`, FORCE row level security
+and the revoke are argued from the PostgreSQL and Supabase documentation and from 0002's conventions; steps 1–6 are
+what turn that into evidence. The staging tests in step 3 are written but have never been run.
 
 **One dependency worth knowing before step 2.** The up file's guard calls `has_table_privilege('anon', ...)`, and
 the down file's closing block asserts on `pg_class` and `pg_policies`. Both rely on the `anon`, `authenticated`

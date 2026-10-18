@@ -12,6 +12,14 @@
 -- and a `false` in either half means the backstop is not what this migration promised.
 -- The view's privileges are checked with has_table_privilege, because the view has no policy of its own:
 -- its grants are the entire gate for anyone who is not the service key.
+--
+-- Every object this file must be able to REPORT as MISSING is named only inside a STRING — `to_regclass(...)`,
+-- or `query_to_xml(...)` — and never in code position. Postgres resolves a relation name while it PARSES the
+-- statement, before any `case` or guard is evaluated, so a direct `from public.<missing>` raises 42P01 instead
+-- of printing MISSING. That is not hypothetical: it is what rows 15 and 17 did on staging (2026-10-18) —
+-- `public.migration_0003_saved_rows` is created by the 0003 DOWN file, so it is absent in the normal post-`up`
+-- state, and the three 0003 tables are absent pre-0003 and again after a rollback, which is exactly when this
+-- grid is meant to answer (docs/migration-runbook.md §10 steps 2 and 5).
 
 select ord, check_name, value
 from (
@@ -119,26 +127,48 @@ from (
               else pg_get_viewdef(to_regclass('public.transaction_totals'), true)
          end
   union all
+  -- The three counts are read through query_to_xml, not `from public.xxx`: a relation named in code position is
+  -- resolved at parse time, so the branch below would raise 42P01 on a project where 0003 is not applied —
+  -- exactly the state this row exists to report. `to_regclass` still guards the branch, and query_to_xml reads
+  -- its query only when the branch runs. (Same idiom as row 17.)
+  --
+  -- `//c/text()` rather than the more common `/row/c/text()`: both match these calls, but `//c` is a descendant
+  -- search, so it does not depend on which wrapper element `tableforest` selects. And the coalesce is not
+  -- decoration: if the read ever came back empty the cell would print NULL, and a blank cell reads like a pass.
   select 15, 'row counts: settings / commitments / payments (real data after a rehearsal; 0 on an empty project)',
          case when to_regclass('public.user_finance_settings') is null
                 or to_regclass('public.monthly_commitments') is null
                 or to_regclass('public.commitment_payments') is null
               then 'MISSING (0003 is not applied, so it holds no rows)'
-              else (select count(*)::text from public.user_finance_settings) || ' / ' ||
-                   (select count(*)::text from public.monthly_commitments) || ' / ' ||
-                   (select count(*)::text from public.commitment_payments)
+              else coalesce((xpath('//c/text()', query_to_xml(
+                     'select count(*) as c from public.user_finance_settings', false, true, '')))[1]::text,
+                     'UNREADABLE') || ' / ' ||
+                   coalesce((xpath('//c/text()', query_to_xml(
+                     'select count(*) as c from public.monthly_commitments', false, true, '')))[1]::text,
+                     'UNREADABLE') || ' / ' ||
+                   coalesce((xpath('//c/text()', query_to_xml(
+                     'select count(*) as c from public.commitment_payments', false, true, '')))[1]::text,
+                     'UNREADABLE')
          end
   union all
   select 16, 'transactions rows (0003 must not change this; compare with the count before the run)',
          (select count(*)::text from public.transactions)
-  -- Present only after a rollback; it must be RLS-protected and hold 3 snapshot rows.
+  -- Present only after a rollback; it must be RLS-protected and hold 3 snapshot rows. The count is read through
+  -- query_to_xml: that table is created by the 0003 DOWN file, so in the normal post-`up` state it does not
+  -- exist, and a direct `from public.migration_0003_saved_rows` raises 42P01 at parse time — before this `case`
+  -- can answer "absent". The pg_class lookup beside it needs no such care: it reads the catalog by oid.
+  -- (`//c/text()` and the coalesce: see row 15.)
   union all
   select 17, 'rollback snapshot (expect absent, or 3 row(s) with RLS enabled+forced and 0 policies)',
          case
            when to_regclass('public.migration_0003_saved_rows') is null then 'absent'
-           else (select count(*)::text from public.migration_0003_saved_rows) || ' row(s), rls ' ||
-                (select c.relrowsecurity::text || '/' || c.relforcerowsecurity::text from pg_class c
-                  where c.oid = to_regclass('public.migration_0003_saved_rows')) || ', policies ' ||
+           else coalesce((xpath('//c/text()', query_to_xml(
+                  'select count(*) as c from public.migration_0003_saved_rows', false, true, '')))[1]::text,
+                  'UNREADABLE')
+                || ' row(s), rls ' ||
+                coalesce((select c.relrowsecurity::text || '/' || c.relforcerowsecurity::text from pg_class c
+                            where c.oid = to_regclass('public.migration_0003_saved_rows')), 'MISSING')
+                || ', policies ' ||
                 (select count(*)::text from pg_policies
                   where schemaname = 'public' and tablename = 'migration_0003_saved_rows')
          end
