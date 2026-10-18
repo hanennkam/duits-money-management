@@ -348,12 +348,14 @@
   .badge.warn { background: var(--amber-soft); color: var(--amber); }
   /* ---------- home: hero ---------- */
   .hero-card { padding: 18px 18px 20px; }
-  .hero-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   .hero-label { font-size: 15px; font-weight: 500; color: var(--text-2); }
   .hero-amount {
     font-size: 40px; font-weight: 800; letter-spacing: -.03em; line-height: 1.1;
     margin: 10px 0 4px; font-variant-numeric: tabular-nums;
   }
+  /* Home's balance is the one number the screen is built around, so it is the largest thing on it: the
+     same weight and letter-spacing as .hero-amount, a quarter larger (Insights' total stays at 40px). */
+  .hero-balance { font-size: 50px; }
   /* The month's two halves, side by side at half width each. They read the /summary the hero used to. */
   .stat-row { display: flex; gap: 12px; }
   .stat-card { flex: 1 1 0; min-width: 0; padding: 13px 15px 15px; }
@@ -399,6 +401,8 @@
   }
   .budget-days { flex: none; white-space: nowrap; }
   .budget-left.over { color: var(--danger); font-weight: 600; }
+  /* The one line that says what the figure above is not: a limit on the month, not part of the balance. */
+  .budget-note { margin: 10px 0 0; font-size: 13px; color: var(--text-2); }
 
   /* ---------- category list (Insights; Home's ring used to sit on these too) ---------- */
   .cat-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
@@ -1242,15 +1246,12 @@
 
     <div id="homeError"></div>
 
-    <!-- Balance: the one real-world number (all time, every mode), the month it is being read beside,
-         and — as a pill you can tap — what is safe to spend after the bills still to come. The pill is
-         the commitments sheet's front door. -->
+    <!-- Balance: the one real-world number (all time, every mode), and — as a pill you can tap — what is
+         safe to spend after the bills still to come. The pill is the commitments sheet's front door. The
+         month those bills belong to is named by the picker in the header above. -->
     <div class="card hero-card" id="balanceCard">
-      <div class="hero-top">
-        <span class="hero-label">Balance</span>
-        <span class="pill js-month-label">This month</span>
-      </div>
-      <div class="hero-amount" id="balanceAmount">RM 0.00</div>
+      <span class="hero-label">Balance</span>
+      <div class="hero-amount hero-balance" id="balanceAmount">RM 0.00</div>
       <button class="safe-pill" id="safeDetailsBtn" type="button">
         <span class="safe-pill-label">Safe to spend</span>
         <span class="safe-pill-amount" id="safeAmount">RM 0.00</span>
@@ -1286,6 +1287,7 @@
         <span class="budget-left" id="budgetLeft">RM 0.00 left to spend</span>
         <span class="budget-days" id="budgetDays"></span>
       </div>
+      <p class="budget-note">Monthly limit, separate from your balance.</p>
     </div>
 
     <div class="section-head">
@@ -2635,7 +2637,7 @@
     $("safeMeta").textContent = setup
       ? "Add what you had before Duits, and it can tell you what is safe to spend."
       : (unmet > 0 ? money(unmet) + " still due this month" : "");
-    fitText($("balanceAmount"), 40, 22);
+    fitText($("balanceAmount"), 50, 22);
     // The setup pill is sized by its own class (15px), so only a real figure is stepped down; the inline
     // size from a previous paint is cleared either way.
     if (setup) $("safeAmount").style.fontSize = "";

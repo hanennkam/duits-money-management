@@ -313,24 +313,30 @@ def test_the_icon_links_are_versioned(client: TestClient) -> None:
 # ---------------------------------------------------------------- money: the hero, the sheet, the settings
 
 def test_home_is_a_balance_hero_with_a_safe_to_spend_pill(client: TestClient) -> None:
-    """The all-time balance, the month beside it, and what is safe to spend as the sheet's front door.
+    """The all-time balance, and what is safe to spend as the sheet's front door.
 
     What the served page can pin: the balance is /finance/summary's current_balance (never a total the
-    page works out itself), the pill is a real button with a 44px floor so the tap target is the whole
-    row, the one state that colours a figure is a negative safe-to-spend in the shared --danger, and the
-    setup state still asks for the opening balance instead of showing a number that would read as one.
+    page works out itself), it is the largest figure on the screen, the pill is a real button with a 44px
+    floor so the tap target is the whole row, the one state that colours a figure is a negative
+    safe-to-spend in the shared --danger, and the setup state still asks for the opening balance instead
+    of showing a number that would read as one.
     """
     page = client.get("/").text
     assert 'id="balanceCard"' in page and ">Balance<" in page
-    assert 'class="hero-amount" id="balanceAmount"' in page
+    assert 'class="hero-amount hero-balance" id="balanceAmount"' in page
     # the balance comes from the reply, not from arithmetic on the page
     assert '$("balanceAmount").textContent = setup' in page
     assert "var balance = Number(summary.current_balance) || 0;" in page
-    # the month rides on the shared paintMonth() hook, so it follows a month change with no extra wiring
+    # The month is named once, by the picker in the shared header. The hero used to repeat it as a pill;
+    # a second "Oct 2026" one line under the first read as a duplicate, so the hero has none.
     hero = page[page.index('id="balanceCard"'):page.index('id="budgetCard"')]
-    assert 'class="pill js-month-label"' in hero
+    assert "js-month-label" not in hero, "the header is the only place the month is named"
+    assert "hero-top" not in page
+    # A quarter larger than .hero-amount, at the same weight; Insights' own total stays at 40px.
+    assert ".hero-amount {\n    font-size: 40px; font-weight: 800" in page
+    assert ".hero-balance { font-size: 50px; }" in page
+    assert 'fitText($("balanceAmount"), 50, 22);' in page
     # the pill is the button: >=44px, so the whole row is the target, and a chevron says it opens
-    assert 'class="pill js-month-label"' in page
     assert '<button class="safe-pill" id="safeDetailsBtn" type="button">' in page
     assert "min-height: 44px" in page[page.index(".safe-pill {"):page.index("}", page.index(".safe-pill {"))]
     assert 'class="safe-pill-chev"' in page
@@ -377,7 +383,7 @@ def test_the_month_is_split_into_two_half_cards(client: TestClient) -> None:
     assert "function fitText(el, max, min)" in page
     assert "while (size > min && el.scrollWidth > el.clientWidth)" in page
     for call in ('fitText($("incomeTotal"), 19, 14);', 'fitText($("expenseTotal"), 19, 14);',
-                 'fitText($("balanceAmount"), 40, 22);', 'fitText($("safeAmount"), 17, 12);'):
+                 'fitText($("safeAmount"), 17, 12);'):
         assert call in page, call
     # the setup pill is sized by its class, so a previous paint's inline size must not survive into it
     assert 'if (setup) $("safeAmount").style.fontSize = "";' in page
@@ -416,6 +422,9 @@ def test_the_budget_card_only_appears_with_a_budget_in_the_current_month(client:
     assert "function daysLeftLabel()" in page
     assert "daysInMonth(state.month) - Number(localIso(new Date()).slice(8, 10))" in page
     assert '" day remaining" : " days remaining"' in page
+    # the one line that says what the figure above it is not, in the secondary text token
+    assert '<p class="budget-note">Monthly limit, separate from your balance.</p>' in page
+    assert ".budget-note { margin: 10px 0 0; font-size: 13px; color: var(--text-2); }" in page
 
 
 def test_the_category_ring_is_gone_from_home_and_insights_keeps_it(client: TestClient) -> None:

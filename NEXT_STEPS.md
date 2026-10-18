@@ -1192,8 +1192,9 @@ Settings → About → Build matches the deploy) and sign in as **the staging te
 
 **What to look at, and what "right" is:**
 
-1. **The balance card.** Home opens with **Balance** (all time, every mode), a pill on the right naming the month
-   being viewed, and under it a tappable pill reading **Safe to spend** — the opening balance plus everything in,
+1. **The balance card.** Home opens with **Balance** (all time, every mode) — the largest figure on the screen, a
+   quarter larger than it was — with the month named only by the picker in the header above, and under it a
+   tappable pill reading **Safe to spend**: the opening balance plus everything in,
    minus everything out, minus the unpaid commitments of the month being viewed. Set Opening balance in
    Settings → Money to a number you can check by hand (e.g. 1000), add one commitment of RM 50 due this month, and
    the pill must drop by exactly 50 against the same pill before the commitment existed. Overspend on purpose and
@@ -1277,7 +1278,7 @@ back through `getBoundingClientRect` and `getComputedStyle`, in both themes. Fou
 
 | | budget set, under | budget set, over | budget 0 | `/finance/summary` 500 |
 | --- | --- | --- | --- | --- |
-| balance | `RM 1,400.00` | `−RM 50.00` | `RM 900.00` | `—` |
+| balance | `RM 1,400.00`, 50px | `−RM 50.00`, 50px | `RM 900.00`, 50px | `—`, 50px |
 | safe pill | `RM 945.10`, 44px | `−RM 325.00`, `#ba1a1a` / `#ff453a` | `RM 845.10` | `—` |
 | budget card | `65% of RM 2,000.00`, `RM 700.00 left to spend`, `13 days remaining`, bar 65% `#007aff` / `#0a84ff`, `progressbar now=65` | `100% of RM 1,000.00`, `RM 250.00 over budget` red, bar full red, `now=100` | absent | absent |
 | month cards | `+RM 1,200.00` green, `−RM 800.00` | same | same | same (`/summary` answered) |
@@ -1299,14 +1300,28 @@ back through `getBoundingClientRect` and `getComputedStyle`, in both themes. Fou
 - **Nothing removed is left behind**: `categoryCard`, `categoryList`, `itemsPill`, `totalSpent`, `netTotal`,
   `heroSplit` and `safeCard` are absent from the served DOM in every state above.
 
-**Three judgement calls, any of which is one line to change:**
-- **The hero carries the month pill you asked for, and the header already has one.** Both read `Oct 2026`, one line
-  apart, because the shared `paintMonth()` paints every `.js-month-label`. Say the word and it goes, or becomes the
-  item count this pass dropped as instructed.
+**Two judgement calls, either of which is one line to change:**
 - **Expenses are not red.** Only Income carries a token (green); the expense figure keeps the body colour with a
   leading minus, because colouring an ordinary month red would read as a warning. The budget card is where
   `--danger` is earned.
 - **A negative balance is not red either** — it grows a minus sign. Only Safe to spend turns red, as asked.
+
+**Follow-up tweaks, same day, same branch (one commit, UI only).** Three changes on the owner's instruction:
+1. **The hero has no month pill.** This section first recorded it as kept — one `Oct 2026` under another, because
+   the shared `paintMonth()` paints every `.js-month-label`. It is gone; the header picker is the only place the
+   month is named (elements carrying `.js-month-label` on a loaded page: 4 → 3, one per screen header). The
+   now-single-child `.hero-top` wrapper went with it.
+2. **The budget card gained one line**: `<p class="budget-note">Monthly limit, separate from your balance.</p>`, in
+   the secondary token (`--text-2`, 13px — dark `rgba(235, 235, 245, .6)`), inside the card, so it appears and
+   disappears with it. The card is 133px tall with it at 390px.
+3. **The balance is the largest number on Home**: `.hero-balance { font-size: 50px }` — 1.25x `.hero-amount`'s 40px,
+   same 800 weight and letter-spacing, applied only to Home (`Insights`' own `.hero-amount` total stays 40px). The
+   fit pass now starts at 50: `RM 1,400.00` stays at 50px at both 390px and 375px, and `RM 1,234,567.89` steps to
+   47px at 375px.
+
+Re-measured after the tweaks, 390px and 375px, both themes, same four states: nothing else moved — Safe to spend
+still 17px, the month cards 19px, the budget card unchanged apart from the extra line, no sideways overflow, and no
+console errors.
 
 **Not verified:** no iPhone and no real touch (no swipe, no keyboard, no zoom, no safe-area behaviour — the 44px
 floor, the target-based guards and the sheet's opacity rule are pinned in the page tests, not felt); **no
