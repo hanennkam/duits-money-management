@@ -238,55 +238,57 @@ Settings keeps the large title alone.
   (24 with the previous year for the comparison) and a per-month chart the data cannot express —
   it is hidden rather than faked. A week *is* real: it is stitched from the whole months it
   touches (one request per month, filtered to the seven days in the browser).
-- **Add** (a full-height sheet opened by the raised `+`) — the Stitch "New Transaction" sheet, three ways
-  in, all ending in the same row on the list. It fills one screen and does not scroll at either
-  target size: a bottom sheet — `position: fixed; left: 0; right: 0; bottom: 0` with
-  `overflow: hidden`, and one flex column
-  whose only flexible slot is the amount itself — so the slack on a tall phone collects around the
-  number, and collapses when a panel opens or the keys step aside.
-  `max-height` is forced to `none` on the id, because the base `.sheet` rule (88dvh + its own scroll)
-  is declared later in the file and would otherwise win the cascade.
-  The order top to bottom is: header → **Smart Entry card** → Expense/Income → amount → pills →
-  Details → chips → Scan Receipt → keypad.
+- **Add** (opened by the raised `+`) — the Stitch "New Transaction" sheet, three ways in, all ending in
+  the same row on the list. It opens on a **chooser** — *Manual* or *AI* — so nothing is typed before
+  the choice is made. A bottom sheet — `position: fixed; left: 0; right: 0; bottom: var(--kb)` with
+  `overflow: hidden` — and a flex column whose only flexible slot is the amount itself, so the slack on
+  a tall phone collects around the number. Its height is per view: the chooser hugs its two cards,
+  **Manual is `65dvh`**, and AI keeps the rest of the screen. `max-height` is clamped by `--kb` (the
+  keyboard), so a lifted sheet's top still clears `--sheet-top-gap`.
   - Header: `Cancel` / `New Transaction` / **Save** (blue, bold, right). Save stays disabled until the
     amount is greater than zero, and while a request is in flight it is disabled and reads `Saving…`, so
     a double tap cannot post twice.
-  - Directly under the header, **always visible**: the *Smart Entry* card — the sparkle icon and the
-    `Smart Entry` label, then the field and a fixed-width `Add` button (10px apart, the field flexing
-    with `min-width: 0`) inside one grey card with 14px of padding. It is not an expandable row:
-    nothing about the sheet opens, closes or reflows when it gets focus, and the keypad never steps
-    aside for it. It posts to `POST /transactions/text`, letting Claude fill whatever it can.
-    Under the chips, *Scan Receipt* (camera) is the one remaining full-width row (48px tall, 16px
-    radius, the theme's light grey, icon left, grey chevron right), and it opens the camera
-    roll/camera (`<input type="file" capture>`, no `getUserMedia`, so it works over plain HTTP)
-    and is the only thing that reveals the privacy hint, which appears under the row once tapped: the
-    photo is downscaled to 1600 px on the long edge and re-encoded as JPEG at quality 0.85 in the
-    browser before upload, which keeps uploads small, strips EXIF/GPS and turns HEIC into JPEG.
-  - *Expense / Income* sits directly under the header, then the big `RM 0.00`. The amount owns the
-    whole flexible band — `flex: 1`, text centred, `min-height: 1.4em` so it can never be squeezed
-    below its own line box — so on a tall phone the spare height becomes breathing room around the
-    number instead of an empty hole above the keys. It is the only flexible row: everything else is
-    `flex: none`, which is what keeps the order fixed.
-  - When height runs short the layout gives way in a fixed order, never by scrolling: first the amount
-    font (`clamp(40px, 8.8vh, 56px)`, so it only starts shrinking below ~636px of height and stops at
-    40px), then the key height (48px → 44px below 620px). As a last resort, below 660px, the content
-    column itself may scroll so nothing ever paints over the pinned keys. The two target sizes are
-    clear of all of it: at 375×667 and 390×844 the number is 56px, the keys 48/56px, gaps 12/8/12 and
-    nothing scrolls or clips in any state, because the collapsed Details and Smart Entry blocks are
-    0 tall exactly (a 0fr grid row with the spacing inside the clip — padding on the clipped box would
-    have kept 8px).
-  - One row of three small pills: the **date** (`Today` / `Yesterday` / `12 Oct`, an
+  - **AI** is the *Smart Entry* card — the sparkle icon and the `Smart Entry` label, then the field and
+    a fixed-width `Add` button (10px apart, the field flexing with `min-width: 0`) inside one grey card
+    with 14px of padding — with *Scan Receipt* under it. The card is a 44px control, not an expandable
+    row: nothing about the sheet opens, closes or reflows when it gets focus, and the keypad is not on
+    screen in this view. It posts to `POST /transactions/text`, letting Claude fill whatever it can.
+    *Scan Receipt* (camera) is the other row in the AI view (48px tall, 16px radius, the theme's light
+    grey, icon left, grey chevron right), and it opens the camera roll/camera
+    (`<input type="file" capture>`, no `getUserMedia`, so it works over plain HTTP) and is the only
+    thing that reveals the privacy hint, which appears under the row once tapped: the photo is
+    downscaled to 1600 px on the long edge and re-encoded as JPEG at quality 0.85 in the browser before
+    upload, which keeps uploads small, strips EXIF/GPS and turns HEIC into JPEG.
+  - **Manual is two steps.** Step 1 is *Expense / Income*, the amount and the three pills, with the
+    keypad as the sheet's last row. **Details** switches to step 2 — *Merchant*, *Note* and the category
+    chips — which rises in place (step 1 is hidden, not overlaid) and has no keypad, so the real
+    keyboard gets the room. Each step carries its own **Back**: step 2's returns to step 1, step 1's
+    returns to the chooser, and every visit starts on step 1.
+  - On step 1 the amount owns the whole flexible band — `flex: 1`, text centred — so the spare height
+    becomes breathing room around the number instead of an empty hole above the keys. It is the only
+    flexible row: everything else is `flex: none`, which is what keeps the order fixed.
+  - When the sheet's own box runs short the layout gives way in a fixed order, never by scrolling: the
+    amount font, then the key height (56/48px → 44px, the tap floor), then the vertical gaps. Manual is
+    `65dvh`, so its box is under the 640px container-query threshold at both target sizes — 433.55px at
+    375×667 (44px keys, a 44px amount) and 548.59px at 390×844 (the amount takes up the slack) — and
+    step 1 fits with nothing clipped at either.
+  - One row of three small pills, under the amount: the **date** (`Today` / `Yesterday` / `12 Oct`, an
     invisible native `<input type="date">` over the pill opens the real picker, and nothing past today is
     accepted), **Personal/Business** (tap to toggle) and **Details**.
-  - **Details** opens *Merchant* and *Note* inline between the pills and the chips. If the sheet ever
-    runs out of height, that is the one area allowed to scroll, so nothing else gets cut off.
-  - The category chips sit one row further down (8px under the pills), in one sideways-scrolling row,
-    in their own colours. Nothing is selected by default and tapping the selected chip again clears it.
-    **Personal/Business** starts on the mode of the tab behind the sheet.
-  - The **keypad** is pinned to the bottom: 24px-radius container, 3 columns, 48px keys (56px from
-    780px of screen height up, 44px in a short box). Focusing a text field does not move or hide it —
-    the real keyboard simply covers the lower half of the sheet, which is the whole point of the sheet
-    never resizing.
+  - Step 2 is *Merchant* and *Note* (both 44px with 16px text) over the category chips, in one
+    sideways-scrolling row, in their own colours. Nothing is selected by default and tapping the
+    selected chip again clears it. **Personal/Business** starts on the mode of the tab behind the sheet.
+  - The **keypad** is pinned to the bottom of step 1 only: 24px-radius container, 3 columns, 44px keys
+    (the container query wins over the taller-screen rule, because the sheet is `65dvh`). It is not on
+    screen in step 2, and it stays hidden while *Merchant* or *Note* holds the caret — derived from
+    state, never remembered.
+  - **Keyboard.** The sheet lifts for the real keyboard. iOS shrinks only the visual viewport when the
+    keyboard opens, so its height — `innerHeight - visualViewport.height - visualViewport.offsetTop` —
+    goes into one variable and one CSS variable, `--kb`, which sets each sheet's `bottom` (and every
+    overlay's bottom padding) and clamps `max-height`, so the sheet sits just above the keys with its top
+    still clear of `--sheet-top-gap`. Focusing a sheet field centres it about 300ms later, once the
+    keyboard has settled, by scrolling the sheet's own `scrollTop` — never the window, which stays
+    locked. The inset resets when the keyboard closes and when a sheet closes.
 
   **Save** posts the typed row to `POST /transactions`, so no Claude call is involved. The sheet
   closes on success with a toast, and the new row appears without a manual reload: Home (summary +
@@ -456,8 +458,8 @@ The Add sheet and the edit sheet are native-style bottom sheets, not full-screen
   out) drives the shrink order — amount font, then keypad keys, then the gaps — and 375×667 fits
   exactly with all three steps applied.
 - Everything else is unchanged: open/close on the Web Animations API, swipe-down-to-close (still
-  measured from the finger, so it behaves the same from the lower position), the fixed layout when the
-  keyboard opens, and the scrim tap.
+  measured from the finger, so it behaves the same from the lifted position), the scrim tap, and the
+  page behind staying locked while a sheet is open.
 
 ### iOS touch behaviour
 Safari's own gestures are kept out of the way, because each one breaks the sheet:
@@ -471,20 +473,24 @@ Safari's own gestures are kept out of the way, because each one breaks the sheet
   iOS 10 — so pinch-zoom still works, as it should).
 - **No double-tap zoom.** `touch-action: manipulation` on `html`, `body`, `button` (every tappable
   thing here is one, keys and chips and tabs included) and the date `<label>`. The Add sheet is
-  `touch-action: none` so a swipe anywhere on it is a dismiss rather than a pan, with the two scrollers
-  handed back their own gestures (`pan-x` on the chips, `pan-y` on the expanded Details row). The edit
+  `touch-action: none` so a swipe anywhere on it is a dismiss rather than a pan, with the chips scroller
+  handed back its own gesture (`pan-x`). The edit
   sheet still scrolls, so only its head and amounts are locked. Keys are `-webkit-tap-highlight-color`-free and `user-select: none`, while
   inputs keep selection so a typed line stays correctable.
 - **No sideways scroll.** `html, body { overflow-x: hidden; max-width: 100vw }`, `box-sizing:
   border-box` throughout, `min-width: 0` on the flexing field. The only things off the right edge are
   the category chips, which live in their own horizontal scroller by design.
-- **Keyboard.** The Add sheet does not react to the keyboard at all. It is one fixed bottom sheet
-  (anchored, `100dvh` minus its top gap) and the page behind it is scroll-locked while it is open,
-  so there is no `visualViewport` reading, no `--vvh`, no scroll-into-view and no layout change —
-  the keyboard simply covers the lower half, which is acceptable because the Smart Entry field is at
-  the top. `focus()` is always called with `{ preventScroll: true }` so Safari never pans the page to
-  "help", and nothing in the sheet can zoom: every focusable control is at least 16px and the viewport
-  meta pins `maximum-scale=1`.
+- **Keyboard.** A sheet lifts above the keyboard. iOS shrinks only the *visual* viewport when the
+  keyboard opens and leaves the layout viewport (and every `dvh`) alone, so the height is read as
+  `innerHeight - visualViewport.height - visualViewport.offsetTop`, kept in one variable, and written to
+  one CSS variable, `--kb`. That variable sets each sheet's `bottom` (and every overlay's bottom
+  padding) and clamps its `max-height`, so the sheet sits just above the keys with its top still clear of
+  `--sheet-top-gap`; the page behind stays scroll-locked (`unlockPageScroll()` still runs on close).
+  Focusing a sheet field — Merchant, Note, the commitment name/amount/day, the edit form's rows — centres
+  it about 300ms later, once the keyboard has settled, by moving the sheet's own `scrollTop`; the window
+  is never scrolled. `focus()` is still called with `{ preventScroll: true }` so Safari never pans the
+  page to "help", and nothing in the sheet can zoom: every focusable control is at least 16px and the
+  viewport meta pins `maximum-scale=1`.
 
 ### Swipe to dismiss
 
@@ -496,7 +502,7 @@ grabber with a thumb is the one gesture a phone should not require. One implemen
   even when the finger leaves it. A second finger never steals it (`isPrimary`).
 - **A drag only starts where nothing else has a gesture.** `DRAG_BLOCKERS` is one selector — buttons,
   links, labels, inputs, selects, textareas, `.key`, `.keypad`, `.chip-scroll`, `.cat-chip`,
-  `.add-rows` (Scan Receipt), `.smart-card` (Smart Entry), `.add-pills`, `.add-details`,
+  `.add-rows` (Scan Receipt), `.smart-card` (Smart Entry), `.add-pills`, `.add-fields`,
   `.sheet-actions`, the wheel — and `.no-drag` is the escape hatch for anything added later. The
   header, the amount, the grabber and empty space are all fair game.
 - **The detail sheet adds its info rows and section headings** (`.kv`, `.card-title`) to the allow list,
@@ -601,15 +607,13 @@ palette: `--ease-ios: cubic-bezier(0.32, 0.72, 0, 1)`, with `--dur-sheet: 350ms`
   keyframe, or the ease would compress the hold and start fading at once. A class would be wiped by
   the next render; all three save paths (keypad Save, Smart Entry, Scan Receipt) funnel through
   `afterAdd`, so all three flash.
-- **The Add sheet never changes layout.** It is one fixed page: `openAddSheet()` pins its height in
-  pixels to `window.innerHeight` at the moment it opens and locks the page (`html`/`body`
-  `overflow: hidden`, restored on close, `unlockPageScroll()` released before anything can throw), and
-  then **nothing measures or follows the keyboard** — no `visualViewport`, no `--vvh`, no scroll-into-
-  view helper, no hidden keypad, no `data-text-mode`. The Smart Entry input sits at the very top, so
-  the keyboard only ever covers the lower half of a sheet that does not resize;
-  `focusWithoutScroll()` calls `focus({ preventScroll: true })`, and the keypad stays exactly where it
-  is. The trade is deliberate: while the keyboard is up, the keys below it are unreachable until it is
-  dismissed.
+- **The Add sheet only changes layout for the keyboard.** Each of its three views sets its own height —
+  the chooser hugs its cards, Manual is `65dvh`, AI takes the rest of the screen — and the page behind is
+  locked while it is open (`html`/`body` `overflow: hidden`, restored on close, `unlockPageScroll()`
+  released before anything can throw). The keyboard is the one thing that moves it: `--kb` lifts the
+  sheet and clamps its height (see *iOS touch behaviour* above). Everything else is derived from state —
+  the keypad is hidden whenever it is not step 1 of Manual, `focusWithoutScroll()` calls
+  `focus({ preventScroll: true })`, and no element's position is pinned in pixels at open time.
 - **Reduced motion**: `prefers-reduced-motion: reduce` zeroes the `--move-*` distances (fades stay, at
   150ms) and sets `--press-scale: 1`, and the three "movement with no fade-only equivalent" pieces —
   the ring draw, the bar grows and the row stagger — are switched off entirely (the ring is pinned to
@@ -904,9 +908,9 @@ Safari. Both write the same rows.
   staying in step are not.
 - **No `Year` segment in Insights** — the API has no range query (see the Insights bullet above); it
   needs a `?from=&to=` endpoint before a year can be honest.
-- **The Add sheet does not scroll at any size, and that is not yet proven on short screens.** The old
-  sub-660px escape hatch was removed. A very short screen (SE-class, Details open) may therefore clip rather
-  than scroll. Only 375×667 and 390×844 were checked, and 375×667 fits with no slack.
+- **The Add sheet is measured at two sizes only, and not on an SE-class screen.** It does not scroll at
+  375×667 (a 433.55px sheet) or 390×844 (548.59px), where step 1 fits with no overflow, but a
+  320×568-class screen was not measured, so there it may clip rather than scroll. See `NEXT_STEPS.md`.
 - **Home's ring has three cosmetic ceilings**: a slice under ~2% draws as the minimum round dot; the
   legend folds the tail into a grey `Others`, so a month holding both a real `other` category and a
   grouped tail shows `Other` *and* `Others`; and a 6-figure month total fills the hole.

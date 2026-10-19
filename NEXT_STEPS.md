@@ -1447,3 +1447,54 @@ it leaves the helper line fully visible).
 - **Not done, found on the way:** the commitment name, Merchant and Note inputs are still 38px (`.add-field`), under
   the 44px touch floor. They share the class with the Manual sheet, which is not decided yet.
 - **Not verified:** iPhone, touch, keyboard, safe-area. Harness: DOM clicks in desktop Chromium.
+
+## 2026-10-19 — Manual in two steps, a 65% sheet, and the iOS keyboard (UI only)
+
+**Branch `feat/budget-balance-commitments`, UI only — `app/static/index.html` (the change),
+`tests/test_static.py` (the pins).** No `app/*.py`, no `schema.sql`, no `migrations/`, no `.env*`, no API, no
+SQL; nothing pushed, and nothing touched on staging or live. Three commits: the Manual split + `65dvh`, the
+keyboard lift + centring, and this docs pass.
+
+- **Manual is two steps.** Step 1 is *Expense/Income*, the amount and the three pills, with the keypad as the
+  sheet's last row; **Details** switches to step 2 — Merchant, Note and the category chips — which rises in
+  place (step 1 is hidden, not overlaid) and carries its own Back to step 1. Only one step is in the sheet at a
+  time, and every open starts on step 1. The keypad is derived from state, never remembered: it is on screen
+  only in step 1 and only while neither text field holds the caret.
+- **Manual is `65dvh`** (dvh, not vh). Because 65% of a phone is under the 640px container-query threshold, the
+  keypad keys are 44px and the amount font 44px at both target sizes, and step 1 fits with no scroll.
+- **Merchant and Note are 44px** (16px text). The commitment name/amount/day fields are still 38px
+  (`.add-field`) and the pills/Back are 34px: raising those breaks step 1 at 375×667 (measured: 29px of
+  overflow), so they keep the sizes the sheet was tuned with.
+- **The keyboard now moves the sheet.** `--kb` = `innerHeight - visualViewport.height -
+  visualViewport.offsetTop`, clamped to `0` below 80px. It sets each sheet's `bottom` (and every overlay's
+  bottom padding) and clamps `max-height`, so the sheet sits above the keys with its top still at
+  `--sheet-top-gap`. Focusing a sheet field (Merchant, Note, the commitment fields, the edit form's rows)
+  centres it about 300ms later by moving the sheet's own `scrollTop`; the window and the page behind stay
+  scroll-locked. `--kb` resets when the keyboard closes and when a sheet closes.
+
+**Measured, this session, in desktop Chromium with `fetch` stubbed** — a clone of `#addSheet` in a fixed-size
+wrapper, because the tool cannot change the real viewport; DOM clicks, not touches. Step 1 with `RM 12,345.67`
+in both themes, `scrollHeight == clientHeight` (no overflow):
+
+| size | sheet (`65dvh`) | step 1 | amount | keys |
+| --- | --- | --- | --- | --- |
+| 375×667 | **433.55px** | 152px, no overflow | 42.05px, 44px font | 44px |
+| 390×844 | **548.59px** | 267px, no overflow | 157.09px, 44px font (slack) | 44px |
+
+Step 2 at both sizes: 44px fields at 16px, `scrollHeight == clientHeight`, no overflow. Live page (a 939px
+desktop viewport): chooser **251px**, Manual **610.34px**, AI **845.09px**.
+
+**The keyboard was simulated, not real.** `visualViewport.height` was overridden to `innerHeight - 320` and a
+`resize` dispatched. Add sheet on step 2 (Merchant focused): `--kb: 320px`, the sheet's bottom 320px above the
+viewport bottom, height clamped to 525.09px, top at 93.91px (the gap). The txn edit sheet lifted the same way
+and its own `scrollTop` moved 0 → 31, so `#editMerchant` ended up centred (0.2px off) with `window.scrollY`
+still 0. The commitments sheet's bottom moved 927 → 607 (exactly 320px) and its name field stayed visible above
+the keys. Closing a sheet dropped `--kb` back to `0px`. `pytest`: `317 passed, 21 skipped`.
+
+**NOT verified — `belum disahkan pada peranti`.** (1) **No iPhone and no real iOS keyboard**: the height above
+is a faked `visualViewport`, so the real inset, the keyboard's own animation, whether `dvh` really stays put
+with the keyboard up, and whether the sheet lands where the keys actually are are all unmeasured. (2) **No real
+touch** — the step switch, the keypad hiding on focus and the drag-to-dismiss were DOM events. (3) **No
+safe-area insets** (`--sat`/`--sab` were 0, as on a desktop). (4) No staging, no live, no write anywhere. (5)
+`pytest` is the only automated check; the UI numbers come from a scratch harness that is not in the repo.
+
