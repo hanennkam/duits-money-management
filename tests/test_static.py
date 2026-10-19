@@ -450,27 +450,39 @@ def test_the_anchor_maths_is_integer_cents(client: TestClient) -> None:
     assert mirror_cents("") == 0 and mirror_cents("abc") == 0 and mirror_cents("1.234") == 0
 
 
-def test_the_breakdown_sheet_and_the_one_field_sheet_are_registered(client: TestClient) -> None:
-    """Two more sheets, same parts as the rest: scrim, grab, drag, outside-tap guard and a close.
+def test_the_breakdown_sheet_and_the_one_field_popup_are_registered(client: TestClient) -> None:
+    """The breakdown is a bottom sheet; the one-field ask is the app's one centred popup.
 
-    The breakdown is the balance area's destination, and the one-field sheet is shared by the anchor and
-    the budget offer. Both are overlays, so both must be registered rather than hand-rolled — and the
-    anchor's field must clear the 16px floor, or iOS zooms the page on focus.
+    Both are overlays with the same parts — a scrim, openOverlay/closeOverlay (close token and 500ms
+    fallback) and the target-based outside-tap guard. The breakdown keeps its grab and its swipe; the
+    popup has neither, so its registration must not attach the drag, and the anchor's field must still
+    clear the 16px floor or iOS zooms the page on focus.
     """
     page = client.get("/").text
-    for overlay, sheet in (("balanceOverlay", "balanceSheet"), ("moneyFieldOverlay", "moneyFieldSheet")):
-        start = page.index('id="' + overlay + '"')
-        block = page[start:start + 400]
-        assert '<div class="scrim" aria-hidden="true"></div>' in block, overlay
-        assert 'id="' + sheet + '"' in block, overlay
-        assert 'openOverlay($("' + overlay + '"))' in page, overlay
-        assert 'attachSheetDrag("' + sheet + '", "' + overlay + '"' in page, overlay
-        assert 'isOutsideTap(event, $("' + overlay + '"))' in page, overlay
+    # the breakdown, a sheet like the others
+    start = page.index('id="balanceOverlay"')
+    block = page[start:start + 400]
+    assert '<div class="scrim" aria-hidden="true"></div>' in block
+    assert 'id="balanceSheet"' in block
+    assert 'openOverlay($("balanceOverlay"))' in page
+    assert 'attachSheetDrag("balanceSheet", "balanceOverlay"' in page
+    assert 'isOutsideTap(event, $("balanceOverlay"))' in page
+    # the one-field popup, centred, with no grab and no swipe of its own
+    start = page.index('id="moneyFieldOverlay"')
+    block = page[start:start + 900]
+    assert '<div class="overlay is-centre" id="moneyFieldOverlay" aria-hidden="true">' in page
+    assert '<div class="scrim" aria-hidden="true"></div>' in block
+    assert 'id="moneyFieldSheet"' in block
+    assert 'openOverlay($("moneyFieldOverlay"))' in page
+    assert 'isOutsideTap(event, $("moneyFieldOverlay"))' in page
+    assert 'attachSheetDrag("moneyFieldSheet"' not in page, "the centred popup has no swipe to dismiss"
+    assert 'id="moneyFieldGrab"' not in page, "a grab handle would promise a swipe that is not there"
+    assert "No attachSheetDrag: the popup is centred" in page
     # The balance area is the breakdown's way in, and the not-set button is the anchor's.
     assert '$("balanceTap").addEventListener("click", openBalanceSheet);' in page
     assert '$("setBalanceBtn").addEventListener("click", function () { openMoneyField("balance"); });' in page
     assert '$("setBudgetBtn").addEventListener("click", function () { openMoneyField("budget"); });' in page
-    # One field, one save: the same sheet, told which setting it is setting.
+    # One field, one save: the same popup, told which setting it is setting.
     assert '$("moneyFieldSaveBtn").addEventListener("click", function () { saveMoneyField(this); });' in page
     assert "var moneyFieldTarget = " in page
     assert "body.monthly_budget = typed;" in page
@@ -489,6 +501,113 @@ def test_the_breakdown_sheet_and_the_one_field_sheet_are_registered(client: Test
     assert 'id="balanceMoneyBtn"' in page and "Settings &middot; Money<" in page
 
 
+def test_the_pencil_closes_the_breakdown_before_the_popup_opens(client: TestClient) -> None:
+    """The pencil hands over to the popup the way the bills row hands over to the commitments sheet.
+
+    Called bare, `openMoneyField` while the breakdown was still up put two overlays on the screen at
+    once: the popup, with the sheet it had replaced still behind it. Both handovers go through
+    `closeOverlay`'s callback now, so the next overlay is built only once the last one is gone.
+    """
+    page = client.get("/").text
+    handler = page[page.index("function handleBalanceSheetClick(event)"):page.index("function openMoneyField(")]
+    assert 'closeOverlay($("balanceOverlay"), function () { openMoneyField("balance"); });' in handler
+    # the bare open, which is the bug itself, must not be back
+    assert 'if (hit.id === "editBalanceBtn") { openMoneyField("balance"); return; }' not in page
+    # the same handover the bills row already used, so the two cannot drift apart
+    assert 'closeOverlay($("balanceOverlay"), function () { openCommitSheet(); });' in page
+    # and the third part of that sheet closes first too
+    assert 'closeOverlay($("balanceOverlay"), function () { showMoneySettings(); });' in handler
+    # Every opener either sits on no overlay (the Home card buttons) or closes its own first: the pencil
+    # handover above, and the What's New screen's callback, which already did.
+    assert page.count('openMoneyField("balance")') == 3
+    assert page.count('openMoneyField("budget")') == 2
+    whatsnew = page[page.index("function runWhatsNewAction()"):page.index("function maybeShowWhatsNew()")]
+    assert 'closeOverlay($("whatsNewOverlay"), function () {' in whatsnew
+    assert 'openMoneyField("balance");' in whatsnew and 'openMoneyField("budget");' in whatsnew
+
+
+def test_the_one_field_popup_is_centred_and_lifts_its_field_above_the_keys(client: TestClient) -> None:
+    """A popup, not a bottom sheet: centred, no grab, and the focused field centred in the panel.
+
+    Centring is one class on the overlay — `.overlay` is already a bottom-anchored flex column, so
+    `align-items: center` is the whole layout change — and the panel is capped narrower than the other
+    sheets. `--kb` already sits in the overlay's bottom padding and in `.sheet`'s max-height, which is
+    what keeps a centred panel above the keyboard and clear of the top gap; a centred panel must not
+    undo that, so the class must not set an inset of its own.
+    """
+    page = client.get("/").text
+    assert ".overlay.is-centre { align-items: center; }" in page
+    assert ".overlay.is-centre > .sheet { width: min(100%, 420px); }" in page
+    # the centred rule is one class, and it comes before the money-field's own styles are used
+    centre = page[page.index(".overlay.is-centre {"):page.index("}", page.index(".overlay.is-centre > .sheet"))]
+    assert "inset" not in centre and "opacity" not in centre and "transform" not in centre
+    # the panel keeps the sheet's own box — the keyboard clamp and the safe-area insets live on the
+    # shared rules, which the centred popup must inherit rather than override
+    assert ".sheet .money-field-input { font-size: 16px; }" in page
+    assert "max-height: min(88dvh, calc(100dvh - max(var(--sat), 12px) - 12px - var(--sab) - var(--kb)));" in page
+    assert "padding: max(var(--sat), 12px) 12px calc(12px + var(--sab) + var(--kb));" in page
+    # the field is focused without scrolling the window, then centred inside the panel once the
+    # keyboard has settled — the same two calls the other sheets use
+    opener = page[page.index("function openMoneyField("):page.index("function closeMoneyField(")]
+    assert 'focusWithoutScroll($("moneyFieldInput"));' in opener
+    assert "centreFocusedFieldSoon();" in opener
+    assert "function centreFocusedFieldSoon()" in page
+    assert "function focusWithoutScroll(field)" in page
+    # no swipe: the panel has no grab element and no drag registration of its own
+    assert 'id="moneyFieldGrab"' not in page
+    assert 'attachSheetDrag("moneyFieldSheet"' not in page
+    # the three ways out
+    assert '$("moneyFieldCancelBtn").addEventListener("click", closeMoneyField);' in page
+    assert '$("moneyFieldSaveBtn").addEventListener("click", function () { saveMoneyField(this); });' in page
+    assert 'if (isOutsideTap(event, $("moneyFieldOverlay"))) closeMoneyField();' in page
+
+
+def test_the_anchor_asks_one_question_with_one_preview_and_one_help_line(client: TestClient) -> None:
+    """The anchor's copy: one question, one field, one live preview, one sentence of help. Nothing else.
+
+    The old fallback ("Type what you have now…") was a second message in the same slot as the preview
+    and said nothing the question above it had not said. The line is now the preview alone: it appears
+    with a readable figure and is absent otherwise. The help sentence is static, set when the popup
+    opens, and the budget gets its own.
+    """
+    page = client.get("/").text
+    money = page[page.index('<div class="overlay is-centre" id="moneyFieldOverlay"'):
+                 page.index('<div class="overlay" id="addOverlay"')]
+    # one question, one field, and exactly two lines under it: the preview and the help
+    assert money.count("<label") == 1 and money.count("<input") == 1
+    assert money.count("<p ") == 2, "the preview and the help sentence, and no third line"
+    assert 'id="moneyFieldNote"' in money and 'id="moneyFieldHelp"' in money
+    assert "Type what you have now" not in page
+    # the preview is the only thing that changes as you type, and it is the figure that will be saved
+    note = page[page.index("function paintMoneyFieldNote()"):page.index("async function saveMoneyField(")]
+    assert 'note.textContent = "Starting balance will be " +' in note
+    assert "signedMoney(openingFor(typed, summary.total_income, summary.total_expense));" in note
+    # the slot says one of two things: the preview, or nothing. No third message, and no fallback text.
+    assert note.count("note.textContent") == 3, "two blanks and the preview, nothing else"
+    assert "Type what you have now" not in note
+    # an empty line takes no space, so the help sentence sits under the field, not under a gap
+    assert ".money-field-note:empty { display: none; }" in page
+    # the help line is per-target, and the anchor's says where the figure comes from
+    assert '$("moneyFieldHelp").textContent = budget' in page
+    assert ': "Check your bank app and enter the same amount.";' in page
+    # the question itself, and the field's contract: text + decimal keyboard so iOS shows a keypad,
+    # 16px so iOS cannot zoom, comma tolerant because parseMoneyInput is
+    assert ">How much money do you have right now?<" in page
+    assert 'inputmode="decimal"' in money and "autocomplete=\"off\"" in money
+    assert "function parseMoneyInput(text)" in page
+    # negative is allowed here and is not a special case in the save: only an unreadable figure stops it
+    saver = page[page.index("async function saveMoneyField("):page.index("function paintMoneySettings(")]
+    assert 'if (typed === null || !isFinite(typed)) {' in saver
+    assert "toast(\"Enter an amount like 1250.00.\", \"warn\");" in saver
+    budget_branch = saver[saver.index('if (moneyFieldTarget === "budget")'):
+                          saver.index("var summary = financeSummary || {};")]
+    assert 'if (typed <= 0) { toast("Enter an amount above zero.", "warn"); return; }' in budget_branch
+    anchor_branch = saver[saver.index("var summary = financeSummary || {};"):saver.index("button.disabled = true;")]
+    assert "typed <= 0" not in anchor_branch, "a balance may be zero or below; only the budget is bounded"
+    # zero is saved as computed, never nudged: the API's zero is also how the card says "not set yet"
+    assert "body.opening_balance = openingFor(typed, summary.total_income, summary.total_expense);" in anchor_branch
+
+
 def test_the_calculation_sheet_is_the_short_list_and_a_pencil(client: TestClient) -> None:
     """Six rows, one line about safe to spend, and a named edit control; the long note is gone.
 
@@ -496,7 +615,7 @@ def test_the_calculation_sheet_is_the_short_list_and_a_pencil(client: TestClient
     but it now lives in the balance card's own label, not in a paragraph under the rows.
     """
     page = client.get("/").text
-    sheet = page[page.index('<div class="overlay" id="balanceOverlay"'):page.index('<div class="overlay" id="moneyFieldOverlay"')]
+    sheet = page[page.index('<div class="overlay" id="balanceOverlay"'):page.index('<div class="overlay is-centre" id="moneyFieldOverlay"')]
     # the markup carries no prose: the rows are rendered from the reply
     assert "These totals include every month" not in page
     assert "(all months, all modes)" not in page
@@ -517,9 +636,10 @@ def test_the_calculation_sheet_is_the_short_list_and_a_pencil(client: TestClient
     assert "min-height: 44px;" in edit_css, "44px is the iOS target floor"
     assert "gap: 6px;" in edit_css
     assert 'data-bills="1"' in page and 'id="balanceBillsBtn"' in page
-    # the pencil opens the one-field sheet, and Settings · Money is still the text link
+    # the pencil opens the one-field popup — once the breakdown has closed behind it — and
+    # Settings · Money is still the text link
     assert 'event.target.closest("[data-bills], #editBalanceBtn, #balanceMoneyBtn")' in page
-    assert 'if (hit.id === "editBalanceBtn") { openMoneyField("balance"); return; }' in page
+    assert 'closeOverlay($("balanceOverlay"), function () { openMoneyField("balance"); });' in page
 
 
 def test_the_bills_row_says_it_leads_somewhere(client: TestClient) -> None:
@@ -715,15 +835,18 @@ def test_the_budget_card_only_appears_with_a_budget_in_the_current_month(client:
     assert "function daysLeftLabel()" in page
     assert "daysInMonth(state.month) - Number(localIso(new Date()).slice(8, 10))" in page
     assert '" day remaining" : " days remaining"' in page
-    # The budget cards no longer carry the "separate from your balance" line: it moved into the budget
-    # sheet, the one place a limit is typed, as the small note under its question.
+    # The budget cards no longer carry the "separate from your balance" line: it moved into the one-field
+    # popup, the one place a limit is typed, as the static help line under its question. The preview line
+    # below that is the anchor's, so a budget leaves it empty.
     budget_cards = page[page.index('id="budgetCard"'):page.index('<div class="section-head">')]
     assert "Monthly limit, separate from your balance." not in budget_cards
     assert page.count("Monthly limit, separate from your balance.") == 1
     assert 'budgetNote' not in page and ".budget-note" not in page
-    sheet_note = page[page.index("function paintMoneyFieldNote()"):page.index("function paintMoneyFieldNote()") + 400]
-    assert 'if (moneyFieldTarget === "budget") {' in sheet_note
-    assert 'note.textContent = "Monthly limit, separate from your balance.";' in sheet_note
+    assert '$("moneyFieldHelp").textContent = budget' in page
+    assert '? "Monthly limit, separate from your balance."' in page
+    assert ': "Check your bank app and enter the same amount.";' in page
+    sheet_note = page[page.index("function paintMoneyFieldNote()"):page.index("function paintMoneyFieldNote()") + 600]
+    assert 'if (moneyFieldTarget === "budget") { note.textContent = ""; return; }' in sheet_note
 
 
 def test_the_budget_bar_steps_its_colour_at_half_and_at_four_fifths(client: TestClient) -> None:

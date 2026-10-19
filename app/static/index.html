@@ -485,12 +485,22 @@
     font: inherit; font-size: 15px; font-weight: 500;
   }
   .balance-edit svg { width: 20px; height: 20px; }
+  /* The one-field popup: the same overlay parts (scrim, close token, 500ms fallback) with a small panel
+     centred in the box the safe areas and the keyboard leave. --kb is already in the overlay's bottom
+     padding and in .sheet's own max-height, which is what keeps a centred panel above the keys and below
+     the top inset; this class adds no inset of its own. It has no grab and no swipe: the scrim, Cancel
+     and Save are its ways out. */
+  .overlay.is-centre { align-items: center; }
+  .overlay.is-centre > .sheet { width: min(100%, 420px); }
   /* The one field the anchor asks for, and the preview line that answers it before anything is saved.
      The 16px is said here and not left to inherit: .field carries `font: inherit` and is declared later
      in the sheet, so a bare .money-field-input rule would lose to it (it computed 17px). */
   .money-field-q { display: block; margin: 6px 0 8px; font-size: 16px; font-weight: 500; }
   .sheet .money-field-input { font-size: 16px; }
   .money-field-note { margin: 10px 0 0; font-size: 13px; line-height: 1.45; color: var(--text-2); }
+  /* Nothing typed yet (or a budget, which has no preview): the line is absent, not a blank gap. */
+  .money-field-note:empty { display: none; }
+  .money-field-help { margin: 10px 0 0; font-size: 13px; line-height: 1.45; color: var(--muted); }
 
   /* ---------- what's new ---------- */
   /* Three screens, one at a time. The sheet is a sheet like any other: it is as tall as its content and
@@ -1853,12 +1863,13 @@
     </div>
   </div>
 
-  <!-- One field, one save. The opening-balance anchor and the monthly budget share this sheet because
-       they are the same ask; which one is being set decides the title, the question and the body. -->
-  <div class="overlay" id="moneyFieldOverlay" aria-hidden="true">
+  <!-- One field, one save, as a popup in the middle of the screen. The opening-balance anchor and the
+       monthly budget share it because they are the same ask; which one is being set decides the title,
+       the question and the help line. It is not a bottom sheet: no grab and no swipe, so the scrim,
+       Cancel and Save are its three ways out. -->
+  <div class="overlay is-centre" id="moneyFieldOverlay" aria-hidden="true">
     <div class="scrim" aria-hidden="true"></div>
     <div class="sheet" id="moneyFieldSheet">
-      <div class="sheet-grab" id="moneyFieldGrab" aria-hidden="true"><span></span></div>
       <div class="sheet-head has-done">
         <button class="btn-ghost sheet-cancel" id="moneyFieldCancelBtn" type="button">Cancel</button>
         <h2 class="sheet-title" id="moneyFieldTitle">Set your balance</h2>
@@ -1868,6 +1879,7 @@
       <input class="field money-field-input" id="moneyFieldInput" type="text" inputmode="decimal"
              placeholder="RM 0.00" autocomplete="off" autocapitalize="none" spellcheck="false">
       <p class="money-field-note" id="moneyFieldNote"></p>
+      <p class="money-field-help" id="moneyFieldHelp">Check your bank app and enter the same amount.</p>
     </div>
   </div>
 
@@ -3226,12 +3238,19 @@
       ? event.target.closest("[data-bills], #editBalanceBtn, #balanceMoneyBtn") : null;
     if (!hit) return;
     if (hit.dataset.bills) { openBillsFromBalance(); return; }
-    if (hit.id === "editBalanceBtn") { openMoneyField("balance"); return; }
+    // The pencil opens the one-field popup, and the breakdown has to be gone first: two overlays at
+    // once left the popup sitting on a sheet it had already replaced. The close hands over in its
+    // callback, the way the bills row above does, so the popup opens only once this sheet has gone —
+    // and Cancel on it comes back to a clean Home, not to the breakdown it was opened from.
+    if (hit.id === "editBalanceBtn") {
+      closeOverlay($("balanceOverlay"), function () { openMoneyField("balance"); });
+      return;
+    }
     closeOverlay($("balanceOverlay"), function () { showMoneySettings(); });
   }
 
-  /* The one-field sheet: the opening-balance anchor or the monthly budget, whichever the opener asked
-     for. They are the same ask — one figure, one save — so they are one sheet with one target. */
+  /* The one-field popup: the opening-balance anchor or the monthly budget, whichever the opener asked
+     for. They are the same ask — one figure, one save — so they are one popup with one target. */
 
   var moneyFieldTarget = "balance";
 
@@ -3242,31 +3261,37 @@
     $("moneyFieldLabel").textContent = budget
       ? "How much do you want to limit each month to?"
       : "How much money do you have right now?";
+    // One line under the field for each ask: the budget says what it is, the anchor says where the
+    // figure comes from. It is set here, not painted per keystroke — the anchor's preview, painted
+    // under the field from what is typed, is the only thing that changes as the field is edited.
+    $("moneyFieldHelp").textContent = budget
+      ? "Monthly limit, separate from your balance."
+      : "Check your bank app and enter the same amount.";
     $("moneyFieldInput").value = "";
     $("moneyFieldInput").placeholder = "RM 0.00";
     paintMoneyFieldNote();
     $("moneyFieldSheet").scrollTop = 0;
     openOverlay($("moneyFieldOverlay"));
+    // The popup has one field, so it takes focus at once: the keyboard then lifts the panel (--kb),
+    // and once it has settled the field is centred inside the panel's own box, never the window.
+    focusWithoutScroll($("moneyFieldInput"));
+    centreFocusedFieldSoon();
   }
 
-  function closeMoneyField(fromOffset) {
-    closeOverlay($("moneyFieldOverlay"), null, fromOffset);
+  function closeMoneyField() {
+    closeOverlay($("moneyFieldOverlay"));
   }
 
-  // What will be stored, before it is stored. The typed figure is what the owner has right now; what gets
-  // saved is the opening balance that produces it, because that is what the API derives the balance from.
-  // The preview runs the same integer-cent conversion the save does, so the two cannot disagree.
+  // The one line under the field: what will be stored, before it is stored. The typed figure is what the
+  // owner has right now; what gets saved is the opening balance that produces it, because that is what
+  // the API derives the balance from. The preview runs the same integer-cent conversion the save does,
+  // so the two cannot disagree. A budget has no preview: its line under the field is the help sentence,
+  // and an unreadable figure shows nothing rather than a second message.
   function paintMoneyFieldNote() {
     var note = $("moneyFieldNote");
-    if (moneyFieldTarget === "budget") {
-      note.textContent = "Monthly limit, separate from your balance.";
-      return;
-    }
+    if (moneyFieldTarget === "budget") { note.textContent = ""; return; }
     var typed = parseMoneyInput($("moneyFieldInput").value);
-    if (typed === null || !isFinite(typed)) {
-      note.textContent = "Type what you have now, and Duits keeps track from there.";
-      return;
-    }
+    if (typed === null || !isFinite(typed)) { note.textContent = ""; return; }
     var summary = financeSummary || {};
     note.textContent = "Starting balance will be " +
       signedMoney(openingFor(typed, summary.total_income, summary.total_expense));
@@ -5514,7 +5539,7 @@
     $("moneyFieldOverlay").addEventListener("click", function (event) {
       if (isOutsideTap(event, $("moneyFieldOverlay"))) closeMoneyField();
     });
-    attachSheetDrag("moneyFieldSheet", "moneyFieldOverlay", closeMoneyField, false);
+    // No attachSheetDrag: the popup is centred and has no swipe. The scrim, Cancel and Save close it.
     $("commitmentsBtn").addEventListener("click", openCommitSheet);
     // The way back into the notes. It opens the card even when the stored version says the user has
     // read it — this is a deliberate request, and it must not write the version on the way in.
