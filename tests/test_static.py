@@ -351,16 +351,19 @@ def test_home_is_a_balance_hero_with_a_safe_to_spend_pill(client: TestClient) ->
     assert ".hero-amount {\n    font-size: 40px; font-weight: 800" in page
     assert ".hero-balance { display: block; font-size: 40px; white-space: nowrap; }" in page
     assert 'fitText($("balanceAmount"), 40, 22);' in page
-    # The word "Balance" is now a wallet icon plus the visible small "all modes"; the icon carries the
-    # accessible name, and the button's own name is repainted with the figure it shows.
-    assert 'id="balanceTap" type="button" aria-label="Balance, all modes. How this is calculated"' in page
-    assert 'class="hero-balance-mark" role="img" aria-label="Balance, all modes"' in page
-    assert '<span class="hero-balance-unit">all modes</span>' in page
-    assert ">all modes<" in page, "the visible label must stay, not only the aria-label"
+    # The word "Balance" is the visible label now, with the scope of the figure on the small line under
+    # it; the icon carries the accessible name, and the button's own name is repainted with the figure
+    # it shows.
+    assert 'id="balanceTap" type="button" aria-label="Balance, Personal and Business. How this is calculated"' in page
+    assert 'class="hero-balance-mark" role="img" aria-label="Balance"' in page
+    assert '<span class="hero-balance-label">Balance</span>' in page
+    assert '<span class="hero-balance-unit">Personal + Business</span>' in page
+    assert ">Balance<" in page, "the visible label must stay, not only the aria-label"
+    assert ">Personal + Business<" in page, "the scope of the figure is visible too"
     assert 'class="hero-balance-icon"' in page
     tap = page[page.index(".hero-tap {"):page.index("}", page.index(".hero-tap {"))]
     assert "min-height: 44px" in tap
-    assert '$("balanceTap").setAttribute("aria-label", "Balance, all modes, " + signedMoney(balance)' in page
+    assert '$("balanceTap").setAttribute("aria-label", "Balance, Personal and Business, " + signedMoney(balance)' in page
     # ...and the pill is inside it, so it is a span, not a second target
     assert '<span class="safe-pill" id="safePill">' in page
     assert 'id="safeDetailsBtn"' not in page
@@ -487,10 +490,10 @@ def test_the_breakdown_sheet_and_the_one_field_sheet_are_registered(client: Test
 
 
 def test_the_calculation_sheet_is_the_short_list_and_a_pencil(client: TestClient) -> None:
-    """Six rows, one line about the budget, and a pencil for the anchor; the long note is gone.
+    """Six rows, one line about safe to spend, and a pencil for the anchor; the long note is gone.
 
     The sheet says what the balance is made of. The all-months and all-modes arithmetic is still true,
-    but it now lives in the balance card's own label ("all modes"), not in a paragraph under the rows.
+    but it now lives in the balance card's own label, not in a paragraph under the rows.
     """
     page = client.get("/").text
     sheet = page[page.index('<div class="overlay" id="balanceOverlay"'):page.index('<div class="overlay" id="moneyFieldOverlay"')]
@@ -498,12 +501,11 @@ def test_the_calculation_sheet_is_the_short_list_and_a_pencil(client: TestClient
     assert "These totals include every month" not in page
     assert "(all months, all modes)" not in page
     assert "differ from the monthly cards on Home" not in page
-    # The one sentence the sheet keeps is the budget's, and it must be the CURRENT rule:
-    # remaining_budget = budget - (month_expense - month_commitment_expense) (app/finance.py). The
-    # old wording said the budget used "this mode's spending + unpaid bills", which is the formula
-    # that was thrown out with 0004 — and it was not even in the app's language.
-    assert ('<p class="balance-note">Budget counts spending in this mode for the month, '
-            'less the bills you have already paid.</p>') in page
+    # The one sentence the sheet keeps is about Safe to spend, and it must be the CURRENT rule:
+    # safe_to_spend = current_balance - unpaid (app/finance.py). The old wording described the budget
+    # bar instead, which is a different figure and one this sheet does not show.
+    assert ("'<p class=\"balance-note\">Safe to spend = your balance minus bills you haven\\'t paid yet. ' +\n"
+            '      "Your monthly budget is separate.</p>"') in page
     assert "guna perbelanjaan" not in page, "the stale note is gone"
     # the pencil is the anchor's control: an icon-only button with a name and a 44px target
     assert ('<button class="balance-edit" id="editBalanceBtn" type="button" aria-label="Edit my balance">'
@@ -516,6 +518,72 @@ def test_the_calculation_sheet_is_the_short_list_and_a_pencil(client: TestClient
     # the pencil opens the one-field sheet, and Settings · Money is still the text link
     assert 'event.target.closest("[data-bills], #editBalanceBtn, #balanceMoneyBtn")' in page
     assert 'if (hit.id === "editBalanceBtn") { openMoneyField("balance"); return; }' in page
+
+
+def test_the_bills_row_says_it_leads_somewhere(client: TestClient) -> None:
+    """The one row of the breakdown that opens another sheet wears the accent and says "View bills".
+
+    Every other row is a figure. This one is a door, and a door that looks like a figure is a row the
+    user reads past — so the label, the "View bills" and the chevron all wear the accent.
+    """
+    page = client.get("/").text
+    assert '<span class="balance-view">View bills</span>' in page
+    # The label and the chevron are accent, and only the bills row is.
+    assert ".balance-row.is-tap .k { color: var(--accent); }" in page
+    assert ".balance-row.is-tap .balance-chev { color: var(--accent); }" in page
+    assert ".balance-view { color: var(--accent); font-size: 13px; font-weight: 500; }" in page
+    # The plain rows keep the body colour, so only the door is blue.
+    assert ".balance-row .k { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; color: var(--text-2); }" in page
+    # The row is still the one that opens the commitments sheet.
+    assert 'id="balanceBillsBtn"' in page and 'data-bills="1"' in page
+
+
+def test_every_settings_row_carries_an_icon_chip(client: TestClient) -> None:
+    """Each row in Settings wears the same icon chip the Commitments and Account rows already wear.
+
+    The chip is a 30px rounded square in the accent, with an 18px stroked icon inside it, so the rows
+    read as one list instead of a mix of rows with and without a mark.
+    """
+    page = client.get("/").text
+    settings = page[page.index('<section class="screen" id="screen-settings"'):page.index("<nav class=\"tabbar\">")]
+    # The rows that carry a chip, and the label each one wears. The chip sits before the label, so the
+    # row is the markup from the chip to the end of that row.
+    for label in ("Opening balance", "Monthly budget", "Currency", "App", "Build",
+                  "Date format", "What&rsquo;s new"):
+        at = settings.index(">" + label + "<")
+        before = settings[:at]
+        chip = before.rfind("setting-icon")
+        row = settings[chip:at + len(label) + 2] if chip >= 0 else ""
+        assert "setting-icon" in row, f"{label} has no icon chip"
+        assert row.count("<svg") >= 1, f"{label}'s chip has no icon"
+    # The chip is a 30px rounded square in the accent, with an 18px stroked icon inside it.
+    assert 'class="setting-icon" style="background:var(--accent-soft);color:var(--accent)"' in page
+    assert ".setting-icon svg { width: 18px; height: 18px; }" in page
+    # The theme control gets one too, and it is the row that is not a .setting-row.
+    assert "setting-card-icon" in page
+    assert ".list-card.setting-card-icon { display: flex; align-items: center; gap: 12px; padding: 10px 12px; }" in page
+    # A chip takes room from the text beside it, so the field takes a smaller share and the label
+    # keeps the width it needs ("Opening balance" was cut to an ellipsis without this).
+    assert ".setting-row.has-icon .setting-field { width: 38%; }" in page
+    # The label is never the part that is cut: the long build stamp ellipsises in its own value type
+    # instead, so the "Build" label is not left reading "B...".
+    label = page[page.index("\n  .setting-label {"):page.index("}", page.index("\n  .setting-label {"))]
+    assert "flex: none;" in label
+    value = page[page.index("\n  .setting-value {"):page.index("}", page.index("\n  .setting-value {"))]
+    assert "font-size: 17px" in value and "text-overflow: ellipsis" in value
+
+
+def test_the_expenses_figure_wears_the_full_red(client: TestClient) -> None:
+    """Income and expenses are the two halves of the month, so they wear the two colours.
+
+    Expenses use the full --danger, the same red the app uses for a real problem, and not a pale
+    variant: the figure is the point of the card, and a half-strength red reads as a hint.
+    """
+    page = client.get("/").text
+    assert ".stat-amount.in { color: var(--green); }" in page
+    assert ".stat-amount.out { color: var(--danger); }" in page
+    assert '<span class="stat-amount out" id="expenseTotal">' in page
+    assert '<span class="stat-amount in" id="incomeTotal">' in page
 
 
 def test_the_money_icons_are_named_by_their_labels_or_by_aria_label(client: TestClient) -> None:
@@ -851,7 +919,9 @@ def test_settings_money_sits_above_account(client: TestClient) -> None:
     for field in ("openingBalance", "monthlyBudget"):
         tag = opening_tag(page, 'id="' + field + '"')
         assert 'type="text"' in tag and 'inputmode="decimal"' in tag, field
-    field = page[page.index(".setting-field {"):page.index("}", page.index(".setting-field {"))]
+    # The base rule, not the narrower one the icon rows add: the 16px floor is what stops iOS
+    # zooming the page when the field takes focus.
+    field = page[page.index("\n  .setting-field {"):page.index("}", page.index("\n  .setting-field {"))]
     assert "font-size: 16px" in field, "below 16px iOS zooms the page on focus"
     # saves on change, one field at a time, then re-reads the card
     assert 'addEventListener("change", function () { saveMoneySetting("opening"); })' in page
@@ -1467,3 +1537,21 @@ def test_the_safe_to_spend_info_mark_asks_the_card_it_sits_on(client: TestClient
     # No handler of its own, and no second way into the sheet.
     assert "safe-pill-info" not in page[page.index("function wire() {"):]
     assert '$("balanceTap").addEventListener("click", openBalanceSheet);' in page
+
+
+def test_the_balance_card_ends_by_saying_what_a_tap_does(client: TestClient) -> None:
+    """The foot of the card says "How this is calculated", in the accent, with a chevron.
+
+    The mark beside "Safe to spend" says the same thing to a reader who knows the convention; the
+    words say it to everyone, so the card's one action is visible and not only in its aria-label.
+    """
+    page = client.get("/").text
+    tap = page[page.index('<button class="hero-tap" id="balanceTap"'):page.index("</button>", page.index('id="balanceTap"'))]
+    assert '<span class="hero-how">How this is calculated<svg class="hero-how-chev"' in tap
+    # It is inside the card's own button, after the safe pill, so it opens the same sheet and adds no
+    # second control.
+    assert tap.index('id="safePill"') < tap.index("hero-how")
+    assert "hero-how" not in page[page.index("function wire() {"):]
+    # The link's own recipe: 13px in the accent, with the bills row's 14px chevron.
+    assert ".hero-how {" in page and "color: var(--accent);" in page[page.index(".hero-how {"):page.index("}", page.index(".hero-how {"))]
+    assert ".hero-how-chev { width: 14px; height: 14px; flex: none; }" in page

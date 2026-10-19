@@ -513,19 +513,24 @@ One bottom sheet, shown once per version, for a user who has just met a big chan
   `tests/test_static.py` holds the copy to the code, so a formula that changes means the copy changes
   with it.
 
-### The (i) on the balance card
+### The (i) and the foot line on the balance card
 
-A small **i** mark sits beside the *Safe to spend* label on the balance card. It says the card opens
-the sheet that spells the figure out — *How this is calculated*.
+A small **i** mark sits beside the *Safe to spend* label on the balance card, and the card's foot
+carries the visible line *How this is calculated* with a chevron. Both say the card opens the sheet
+that spells the figure out.
 
-- It is **decoration inside the card's own button**, so it carries no name of its own (`aria-hidden`)
-  and has no handler: the whole balance card is one `<button>` that opens that sheet, and a button
-  inside a button is invalid HTML. A second control for the same sheet would also be a tap target the
-  app does not otherwise have.
-- The circle is filled with `--text-2` and the letter with `--card`, so it reads in both themes; a
-  pale letter on a faint circle would vanish on the light card.
-- The button's own accessible name already says "How this is calculated", so a screen reader is told
-  what the card does without the mark adding a second name to read.
+- They are **decoration inside the card's own button** (the foot line is a plain `<span>`), so they
+  carry no name of their own and have no handler: the whole balance card is one `<button>` that opens
+  that sheet, and a button inside a button is invalid HTML. A second control for the same sheet would
+  also be a tap target the app does not otherwise have.
+- The **i** circle is filled with `--text-2` and the letter with `--card`, so it reads in both themes;
+  a pale letter on a faint circle would vanish on the light card.
+- The foot line wears the accent, the same colour the sheet's own *View bills* row uses, and it is the
+  visible half of what the button's accessible name already says ("How this is calculated"); a reader
+  who does not know the **i** convention still sees what a tap does.
+- The accessible name is repainted with the figure it shows — *Balance, Personal and Business, RM …, How
+  this is calculated* — so a screen reader is told the scope of the number, the number, and what the
+  card does.
 
 ### iOS touch behaviour
 Safari's own gestures are kept out of the way, because each one breaks the sheet:
