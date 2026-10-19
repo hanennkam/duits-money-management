@@ -353,9 +353,16 @@
     font-size: 40px; font-weight: 800; letter-spacing: -.03em; line-height: 1.1;
     margin: 10px 0 4px; font-variant-numeric: tabular-nums;
   }
-  /* Home's balance is the one number the screen is built around, so it is the largest thing on it: the
-     same weight and letter-spacing as .hero-amount, a quarter larger (Insights' total stays at 40px). */
-  .hero-balance { font-size: 50px; }
+  /* Home's balance is the one number the screen is built around, so it keeps the heaviest weight and
+     the tightest tracking at 40px. It sits on its own line under the wallet label, with room to spare
+     for "RM 2,470.00" on a 375px phone (measured 238px of 306px). */
+  .hero-balance { display: block; font-size: 40px; white-space: nowrap; }
+  /* The wallet replaces the word "Balance"; the small "all modes" stays visible so the figure is never
+     mistaken for the Business/Personal month cards below it. */
+  .hero-balance-head { display: flex; align-items: center; gap: 6px; color: var(--text-2); }
+  .hero-balance-mark { display: inline-flex; flex: none; }
+  .hero-balance-icon { width: 18px; height: 18px; }
+  .hero-balance-unit { font-size: 13px; font-weight: 500; white-space: nowrap; }
   /* The month's two halves, side by side at half width each. They read the /summary the hero used to. */
   .stat-row { display: flex; gap: 12px; }
   .stat-card { flex: 1 1 0; min-width: 0; padding: 13px 15px 15px; }
@@ -1300,8 +1307,19 @@
         <p class="hero-setup-line">Tell us how much money you have right now. We keep track from there.</p>
         <button class="btn-primary" id="setBalanceBtn" type="button">Set your balance</button>
       </div>
-      <button class="hero-tap" id="balanceTap" type="button" aria-label="Balance. How this is calculated">
-        <span class="hero-label">Balance</span>
+      <button class="hero-tap" id="balanceTap" type="button" aria-label="Balance, all modes. How this is calculated">
+        <span class="hero-balance-head">
+          <span class="hero-balance-mark" role="img" aria-label="Balance, all modes">
+            <svg class="hero-balance-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"
+                 fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                 stroke-linejoin="round">
+              <path d="M3.5 7.8h14.2a2.7 2.7 0 0 1 2.7 2.7v7a2.7 2.7 0 0 1-2.7 2.7H6.2a2.7 2.7 0 0 1-2.7-2.7V7.8Z" />
+              <path d="M3.5 7.8V6.6a2.1 2.1 0 0 1 2.1-2.1h10.2" />
+              <path d="M16.4 13.8h1.7" />
+            </svg>
+          </span>
+          <span class="hero-balance-unit">all modes</span>
+        </span>
         <span class="hero-amount hero-balance" id="balanceAmount">RM 0.00</span>
         <span class="safe-pill" id="safePill">
           <span class="safe-pill-label">Safe to spend</span>
@@ -2293,7 +2311,7 @@
       $("balanceTap").hidden = false;
       $("balanceTap").disabled = false;
       $("retryFinanceBtn").hidden = true;
-      $("balanceTap").setAttribute("aria-label", "Balance");
+      $("balanceTap").setAttribute("aria-label", "Balance, all modes");
       hideBudget();
       $("commitSub").textContent = "";
       $("commitList").innerHTML = "";
@@ -2768,8 +2786,8 @@
     $("safeAmount").classList.toggle("neg", safe < 0);
     $("safeMeta").textContent = unmet > 0 ? money(unmet) + " still due this month" : "";
     // The whole area is one button, so its accessible name has to carry the figure the eye reads first.
-    $("balanceTap").setAttribute("aria-label", "Balance " + signedMoney(balance) + ". How this is calculated");
-    fitText($("balanceAmount"), 50, 22);
+    $("balanceTap").setAttribute("aria-label", "Balance, all modes, " + signedMoney(balance) + ". How this is calculated");
+    fitText($("balanceAmount"), 40, 22);
     fitText($("safeAmount"), 17, 12);
     paintBudget(summary);
   }
@@ -2836,7 +2854,7 @@
     $("safeAmount").textContent = "\u2014";
     $("safeAmount").classList.remove("neg");
     $("safeMeta").textContent = "Not available right now.";
-    $("balanceTap").setAttribute("aria-label", "Balance unavailable.");
+    $("balanceTap").setAttribute("aria-label", "Balance, all modes unavailable.");
     hideBudget();                       // no figures to draw a budget from
   }
 
@@ -4305,8 +4323,11 @@
     })[0] || null;
   }
 
+  // A paid bill is finished for the month: the mark is a label, and there is no Pay button to tap
+  // again. Unpaid bills only offer Pay — the mark is written after the transaction, never by a toggle.
   function commitmentRowHtml(row) {
     var active = row.active !== false;
+    var paid = !!row.paid;
     return '<div class="commit-row' + (active ? "" : " is-off") + '">' +
       '<span class="commit-main">' +
       '<span class="commit-name">' + escapeHtml(row.name) + "</span>" +
@@ -4314,13 +4335,12 @@
       escapeHtml(ordinal(row.day_of_month)) + (active ? "" : " \u00b7 paused") + "</span>" +
       "</span>" +
       '<span class="commit-actions">' +
-      '<button class="commit-paid' + (row.paid ? " is-on" : "") + '" type="button"' +
-      ' data-commit-paid="' + escapeHtml(row.id) + '" aria-pressed="' +
-      (row.paid ? "true" : "false") + '">Paid</button>' +
-      (active
-        ? '<button class="commit-pay" type="button" data-commit-pay="' +
-          escapeHtml(row.id) + '">Pay</button>'
-        : "") +
+      (paid
+        ? '<span class="commit-paid is-on">Paid</span>'
+        : (active
+          ? '<button class="commit-pay" type="button" data-commit-pay="' +
+            escapeHtml(row.id) + '">Pay</button>'
+          : "")) +
       "</span></div>";
   }
 
@@ -4398,38 +4418,12 @@
     closeOverlay($("commitOverlay"), null, fromOffset);
   }
 
-  // The paid mark is the API's per-month state: POST marks, DELETE undoes, and both take the month the
-  // sheet is showing. Re-reading the list is what paints it, so the button never guesses the new state.
-  async function toggleCommitmentPaid(row, button) {
-    if (button.getAttribute("aria-busy") === "true") return;
-    button.disabled = true;
-    button.setAttribute("aria-busy", "true");
-    try {
-      if (row.paid) {
-        await api("/commitments/" + encodeURIComponent(row.id) + "/paid?month=" +
-          encodeURIComponent(state.month), { method: "DELETE" });
-        toast("Marked unpaid.");
-      } else {
-        await api("/commitments/" + encodeURIComponent(row.id) + "/paid", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ month: state.month })
-        });
-        toast("Marked paid.");
-      }
-      await loadCommitments();
-      refreshFinanceCard();
-    } catch (error) {
-      button.disabled = false;
-      button.setAttribute("aria-busy", "false");
-      toast(friendly(error), "error");
-    }
-  }
-
   // Pay is the transaction, not the mark: the Add sheet opens prefilled on Manual, and the paid mark is
   // posted only after POST /transactions answers (see saveAdd). The month is captured here, because a
   // bill paid today for last month must be marked for last month — and afterAdd may move the view.
   function payCommitmentFlow(row) {
+    if (row.paid || row.active === false) return;   // paid/paused rows have no Pay; a stale tap does nothing
+    if (payCommitment) return;                      // one Pay flow at a time: a second tap restarts nothing
     openAddSheet({
       merchant: row.name,
       amount: row.amount,
@@ -4495,13 +4489,12 @@
   // would bind the last paint's nodes and nothing after it.
   function handleCommitClick(event) {
     var hit = event.target.closest
-      ? event.target.closest("[data-commit-paid], [data-commit-pay], #commitAddBtn") : null;
+      ? event.target.closest("[data-commit-pay], #commitAddBtn") : null;
     if (!hit) return;
     if (hit.id === "commitAddBtn") { addCommitment(hit); return; }
-    var row = commitRowById(hit.dataset.commitPaid || hit.dataset.commitPay);
+    var row = commitRowById(hit.dataset.commitPay);
     if (!row) return;
-    if (hit.dataset.commitPaid) toggleCommitmentPaid(row, hit);
-    else payCommitmentFlow(row);
+    payCommitmentFlow(row);
   }
 
   function paintCommitmentsSetting() {

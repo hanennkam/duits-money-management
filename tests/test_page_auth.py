@@ -241,6 +241,7 @@ def test_sign_out_clears_the_session_and_the_cached_rows(client: TestClient) -> 
     # The balance card's own three pieces of state go back to "nothing known yet" with the rest.
     for node in ("balanceNotSet", "balanceTap", "retryFinanceBtn"):
         assert node in body, f"clearCaches must reset {node}"
+    assert '"Balance, all modes"' in body, "the wallet's accessible name is reset with its figure"
     signout = page[page.index("async function signOut()"):page.index("async function signOut()") + 700]
     assert "writeSession(null);" in signout and "clearCaches();" in signout
 

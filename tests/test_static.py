@@ -341,16 +341,22 @@ def test_home_is_a_balance_hero_with_a_safe_to_spend_pill(client: TestClient) ->
     hero = page[page.index('id="balanceCard"'):page.index('id="budgetCard"')]
     assert "js-month-label" not in hero, "the header is the only place the month is named"
     assert "hero-top" not in page
-    # A quarter larger than .hero-amount, at the same weight; Insights' own total stays at 40px.
+    # The balance keeps the heaviest weight, but its own size is the one that was measured to keep
+    # "RM 2,470.00" on one line at 375px (238.33px of 306px available) and 390px. It is a block so
+    # the wallet label cannot take width from the figure, and nowrap is the belt.
     assert ".hero-amount {\n    font-size: 40px; font-weight: 800" in page
-    assert ".hero-balance { font-size: 50px; }" in page
-    assert 'fitText($("balanceAmount"), 50, 22);' in page
-    # The whole figure area is one button, so its accessible name has to carry the figure: >=44px, a real
-    # button (keyboard, no ARIA stand-in), and the name is repainted with the figure it shows.
-    assert '<button class="hero-tap" id="balanceTap" type="button" aria-label="Balance. How this is calculated">' in page
+    assert ".hero-balance { display: block; font-size: 40px; white-space: nowrap; }" in page
+    assert 'fitText($("balanceAmount"), 40, 22);' in page
+    # The word "Balance" is now a wallet icon plus the visible small "all modes"; the icon carries the
+    # accessible name, and the button's own name is repainted with the figure it shows.
+    assert 'id="balanceTap" type="button" aria-label="Balance, all modes. How this is calculated"' in page
+    assert 'class="hero-balance-mark" role="img" aria-label="Balance, all modes"' in page
+    assert '<span class="hero-balance-unit">all modes</span>' in page
+    assert ">all modes<" in page, "the visible label must stay, not only the aria-label"
+    assert 'class="hero-balance-icon"' in page
     tap = page[page.index(".hero-tap {"):page.index("}", page.index(".hero-tap {"))]
     assert "min-height: 44px" in tap
-    assert '$("balanceTap").setAttribute("aria-label", "Balance " + signedMoney(balance)' in page
+    assert '$("balanceTap").setAttribute("aria-label", "Balance, all modes, " + signedMoney(balance)' in page
     # ...and the pill is inside it, so it is a span, not a second target
     assert '<span class="safe-pill" id="safePill">' in page
     assert 'id="safeDetailsBtn"' not in page
@@ -639,8 +645,8 @@ def test_the_commitments_sheet_is_a_registered_overlay(client: TestClient) -> No
     assert "#commitOverlay .scrim { background: var(--scrim-sheet); }" in page
 
 
-def test_the_commitments_sheet_reads_the_month_and_toggles_paid(client: TestClient) -> None:
-    """The list is per month, the paid mark is two-way, and the add form posts the three API fields."""
+def test_the_commitments_sheet_reads_the_month_and_offers_pay_only(client: TestClient) -> None:
+    """The list is per month, Pay is the only action, and the add form posts the three API fields."""
     page = client.get("/").text
     # /commitments requires a month, and the sheet sends the one being viewed
     assert 'api("/commitments?month=" + encodeURIComponent(month))' in page
@@ -649,10 +655,17 @@ def test_the_commitments_sheet_reads_the_month_and_toggles_paid(client: TestClie
     assert 'escapeHtml(money(row.amount)) + " \\u00b7 due "' in page
     assert "escapeHtml(ordinal(row.day_of_month))" in page
     assert "function ordinal(day)" in page
-    # the toggle is two-way: POST marks, DELETE unmarks, both for the viewed month
-    assert 'data-commit-paid="' in page and 'aria-pressed="' in page
-    assert '"/paid?month=" +' in page and 'method: "DELETE"' in page
-    assert "body: JSON.stringify({ month: state.month })" in page
+    # There is no toggle: marking paid without a transaction, and any undo, have no UI path at all.
+    assert "data-commit-paid=" not in page
+    assert "toggleCommitmentPaid" not in page
+    assert '"/paid?month=" +' not in page, "DELETE /commitments/.../paid must have no caller"
+    assert "Marked unpaid." not in page
+    # A paid bill paints a plain label and no Pay button; an unpaid one paints Pay.
+    row_html = page[page.index("function commitmentRowHtml(row)"):page.index("// The one line under the title")]
+    assert "var paid = !!row.paid;" in row_html
+    assert '\'<span class="commit-paid is-on">Paid</span>\'' in row_html
+    assert "data-commit-pay=" in row_html
+    assert row_html.index("paid\n") < row_html.index("data-commit-pay="), "Pay lives in the unpaid branch"
     # the inline form posts exactly what the API takes, after checking all three
     add = page[page.index("async function addCommitment("):page.index("// One delegated handler")]
     assert "body: JSON.stringify({ name: name, amount: amount, day_of_month: day })" in add
@@ -675,6 +688,9 @@ def test_pay_is_an_add_sheet_save_and_the_mark_comes_after_it(client: TestClient
     for field in ("merchant: row.name", "amount: row.amount", 'category: "bills"', 'type: "expense"'):
         assert field in pay, field
     assert "month: state.month" in pay, "the month must be captured when Pay is tapped"
+    # A paid/paused row and a second tap while the Pay sheet is already open do nothing: one flow, one save.
+    assert "if (row.paid || row.active === false) return;" in pay
+    assert "if (payCommitment) return;" in pay
     # openAddSheet takes the prefill, and a plain open still starts on the chooser
     assert "function openAddSheet(prefill)" in page
     assert page.count('showAddView("chooser")') == 2
@@ -688,6 +704,12 @@ def test_pay_is_an_add_sheet_save_and_the_mark_comes_after_it(client: TestClient
     assert save.index('api("/transactions", {') < save.index("if (paying) await markCommitmentPaid(paying);")
     assert "var paying = payCommitment;" in save
     assert "Transaction saved, but marking it paid failed." in page
+    # The mark itself still posts the month captured at Pay time, then repaints the list so the row
+    # becomes the non-interactive Paid label.
+    mark = page[page.index("async function markCommitmentPaid(paying)"):page.index("async function addCommitment(")]
+    assert 'api("/commitments/" + encodeURIComponent(paying.id) + "/paid"' in mark
+    assert "body: JSON.stringify({ month: paying.month })" in mark
+    assert 'loadCommitments()' in mark
 
 
 def test_settings_money_sits_above_account(client: TestClient) -> None:
