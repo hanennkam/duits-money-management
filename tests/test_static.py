@@ -1217,3 +1217,20 @@ def test_the_keypad_rows_flex_between_48px_and_52px(client: TestClient) -> None:
     assert "max-height: calc(244px + var(--sab))" in page, "the keypad stops at four 52px rows"
     assert 'grid-template-rows: repeat(4, 48px)' in page, "a short sheet pins 48px rows"
     assert '$("addKeypad").hidden = !(addView === "manual" && !manualFieldFocused);' in page
+
+
+def test_a_validation_error_names_the_field_it_is_about(client: TestClient) -> None:
+    """A 422 from FastAPI carries `detail` as a list of { loc, msg }, and the page must read it.
+
+    Before this, the list was skipped, so a rejected save showed "Something went wrong (422)." and hid the
+    field. The message now names the last part of `loc` and says why, e.g. "commitment_id: Extra inputs
+    are not permitted". Both the list and the string/object shapes stay read.
+    """
+    page = client.get("/").text
+    start = page.index("async function toApiError(response) {")
+    fn = page[start:page.index("\n  }\n", start) + 4]
+    assert "Array.isArray(detail)" in fn, "FastAPI's 422 detail is a list"
+    assert "loc[loc.length - 1]" in fn, "the field is the last part of loc"
+    assert '(field ? field + ": " : "") + (first.msg || "")' in fn, "field, then why"
+    assert 'typeof detail === "string"' in fn, "a plain string detail still reads"
+    assert "!Array.isArray(detail)" not in fn, "the object branch no longer skips lists"

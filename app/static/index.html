@@ -2570,7 +2570,13 @@
       var detail = body && body.detail;
       if (typeof detail === "string") {
         message = detail;
-      } else if (detail && typeof detail === "object" && !Array.isArray(detail)) {
+      } else if (Array.isArray(detail) && detail[0]) {
+        // FastAPI's validation error: a list of { loc, msg }. Name the field (the last part of loc) and say why.
+        var first = detail[0];
+        var loc = Array.isArray(first.loc) ? first.loc : [];
+        var field = loc.length ? String(loc[loc.length - 1]) : "";
+        message = (field ? field + ": " : "") + (first.msg || "");
+      } else if (detail && typeof detail === "object") {
         message = detail.message || "";
         transaction = detail.transaction || null;
       }
