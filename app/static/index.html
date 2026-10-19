@@ -3239,7 +3239,32 @@
   // user is shown the sheet once again. It is compared with what is in localStorage, so a user who
   // has read this version is never asked again.
   var WHATS_NEW_VERSION = "2026-10";
-  var WHATS_NEW_SLOT = "duits.whatsnew";
+
+  // Where the version is remembered, per user: "whatsNew:<user id>:lastSeenVersion". The id is the
+  // account's own, so a second account on the same device gets its own card — the first one reading
+  // it must not hide it from the second. No database and no migration: localStorage is the whole
+  // mechanism, and the value is only ever the version string.
+  function whatsNewSlot() {
+    var session = readSession();
+    var userId = session ? userIdFromToken(session.access_token) : "";
+    // A token that cannot be read leaves no id to key by. The fallback is shared, which is the one
+    // case where a second account could miss the card — but it is better than storing under nobody's
+    // id, which would make the card invisible to everyone.
+    return "whatsNew:" + (userId || "anonymous") + ":lastSeenVersion";
+  }
+
+  // The account's id, from the access token's `sub` claim. That is the same id the API scopes by
+  // (auth.users.id), so two accounts are two ids and never share a key.
+  function userIdFromToken(token) {
+    try {
+      var payload = String(token).split(".")[1] || "";
+      payload = payload.replace(/-/g, "+").replace(/_/g, "/");
+      while (payload.length % 4) payload += "=";
+      return JSON.parse(window.atob(payload)).sub || "";
+    } catch (error) {
+      return "";
+    }
+  }
 
   // The three screens. Every sentence is taken from the code that computes the figures
   // (app/finance.py) or from what the UI actually does, so a formula that changes means this copy
@@ -3282,7 +3307,7 @@
   // yet" (the sheet shows), and a failed write means the sheet shows again next time.
   function whatsNewSeen() {
     try {
-      return window.localStorage.getItem(WHATS_NEW_SLOT) === WHATS_NEW_VERSION;
+      return window.localStorage.getItem(whatsNewSlot()) === WHATS_NEW_VERSION;
     } catch (error) {
       return false;
     }
@@ -3290,7 +3315,7 @@
 
   function rememberWhatsNew() {
     try {
-      window.localStorage.setItem(WHATS_NEW_SLOT, WHATS_NEW_VERSION);
+      window.localStorage.setItem(whatsNewSlot(), WHATS_NEW_VERSION);
     } catch (error) { /* the sheet shows again next time; nothing else breaks */ }
   }
 

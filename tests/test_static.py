@@ -1301,24 +1301,34 @@ def test_the_whats_new_sheet_is_three_screens_with_a_dot_and_a_way_out(client: T
     assert 'attachSheetDrag("whatsNewSheet", "whatsNewOverlay", closeWhatsNew, false);' in page
 
 
-def test_the_whats_new_sheet_shows_once_per_version_and_never_on_a_sign_in_screen(
-    client: TestClient,
-) -> None:
-    """The version is compared with localStorage, and the sheet waits for the user to be in.
+def test_the_whats_new_version_is_remembered_per_account(client: TestClient) -> None:
+    """The stored version is keyed by the account, so a second account on one device still sees the card.
 
-    Storage can fail (private mode), so the read and the write are both wrapped: a failed read means
-    "not seen yet" — the sheet shows — and a failed write must not throw. The sheet is never opened on
-    the sign-in, set-password or reset screens, and never before the splash has faded.
+    The key is "whatsNew:<user id>:lastSeenVersion" and the id is the access token's `sub` claim —
+    the same id the API scopes by (auth.users.id). Two accounts are two ids, so the first one reading
+    the card cannot hide it from the second. There is no database and no migration: localStorage is
+    the whole mechanism, and the value is only ever the version string.
     """
     page = client.get("/").text
     assert 'var WHATS_NEW_VERSION = "2026-10";' in page
-    assert 'var WHATS_NEW_SLOT = "duits.whatsnew";' in page
+    # The old key was shared by everyone on the device, so the second account never saw the card.
+    assert '"duits.whatsnew"' not in page
+    slot = page[page.index("function whatsNewSlot() {"):page.index("function userIdFromToken(")]
+    assert 'return "whatsNew:" + (userId || "anonymous") + ":lastSeenVersion";' in slot
+    assert "readSession()" in slot, "the key is built from the signed-in account"
+    assert "userIdFromToken(session.access_token)" in slot
+    # The id is the token's own `sub` claim, decoded the way the address already is.
+    user = page[page.index("function userIdFromToken(token) {"):page.index("// The three screens.")]
+    assert "JSON.parse(window.atob(payload)).sub" in user
+    assert 'String(token).split(".")[1]' in user
+    # Both the read and the write go through the per-account key, and both are wrapped: storage can
+    # fail (private mode), and a failed read means "not seen yet" while a failed write must not throw.
     seen = page[page.index("function whatsNewSeen() {"):page.index("function rememberWhatsNew() {")]
     assert "try {" in seen and "catch (error)" in seen, "the read is wrapped"
-    assert "window.localStorage.getItem(WHATS_NEW_SLOT) === WHATS_NEW_VERSION" in seen
+    assert "window.localStorage.getItem(whatsNewSlot()) === WHATS_NEW_VERSION" in seen
     remember = page[page.index("function rememberWhatsNew() {"):page.index("function paintWhatsNew() {")]
     assert "try {" in remember and "catch (error)" in remember, "the write is wrapped"
-    assert "window.localStorage.setItem(WHATS_NEW_SLOT, WHATS_NEW_VERSION)" in remember
+    assert "window.localStorage.setItem(whatsNewSlot(), WHATS_NEW_VERSION)" in remember
     show = page[page.index("function maybeShowWhatsNew() {"):page.index("// One row shape, shared by Home")]
     assert "if (!splashHidden)" in show, "the splash covers the app until it has faded"
     assert "if (!readSession()) return;" in show, "never on a sign-in screen"
