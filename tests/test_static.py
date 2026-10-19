@@ -1029,11 +1029,19 @@ def test_the_manual_sheet_is_one_screen_with_a_four_row_card(client: TestClient)
     assert "revealAddChip();" in page[page.index("function paintAddChips()"):page.index("function revealAddChip()")]
     reveal = page[page.index("function revealAddChip()"):page.index("function paintAddToggle(")]
     assert 'row.scrollLeft = 0;' in reveal and "row.scrollLeft +=" in reveal
-    # the Mode row keeps its height and its toggle paints compact but is tappable across its full 44px box
+    # the Mode row keeps its height; its toggle is a rounded track whose selected segment paints a
+    # pill inside the track, while every segment's tap box stays 44px
     row_rule = page[page.index("  .add-row-field {"):page.index("  .add-row-field {") + 160]
     assert "min-height: 44px" in row_rule, "the Mode row is at least 44px tall"
-    assert "background-clip: content-box" in page, "the segment paints 32px inside its 44px box"
-    assert ".add-mode .seg-btn.is-active { box-shadow: none; }" in page
+    mode_rule = page[page.index("  .add-mode {"):page.index("  .add-mode {") + 240]
+    assert "height: 32px" in mode_rule, "the track reads 32px tall"
+    assert "border-radius: 9999px" in mode_rule, "the Mode control is a rounded container"
+    assert "background: var(--control)" in mode_rule, "the track uses the segmented-control fill"
+    mode_btn = page[page.index("  .add-mode .seg-btn {"):page.index("  .add-mode .seg-btn::after {")]
+    assert "min-height: 44px" in mode_btn, "each segment keeps the 44px tap floor"
+    assert ".add-mode .seg-btn.is-active { background: none; box-shadow: none; }" in page
+    assert (".add-mode .seg-btn.is-active::after { background: var(--seg-selected); "
+            "box-shadow: var(--seg-shadow); }") in page, "the selected pill paints inside the track"
     # Merchant asks iOS for no underline suggestions, and stays a 16px text field
     merchant = manual[manual.index('id="addMerchant"') - 40:manual.index('id="addMerchant"') + 220]
     assert 'spellcheck="false"' in merchant and 'autocorrect="off"' in merchant

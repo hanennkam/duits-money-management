@@ -680,20 +680,21 @@
   .add-back-icon svg { width: 18px; height: 18px; }
   .add-type { flex: 1; min-width: 0; margin: 0; }
   .add-type .seg-btn { min-height: 44px; }
-  /* The amount takes the spare height and centres its number, the currency on the same baseline. The
-     caret blinks with a plain CSS loop: it repeats in place, it does not animate a display change. */
+  /* The amount block is content-sized now: the number stands at 40-44px with at most 10px of air above
+     and below. It no longer drinks the sheet's spare height — that stretching band was the empty space
+     the owner saw around the figure. The leftover height sits under the card instead, where the keypad
+     is the sheet's own footer. The caret blinks with a plain CSS loop: it repeats in place, it does not
+     animate a display change. */
   .add-amount-block {
-    flex: 1 1 auto; min-height: 2.75em; display: flex; flex-direction: column; align-items: center;
-    justify-content: center; padding: 0;
+    flex: none; min-height: 0; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; padding: 10px 0;
   }
-  /* A short sheet spends less on the number: the block's floor follows the smaller clamp. */
-  @container (max-height: 640px) { .add-amount-block { min-height: 2.5em; } }
   .add-amount {
     display: flex; align-items: baseline; justify-content: center; max-width: 100%;
-    font-size: clamp(40px, 8.8dvh, 56px); font-weight: 700; letter-spacing: -.03em; line-height: 1.1;
+    font-size: clamp(40px, 5dvh, 44px); font-weight: 700; letter-spacing: -.03em; line-height: 1.1;
     font-variant-numeric: tabular-nums; white-space: nowrap;
   }
-  .add-amount-cur { flex: none; margin-right: 8px; font-size: 20px; font-weight: 600; letter-spacing: 0; color: var(--muted); }
+  .add-amount-cur { flex: none; margin-right: 8px; font-size: 19px; font-weight: 600; letter-spacing: 0; color: var(--muted); }
   .add-amount-num { min-width: 0; overflow: hidden; }
   .add-caret {
     flex: none; align-self: center; width: 2px; height: 1em; margin-left: 3px; border-radius: 1px;
@@ -701,13 +702,15 @@
   }
   @keyframes add-caret-blink { 0% { opacity: 1; } 50% { opacity: 0; } }
   @media (prefers-reduced-motion: reduce) { .add-caret { animation: none; } }
-  /* At 56px a 375px screen fits ~10 characters ("RM 9,999.99"); a 320px screen needs a lower ceiling. */
-  @media (max-width: 360px) { .add-amount { font-size: clamp(40px, 8.8dvh, 48px); } }
+  /* At 44px a 375px screen fits ~9 characters ("RM 99,999.99"); a 320px screen spends one less. */
+  @media (max-width: 360px) { .add-amount { font-size: 40px; } }
   .add-cat-head { flex: none; display: flex; align-items: center; margin: 2px 0 0; }
   .add-label { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
   /* The four-row card: Merchant, Date, Mode and Note, on --card-2 (the sheet itself is --card). Each row is
-     a label, so a tap anywhere on it opens its input. The hairline starts at the icon, not the card edge. */
-  .add-card { flex: none; margin: 2px 0 0; border-radius: 20px; background: var(--card-2); }
+     a label, so a tap anywhere on it opens its input. The hairline starts at the icon, not the card edge.
+     The 14px top margin is the air between the chip row and the card; the card must never sit flush on the
+     chips or the keypad. */
+  .add-card { flex: none; margin: 14px 0 0; border-radius: 20px; background: var(--card-2); }
   .add-row-field {
     position: relative; display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 14px 0 10px;
   }
@@ -731,21 +734,32 @@
   .add-row-input:focus { outline: none; }
   .add-row-input::placeholder { color: var(--placeholder); }
   .add-row-field > .add-row-chev { flex: none; }
-  /* The Mode row's compact toggle, right-aligned. Each segment's box stays 44px (the tap floor) while
-     background-clip paints only its content box, 32px tall, so it reads compact and the hit target does
-     not shrink; there is no track behind the two segments. */
+  /* The Mode row's compact toggle, right-aligned: the same tokens as the Expense | Income control above
+     it — a --control track, a --seg-selected pill, a --seg-shadow — in a rounded pill. The track reads
+     32px tall; each segment keeps the 44px tap floor, its box spilling over the track by an equal 6px
+     above and below, so the hit target never shrinks. The selected fill paints through the button's
+     ::after, inset 8px, so the colour and its shadow hug the 28px pill the eye sees instead of the
+     taller tap box. */
   .add-mode {
-    flex: none; min-width: 0; margin: 0 0 0 auto; padding: 0; gap: 0;
-    background: none; border-radius: 0;
+    flex: none; min-width: 0; margin: 0 0 0 auto; padding: 0 2px; gap: 2px;
+    height: 32px; align-items: center;
+    background: var(--control); border-radius: 9999px;
   }
   .add-mode .seg-btn {
-    min-height: 44px; padding: 6px 14px; font-size: 14px; border-radius: 8px;
-    background-clip: content-box;
+    min-height: 44px; position: relative; z-index: 0; padding: 0 14px; font-size: 14px;
   }
-  .add-mode .seg-btn.is-active { box-shadow: none; }
-  /* Manual's keys stay at the 44px tap floor on every phone. The 56px keys of a tall screen would push the
-     card out of the middle of the sheet, where it has to fit above the keypad — so the keypad's own chrome
-     is tightened too: less padding in the grid and around it, the same 44px keys. */
+  /* The pill sits at z-index -1 inside its button's own stacking context (z-index: 0 above): behind the
+     segment's text, but over the track's fill. Without that pairing the positioned ::after paints on
+     top of the label and the selected word disappears under its own pill. */
+  .add-mode .seg-btn::after {
+    content: ""; position: absolute; inset: 8px 0; z-index: -1; border-radius: 9999px;
+  }
+  .add-mode .seg-btn.is-active { background: none; box-shadow: none; }
+  .add-mode .seg-btn.is-active::after { background: var(--seg-selected); box-shadow: var(--seg-shadow); }
+  /* Manual's keys stay at the 44px tap floor on every phone. The 56px keys of a tall screen would stretch
+     the column past the fold on a short one, so Manual pins 44px and tightens the keypad's own chrome:
+     less padding in the grid and around it. The short-phone step tightens it further — see the 640px
+     container rule below. */
   #addKeypad .key { height: 44px; }
   #addKeypad .keypad-grid { gap: 5px; padding: 2px; }
   #addKeypad { margin-top: 2px; padding-top: 2px; padding-bottom: calc(2px + var(--sab)); }
@@ -886,34 +900,39 @@
     .key { height: 56px; }
     .keypad-grid { gap: 8px; }
   }
-  /* Second in line behind the amount font: 44px keys, which is 4 rows of 44 plus gaps = 16px back. */
+  /* The keys give next: 44px is already Manual's size, which is 4 rows of 44 plus gaps = 16px back. */
   @media (max-height: 620px) { .key { height: 44px; } }
   /* The sheet's own box is the honest measure of the room left, and the content gives height back in
-     this order: the amount font, then the keypad keys, then the gaps. The Add sheet's full-height views
-     land under 640 on a short phone and over it on a tall one, so the AI view's rules below still apply. */
+     this order: the amount's own air, then the keypad's chrome, then the gaps. The 44px floors — keys,
+     card rows, chips, tap targets — are tap targets and never give. (A container query styles the
+     container's descendants, never the container itself, so everything tightened here lives inside the
+     sheet.) The Add sheet's full-height views land under 640 on a short phone and over it on a tall one,
+     so the AI view's rules below still apply. */
   @container (max-height: 640px) {
-    /* 1. the amount: the only flexible block, so its own floor decides whether the column fits */
-    .add-amount { font-size: clamp(34px, 7.2dvh, 40px); min-height: .85em; padding: 0; line-height: 1.05; }
-    .add-amount-cur { font-size: 17px; }
-    /* 2. the keys: 44px is the floor, because that is the tap target */
+    /* 1. the amount: still 40px (the clamp's floor), it just stands with less air around it */
+    .add-amount { line-height: 1; }
+    .add-amount-cur { font-size: 18px; }
+    .add-amount-block { padding: 4px 0; }
+    /* 2. the keys: 44px is the floor, because that is the tap target; the grid's chrome tightens instead */
     .key { height: 44px; }
-    .keypad-grid { gap: 6px; }
-    /* 3. the gaps — measured on 375x667, where 15px had to come out of them */
+    #addKeypad .keypad-grid { gap: 3px 5px; padding: 1px; }
+    #addKeypad { margin-top: 0; padding-top: 0; }
+    /* 3. the gaps — measured on 375x667, where the whole top cluster must land above the keys */
+    #addSheet .sheet-grab { padding: 0 0 2px; }
+    .add-cat-head { margin-top: 0; line-height: 1; }
     .smart-card { margin-bottom: 6px; }
-    .add-toggle .seg-btn { min-height: 34px; }
     .add-row { min-height: 44px; }
-    .chip-scroll { margin-top: 6px; }
+    .chip-scroll { margin-top: 0; }
+    .add-card { margin-top: 12px; }
     .add-rows { margin-top: 4px; }
-    .keypad-grid { padding: 4px; }
+    .keypad-grid { gap: 6px; }
     .keypad { padding-top: 4px; padding-bottom: calc(4px + var(--sab)); }
   }
-  /* Deeper again for a small screen with no notch: everything tightens, the keys stay at 44. */
+  /* Deeper again for a small screen with no notch: the number's air gives further, the keys stay at 44. */
   @container (max-height: 560px) {
-    .add-amount { min-height: .85em; }
+    .add-amount-block { padding: 2px 0; }
     .smart-card { padding: 8px 12px; }
-    .chip-scroll { margin-top: 6px; }
     .add-rows { margin-top: 4px; }
-    .keypad { padding-top: 2px; }
     .add-hint { display: none; }
   }
   /* Sits above the keys, so a failure can never hide below the fold. */
