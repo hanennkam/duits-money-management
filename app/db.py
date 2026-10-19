@@ -391,7 +391,9 @@ def transaction_totals(*, user_id: UUID) -> list[dict[str, Any]]:
     The view aggregates inside Postgres on purpose: an all-time sum built by fetching every transaction
     would be capped by PostgREST's max-rows and would come up short without saying so.
     """
-    query = _totals_view().select("mode,month,total_income,total_expense,row_count")
+    query = _totals_view().select(
+        "mode,month,total_income,total_expense,commitment_expense,row_count"
+    )
     return _owned(query, user_id).execute().data or []
 
 

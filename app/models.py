@@ -10,6 +10,7 @@ import re
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal, get_args
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, field_validator
 
@@ -231,6 +232,10 @@ class TransactionCreate(BaseModel):
     type: TxnType = "expense"
     mode: Mode = "personal"
     note: str | None = Field(default=None, max_length=500)
+    # The Pay flow's link to one commitment (0004). A plain save sends nothing, so it stays None. Data,
+    # not a foreign key on purpose: deleting a commitment must keep every expense; the route answers 404
+    # for an id that is not a commitment of the caller.
+    commitment_id: UUID | None = None
 
     @field_validator("merchant", "category", "note", mode="before")
     @classmethod
@@ -267,6 +272,8 @@ class TransactionCreate(BaseModel):
             "source": source,
             "dedupe_hash": dedupe_hash(source, self.txn_date, self.amount, self.merchant),
             "raw_extraction": self.raw(),
+            # The Pay flow's link (0004): a UUID on the wire, null for every other save.
+            "commitment_id": str(self.commitment_id) if self.commitment_id is not None else None,
         }
 
 
@@ -298,6 +305,8 @@ class Transaction(BaseModel):
     dedupe_hash: str | None = None  # null for text entries and merchant-less receipts: not deduped
     # `raw_extraction.needs_review` is the confidence flag for this row.
     raw_extraction: dict[str, Any] | None = None
+    # The Pay flow's link (0004): set when the row was saved from a commitment's Pay button, None otherwise.
+    commitment_id: UUID | None = None
 
 
 class Summary(BaseModel):
@@ -480,7 +489,9 @@ class FinanceSummary(BaseModel):
 
     `total_income`, `total_expense` and `current_balance` are all-time and span **every** mode: the balance
     is one real-world number. `remaining_budget` is scoped to the requested `mode` — the same rows the
-    Home screen is showing — and is `null` when no budget is set.
+    Home screen is showing — and is `null` when no budget is set. It leaves the month's Pay-flow expenses
+    out (a paid bill stops eating the budget once it is paid); the bills still due are counted by
+    `unpaid_commitments` and `safe_to_spend`, never by the bar.
     """
 
     month: str

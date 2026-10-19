@@ -3905,7 +3905,8 @@
           category: addCategory,          // nothing tapped means null, not ""
           type: addType,
           mode: addMode,
-          note: $("addNote").value.trim() || null
+          note: $("addNote").value.trim() || null,
+          commitment_id: paying ? paying.id : null   // the Pay flow's link (0004); a plain save sends none
         })
       });
       closeAddSheet();                    // clears payCommitment; `paying` already holds it

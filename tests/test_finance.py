@@ -18,7 +18,7 @@ USER = "5b1f2e8a-0c3d-4e5f-8a9b-1c2d3e4f5a6b"
 
 
 def view_row(
-    month: str, mode: str, *, income: Any = None, expense: Any = None
+    month: str, mode: str, *, income: Any = None, expense: Any = None, commitment: Any = None
 ) -> dict[str, Any]:
     """One `public.transaction_totals` row. `month` is a date there, not a YYYY-MM string."""
     return {
@@ -27,6 +27,7 @@ def view_row(
         "month": f"{month}-01",
         "total_income": income,
         "total_expense": expense,
+        "commitment_expense": commitment,
         "row_count": 1,
     }
 
@@ -59,10 +60,12 @@ def payment(commitment_id: str, month: str) -> dict[str, Any]:
 def test_paying_a_commitment_does_not_change_the_money_twice() -> None:
     """The worked example: budget 2000, commitment 300, other spend 200. Before and after must match.
 
-    Before: unpaid = 300, month spend = 200  -> remaining 2000 - 300 - 200 = 1500.
-    After paying: the commitment is a 300 expense (spend 500) and its payment mark takes it out of
-    `unpaid` -> remaining 2000 - 0 - 500 = 1500. The balance drops by 300 while `unpaid` drops by 300,
-    so safe-to-spend does not move either.
+    The bar leaves the Pay expense out by its link (0004), and `unpaid` is not in the bar at all.
+    Before paying: month spend 200, no Pay expense in it -> remaining 2000 - 200 = 1800. After paying:
+    the 300 expense joins the month (spend 500) but carries commitment_expense 300 -> remaining
+    2000 - (500 - 300) = 1800. The balance drops by 300 while `unpaid` drops by 300, so safe-to-spend
+    does not move either — and the bar itself never jumps, because the two figures it subtracts move
+    by the same amount.
     """
     commitments = [commitment("c1", "300.00")]
     budget = Decimal("2000.00")
@@ -76,6 +79,7 @@ def test_paying_a_commitment_does_not_change_the_money_twice() -> None:
         total_income=income,
         total_expense=before_expense,
         month_expense=before_expense,
+        month_commitment_expense=Decimal("0.00"),
         unpaid=before_unpaid,
         monthly_budget=budget,
     )
@@ -89,13 +93,51 @@ def test_paying_a_commitment_does_not_change_the_money_twice() -> None:
         total_income=income,
         total_expense=after_expense,
         month_expense=after_expense,
+        month_commitment_expense=Decimal("300.00"),  # the same expense, labelled by its Pay link
         unpaid=after_unpaid,
         monthly_budget=budget,
     )
 
     assert before_unpaid == Decimal("300.00") and after_unpaid == Decimal("0")
-    assert before["remaining_budget"] == after["remaining_budget"] == Decimal("1500.00")
+    assert before["remaining_budget"] == after["remaining_budget"] == Decimal("1800.00")
     assert before["safe_to_spend"] == after["safe_to_spend"] == Decimal("1700.00")
+
+
+def test_the_budget_bar_ignores_bills_that_have_not_been_paid_yet() -> None:
+    """`unpaid` never enters the remaining budget: the bar is money that has actually left the account.
+
+    Budget 2000, month spend 800, one unpaid bill of 300: the bar still reads 1200 left, because that
+    spend may never happen. Safe to spend is the figure that carries the bill.
+    """
+    figures = finance.derive(
+        opening_balance=Decimal("1000.00"),
+        total_income=Decimal("1600.00"),
+        total_expense=Decimal("800.00"),
+        month_expense=Decimal("800.00"),
+        month_commitment_expense=Decimal("0.00"),
+        unpaid=Decimal("300.00"),
+        monthly_budget=Decimal("2000.00"),
+    )
+
+    assert figures["remaining_budget"] == Decimal("1200.00")
+    assert figures["safe_to_spend"] == Decimal("1500.00")
+
+
+def test_month_commitment_expense_is_scoped_like_the_month_spend() -> None:
+    """The Pay-flow slice answers for its own month and mode, and NULL counts as zero, never an error."""
+    rows = [
+        view_row("2026-10", "personal", expense="500.00", commitment="300.00"),
+        view_row("2026-09", "personal", expense="80.00", commitment="80.00"),
+        view_row("2026-10", "business", expense="40.00", commitment="40.00"),
+        view_row("2026-10", "business", expense="10.00", commitment=None),
+    ]
+
+    assert finance.month_commitment_expense(rows, "2026-10", "personal") == Decimal("300.00")
+    assert finance.month_commitment_expense(rows, "2026-09", "personal") == Decimal("80.00")
+    assert finance.month_commitment_expense(rows, "2026-10", "business") == Decimal("40.00")
+    assert finance.month_commitment_expense(rows, "2026-10", "personal") != finance.month_expense(
+        rows, "2026-10", "personal"
+    )
 
 
 def test_a_payment_recorded_for_another_month_does_not_mark_this_one_paid() -> None:
@@ -155,6 +197,7 @@ def test_safe_to_spend_goes_negative_when_the_bills_exceed_the_balance() -> None
         total_income=Decimal("0.00"),
         total_expense=Decimal("100.00"),
         month_expense=Decimal("100.00"),
+        month_commitment_expense=Decimal("0.00"),
         unpaid=Decimal("250.00"),
         monthly_budget=Decimal("500.00"),
     )
@@ -170,6 +213,7 @@ def test_no_budget_means_no_remaining_budget() -> None:
         "total_income": Decimal("0.00"),
         "total_expense": Decimal("20.00"),
         "month_expense": Decimal("20.00"),
+        "month_commitment_expense": Decimal("0.00"),
         "unpaid": Decimal("0.00"),
     }
 
@@ -231,6 +275,7 @@ def test_the_balance_keeps_summarize_s_sign_convention(
         total_income=income,
         total_expense=expense,
         month_expense=expense,
+        month_commitment_expense=Decimal("0"),
         unpaid=Decimal("0"),
         monthly_budget=Decimal("0"),
     )

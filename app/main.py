@@ -350,7 +350,16 @@ async def create_from_text(payload: TextTransactionRequest, user_id: CurrentUser
     status_code=status.HTTP_201_CREATED,
 )
 async def create_transaction(payload: TransactionCreate, user_id: CurrentUser) -> Transaction:
-    """Save one transaction typed in by hand: no receipt, no Claude, no dedupe by default."""
+    """Save one transaction typed in by hand: no receipt, no Claude, no dedupe by default.
+
+    `commitment_id` ties the row to the Pay flow's commitment (0004): it must be a commitment of the
+    caller's — another owner's id is a 404, so a cross-owner link cannot be made — and it is data rather
+    than a foreign key on purpose, so deleting a commitment never takes an expense (or a balance) with it.
+    """
+    if payload.commitment_id is not None and (
+        db.get_commitment(str(payload.commitment_id), user_id=user_id) is None
+    ):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No commitment with that id.")
     return _insert(payload.to_row(), user_id=user_id)
 
 
@@ -464,7 +473,9 @@ async def finance_summary(
     Scope, stated because one figure does not match the others: `total_income`, `total_expense` and
     `current_balance` are all-time and take **every mode** into account — the balance is one real-world
     number. `unpaid_commitments`, the month's spend and `remaining_budget` are scoped to `mode`, the same
-    rows Home is showing. `remaining_budget` is null when no budget is set (0).
+    rows Home is showing. `remaining_budget` is null when no budget is set (0), and it leaves the month's
+    Pay-linked expenses out — a bill the month has already paid stops eating the budget, and the bills
+    that are still due are what `unpaid_commitments` is for.
 
     Every figure is derived here; none of it is stored, so it cannot drift from the transactions.
     """
@@ -476,6 +487,7 @@ async def finance_summary(
     totals_rows = db.transaction_totals(user_id=user_id)
     income, expense = finance.totals(totals_rows)
     month_spend = finance.month_expense(totals_rows, checked, mode)
+    month_commitment_spend = finance.month_commitment_expense(totals_rows, checked, mode)
 
     unpaid = finance.unpaid_commitments(
         db.list_commitments(user_id=user_id),
@@ -496,6 +508,7 @@ async def finance_summary(
             total_income=income,
             total_expense=expense,
             month_expense=month_spend,
+            month_commitment_expense=month_commitment_spend,
             unpaid=unpaid,
             monthly_budget=budget,
         ),

@@ -230,6 +230,60 @@ def test_two_identical_manual_entries_both_insert(
     assert len(created["rows"]) == 2
 
 
+def test_a_pay_save_carries_its_commitments_link(
+    client: TestClient, created: dict[str, Any], money: dict[str, Any]
+) -> None:
+    """The Pay flow's save posts `commitment_id` too, and the row stores it as it was sent."""
+    money["commitments"] = [commitment_row()]
+
+    response = client.post(
+        "/transactions",
+        headers=HEADERS,
+        json={
+            "amount": 300,
+            "txn_date": "2026-10-11",
+            "merchant": "Sewa rumah",
+            "category": "bills",
+            "commitment_id": COMMITMENT_ID,
+        },
+    )
+
+    assert response.status_code == 201
+    assert created["rows"][0]["commitment_id"] == COMMITMENT_ID
+    assert created["lookups"] == []  # the link does not turn a Pay row into a deduped one
+
+
+def test_a_pay_save_refuses_a_foreign_commitment(
+    client: TestClient, created: dict[str, Any], money: dict[str, Any]
+) -> None:
+    """The link must name a commitment of the caller: another owner's id and an unknown id both 404.
+
+    The column is deliberately not a foreign key (deleting a commitment must keep every expense), so
+    this check is the app's job — and it answers like every other cross-owner read: 404, no write.
+    """
+    money["commitments"] = [commitment_row(OTHER_COMMITMENT_ID, owner=OTHER_USER)]
+
+    for commitment_id in (OTHER_COMMITMENT_ID, "44444444-4444-4444-8444-444444444444"):
+        response = client.post(
+            "/transactions",
+            headers=HEADERS,
+            json={"amount": 300, "category": "bills", "commitment_id": commitment_id},
+        )
+        assert response.status_code == 404, commitment_id
+        assert response.json()["detail"] == "No commitment with that id."
+    assert created["rows"] == []  # nothing reached the table, with either id
+
+
+def test_a_plain_save_sends_no_commitment_key_at_all(
+    client: TestClient, created: dict[str, Any]
+) -> None:
+    """An ordinary manual save carries no link: the column stays null on every non-Pay row."""
+    response = client.post("/transactions", headers=HEADERS, json={"amount": 12.5})
+
+    assert response.status_code == 201
+    assert created["rows"][0]["commitment_id"] is None
+
+
 def test_create_transaction_needs_the_api_key(client: TestClient) -> None:
     assert client.post("/transactions", json={"amount": 5}).status_code == 401
 
@@ -458,7 +512,7 @@ def commitment_row(
 
 def totals_row(
     *, owner: str = TEST_USER, month: str = "2026-10", mode: str = "personal",
-    income: float | None = None, expense: float | None = None,
+    income: float | None = None, expense: float | None = None, commitment: float | None = None,
 ) -> dict[str, Any]:
     return {
         "user_id": owner,
@@ -466,6 +520,7 @@ def totals_row(
         "month": f"{month}-01",
         "total_income": income,
         "total_expense": expense,
+        "commitment_expense": commitment,
         "row_count": 1,
     }
 
@@ -678,14 +733,50 @@ def test_the_summary_is_derived_from_the_callers_rows(client: TestClient, money:
         "current_balance": 951.0,
         "unpaid_commitments": 300.0,
         "safe_to_spend": 651.0,
-        "remaining_budget": 1500.0,  # 2000 - 300 unpaid - 200 spent
+        "remaining_budget": 1800.0,  # 2000 - 200 spent; the unpaid bill is safe-to-spend's job
     }
 
     business = client.get("/finance/summary?month=2026-10&mode=business", headers=HEADERS)
 
     assert business.json()["mode"] == "business"
-    assert business.json()["remaining_budget"] == 701.0  # 2000 - 300 - 999
+    assert business.json()["remaining_budget"] == 1001.0  # 2000 - 999 in that mode
     assert business.json()["current_balance"] == 951.0  # the balance does not move with the mode
+
+
+def test_a_pay_expense_never_eats_the_budget_but_the_unpaid_bill_never_feeds_it(
+    client: TestClient, money: dict[str, Any]
+) -> None:
+    """The Pay flow's expense is in the totals and out of the bar, by its commitment link.
+
+    Before paying: 200 spent, no Pay expense — the bar reads 1800 left even though a 300 bill is
+    still due. After paying: the totals gain the 300 expense AND its commitment_expense label, so the
+    subtraction `month_expense - month_commitment_expense` does not move, and neither does the bar —
+    while the bill leaves `unpaid`, so safe-to-spend holds.
+    """
+    money["settings"] = {
+        "user_id": TEST_USER,
+        "opening_balance": 1000.0,
+        "monthly_budget": 2000.0,
+        "currency": "MYR",
+    }
+    money["totals"] = [totals_row(expense=200.0)]
+    money["commitments"] = [commitment_row(amount=300.0)]
+
+    before = client.get("/finance/summary?month=2026-10", headers=HEADERS).json()
+
+    marked = client.post(
+        f"/commitments/{COMMITMENT_ID}/paid", headers=HEADERS, json={"month": "2026-10"}
+    )
+    money["totals"] = [totals_row(expense=500.0, commitment=300.0)]  # POST /transactions, then the mark
+
+    after = client.get("/finance/summary?month=2026-10", headers=HEADERS).json()
+
+    assert marked.status_code == 200
+    assert before["remaining_budget"] == after["remaining_budget"] == 1800.0
+    assert before["unpaid_commitments"] == 300.0 and after["unpaid_commitments"] == 0.0
+    # 1000 opening - 200 other spend = 800 balance, minus 300 due; after: 1000 - 500 = 500 balance, no
+    # bill due. The two halves move by the same 300, so safe-to-spend holds at 500 both times.
+    assert before["safe_to_spend"] == after["safe_to_spend"] == 500.0
 
 
 def test_the_summary_reads_no_settings_row_as_zero_and_no_budget(
@@ -714,7 +805,7 @@ def test_marking_a_commitment_paid_never_subtracts_the_money_twice(
     marked = client.post(
         f"/commitments/{COMMITMENT_ID}/paid", headers=HEADERS, json={"month": "2026-10"}
     )
-    money["totals"] = [totals_row(expense=300.0)]  # POST /transactions, the other half of paying
+    money["totals"] = [totals_row(expense=300.0, commitment=300.0)]  # POST /transactions, the other half
     after = client.get("/finance/summary?month=2026-10", headers=HEADERS).json()
 
     assert marked.status_code == 200 and marked.json()["paid"] is True

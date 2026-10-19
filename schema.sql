@@ -30,7 +30,13 @@ create table if not exists public.transactions (
   -- audit in docs/multi-user-audit.md). NULL for text and manual rows and for bank screenshots.
   -- Its index/uniqueness is not verifiable through the API: migrations/0002 creates the per-owner
   -- unique key (user_id, image_hash), which is the one the app relies on.
-  image_hash    text
+  image_hash    text,
+  -- Set only for an expense saved through the Pay flow (0004): the commitment the expense belongs to.
+  -- Data, not a foreign key ON PURPOSE: deleting a commitment must keep every expense, and a composite
+  -- FK over (commitment_id, user_id) could not support `on delete set null` beside a NOT NULL user_id.
+  -- The API answers 404 for a commitment that is not the caller's, so a cross-owner link is never made.
+  -- The budget bar leaves these rows out of the month's spend; the balance and month totals keep them.
+  commitment_id uuid
 );
 
 comment on table public.transactions is
@@ -56,7 +62,9 @@ on conflict (id) do nothing;
 -- ---------------------------------------------------------------------------------------------------
 -- 0003: money settings, monthly commitments, per-month totals.
 -- Mirrors migrations/0003_budget_commitments.up.sql, plus the object checks that file makes with `do`
--- blocks (a fresh database has no need to re-verify itself). Nothing here touches public.transactions.
+-- blocks (a fresh database has no need to re-verify itself). The 0004 column on public.transactions
+-- below is the one exception to "nothing here touches public.transactions" — it arrives with this file,
+-- not with a run of 0004, so a database built from this file alone matches what the migrations leave.
 -- ---------------------------------------------------------------------------------------------------
 
 -- One row per user: opening balance and optional monthly budget. Balances are derived from transactions.
@@ -150,6 +158,11 @@ create or replace view public.transaction_totals with (security_invoker = true) 
          date_trunc('month', txn_date)::date as month,
          sum(amount) filter (where type = 'income')  as total_income,
          sum(amount) filter (where type = 'expense') as total_expense,
+         -- The Pay-flow expense (0004): commitment_id is null on every other row. The API subtracts this
+         -- from the same month's total_expense when it builds remaining_budget, and lets the balance
+         -- and the month totals keep counting it.
+         sum(amount) filter (where type = 'expense' and commitment_id is not null)
+             as commitment_expense,
          count(*) as row_count
     from public.transactions
    -- The cast is repeated in the GROUP BY on purpose: Postgres matches a grouped expression by its shape,

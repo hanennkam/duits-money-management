@@ -1555,3 +1555,49 @@ around the same 44px keys; the chosen chip now scrolls into view with the previo
 375×667 (card bottom 466.4px against a keypad top of 467.5px) and 390×844 with nothing scrolling. Currency still
 stamps `MYR` server-side; the client payload keys are unchanged. Merchant carries `spellcheck="false"
 autocorrect="off"`.
+
+## 2026-10-19 — 0004: the Pay expense and the monthly budget bar (SQL + backend + one payload key)
+
+**Branch `feat/budget-balance-commitments`. NOT pushed, and the SQL has NOT been run anywhere by the
+assistant — you run it on staging after a backup (steps below).** The fix for the finding below, agreed with
+the owner in this session. `pytest` at the commit: **331 passed, 21 skipped, 2 warnings** (the session-start
+baseline was 324 passed, 21 skipped), read from the run, and the same numbers hold in a checkout of the
+commit itself and in the working tree beside the owner's uncommitted keypad pass.
+
+**What was wrong.** Paying a commitment saved an ordinary "bills" expense (indistinguishable from any manual
+row) and then `remaining_budget = budget − unpaid − month_expense` moved it twice in opposite directions:
+`unpaid` dropped by the amount and `month_expense` rose by it, so the bar stayed still and the paid bill
+kept eating the budget for as long as every paid bill stayed in `month_expense`. The bar and Safe to spend
+also disagreed about what a bill that has not been paid yet is worth.
+
+**The rule now.** `remaining_budget = budget − (month_expense − month_commitment_expense)`, and `null` when
+no budget. The Pay flow's expense arrives at `/finance/summary` labelled (`commitment_expense`, the slice of
+the month's `total_expense` whose `commitment_id` is set — migrations/0004 adds the column and the view's
+extra output), and the bar subtracts it out. `unpaid` is deliberately not in the bar at all: it is
+Safe-to-spend's figure. Effects: a bill that is not paid yet does not eat the bar; paying a bill cannot
+move the bar (both terms rise by the same amount); Safe to spend is untouched (`balance − unpaid`), and so
+are the balance, the month cards and the categories, which keep counting the Pay expense.
+
+Files: `migrations/0004_commitment_link.up.sql` and `.down.sql` (column + wider view, no FK on purpose —
+deleting a commitment must keep every expense; the API answers 404 for a link that is not the caller's),
+`schema.sql` (mirrors both), `app/db.py` (+ `commitment_expense` in the totals select), `app/finance.py`
+(`month_commitment_expense`, the new `derive`), `app/models.py` (`commitment_id` on create/response),
+`app/main.py` (the 404 ownership check on POST `/transactions`), `app/static/index.html` (one payload key:
+`commitment_id: paying ? paying.id : null` in `saveAdd`), `README.md`, `tests/{test_finance,
+test_endpoints,test_models,test_static}.py`. The wire shape of `/finance/summary` is unchanged; the
+`Transaction` response gained one nullable field.
+
+**Run order — the code is behind the SQL, not ahead of it.** With 0003 tables but no 0004 column, the code
+fails loudly: `GET /finance/summary` 500s (PostgREST: column `commitment_expense` missing) and a Pay save
+is refused (`row contains a value violating: commitment_id` — an unknown column). So: **(1)** backup
+staging; **(2)** run `migrations/0004_commitment_link.up.sql` in the SQL editor in ONE session; **(3)**
+re-run `migrations/staging/verify_after_0003.sql` (still valid — 0004 touches nothing it checks) and check
+the up file's own guards answer clean; **(4)** run the isolation suite; **(5)** only then merge/deploy the
+code. Live gets the same up file after staging behaves for a while. The down file rebuilds the 0003 view
+FIRST and drops the column after — no data-loss acknowledgement needed, because no typed row depends on
+0004; only the links go.
+
+**Not verified (belum disahkan pada peranti):** no iPhone and no real touch — the UI change is one payload
+key, checked by pins and the API tests, not by a finger; no staging and no live database were touched; the
+SQL files were written, not run (the migration SQL tests parse, they cannot execute); the wider-view call
+has not been observed against a real Supabase project.

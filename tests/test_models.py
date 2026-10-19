@@ -2,11 +2,12 @@
 
 import json
 from decimal import Decimal
+from uuid import UUID
 
 import pytest
 from pydantic import ValidationError
 
-from app.models import Extraction, Transaction
+from app.models import Extraction, Transaction, TransactionCreate
 
 GOOD_JSON = """
 {
@@ -59,6 +60,23 @@ def test_row_with_line_items_is_json_serialisable() -> None:
 
     assert row["items"] == [{"name": "Nasi lemak", "qty": 1, "price": 5.5}]
     json.dumps(row)  # the insert payload must survive JSON encoding
+
+
+def test_a_pay_row_carries_the_commitment_link() -> None:
+    """`commitment_id` (0004) rides the same row: the caller's UUID as its string, None by default.
+
+    No FK and no validator on purpose — the route answers 404 for an id that is not the caller's, and
+    the uuid type itself does the rest of the gatekeeping (an arbitrary string is a 422).
+    """
+    pay = TransactionCreate(amount=Decimal("300"), commitment_id=UUID(
+        "22222222-2222-4222-8222-222222222222"
+    )).to_row()
+
+    assert pay["commitment_id"] == "22222222-2222-4222-8222-222222222222"
+    assert json.dumps(pay)  # the insert payload must survive JSON encoding
+
+    plain = TransactionCreate(amount=Decimal("12.50")).to_row()
+    assert plain["commitment_id"] is None  # every non-Pay row keeps the column forever null
 
 
 def test_transaction_response_renders_money_as_a_number() -> None:

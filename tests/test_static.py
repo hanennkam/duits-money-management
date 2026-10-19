@@ -1063,7 +1063,8 @@ def test_the_manual_save_sends_one_payload_whether_or_not_there_is_a_note(client
     """The note always travels under its key, as null when blank, so the payload's keys never change.
 
     A note is stored as raw_extraction.note by the API (there is no column for it). Nothing here adds a key
-    or a shape: the seven keys below are the whole body with or without a note. The browser side of the
+    or a shape: the eight keys below are the whole body with or without a note, and `commitment_id` is
+    null unless the save is the Pay flow's (`paying` holds that link). The browser side of the
     same check is run on the harness, where the two bodies are captured and compared.
     """
     page = client.get("/").text
@@ -1071,8 +1072,11 @@ def test_the_manual_save_sends_one_payload_whether_or_not_there_is_a_note(client
     body = save[save.index("body: JSON.stringify({"):]
     body = body[:body.index("})")]
     keys = re.findall(r"^\s+(\w+):", body, flags=re.M)
-    assert keys == ["amount", "txn_date", "merchant", "category", "type", "mode", "note"]
+    assert keys == [
+        "amount", "txn_date", "merchant", "category", "type", "mode", "note", "commitment_id"
+    ]
     assert 'note: $("addNote").value.trim() || null' in save
+    assert 'commitment_id: paying ? paying.id : null' in save, "the Pay flow's link; none on a plain save"
     assert 'api("/transactions", {' in save and 'method: "POST"' in save
     # currency is not one of them and never was: the browser sends no currency key, the API stamps MYR
     # (models.TransactionCreate.to_row), so removing the sheet's currency pill changed no payload key.

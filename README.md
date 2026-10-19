@@ -273,11 +273,14 @@ Settings keeps the large title alone.
     **Merchant**, **Date** (`Today, 19 Oct 2026`, with the native picker invisibly over the row), **Mode**
     (Personal | Business, the rounded toggle described below) and **Note**. Each row is a label, so a
     tap anywhere on it opens its input. The keypad is the sheet's footer.
-  - The **keypad** is pinned to the bottom: 3 columns and 4 rows of 48-52px keys (never under the 48px
-    tap floor) with 10px gaps, and the amount block above it takes whatever height the keypad leaves.
+  - The **keypad** is pinned to the bottom: 3 columns and 4 rows of 58px keys (48px on a short sheet,
+    never under the 44px tap floor) with 8px gaps, 28px medium digits, and the panel keeps the card's
+    16px side inset so the outer keys line up with the rows above. Its height is capped at four 58px
+    rows, so it never stretches on a tall phone; the height it leaves over is shared between the blocks
+    above instead of pooling in one band, and the amount keeps its 56-64px figure at every size.
     It hides while *Merchant* or *Note* holds the caret, derived from state and never remembered.
-  - The whole screen fits at 390×844 and 430×932 (the card sits 12-14px under the chip row); nothing in
-    Manual scrolls. A 375×667 box is tight enough to scroll a little. The chosen chip scrolls into
+  - The whole screen fits at 390×844 and 430×932 (the card sits 20px under the chip row on 844 and 39px
+    on 932); nothing in Manual scrolls. A 375×667 box is tight enough to scroll a little. The chosen chip scrolls into
     view with part of the previous chip showing when the
     sheet opens or a chip is picked; with nothing chosen the row starts at 0.
   - **Mode** is the row's compact toggle, right-aligned, in the Expense | Income control's style: a
@@ -287,7 +290,9 @@ Settings keeps the large title alone.
     `::after`. It starts on the Home tab's mode.
   - **Note** is the `raw_extraction.note` of the row: the API has no column for it, and the payload's keys
     are the same whether or not a note is typed (`note` is `null` when blank). A row opened from Pay
-    carries the commitment's name as the merchant, the amount, the bills category and an expense.
+    carries the commitment's name as the merchant, the amount, the bills category, an expense, and the
+    commitment's id as `commitment_id` — that id is what keeps the paid bill out of the Monthly budget
+    bar while the balance and the Expenses card keep counting it.
   - **Keyboard.** The sheet lifts for the real keyboard. iOS shrinks only the visual viewport when the
     keyboard opens, so its height — `innerHeight - visualViewport.height - visualViewport.offsetTop` —
     goes into one variable and one CSS variable, `--kb`, which sets each sheet's `bottom` (and every
@@ -379,8 +384,8 @@ The standalone app is edge to edge, in both themes:
   status bar.
 - **When the box is short, the sheet gives height back instead of scrolling.** The insets and the top
   gap are real space (a 375×667 screen has a 592px box), so container queries on
-  the sheet's own box step in: the keypad's chrome gives first (grid gap and padding, with 48px rows —
-  the tap floor), then the amount block shrinks to the figure's line box,
+  the sheet's own box step in: the keypad's chrome gives first (grid padding and a tighter 8px gap, with
+  48px rows — above the tap floor), then the amount block shrinks to the figure's line box,
   then the gaps. A tall phone trips none of them (844 and
   932 give boxes of 760 and 830) and keeps every size it was tuned with. (That was the old 65% Manual;
   the Stitch layout is the full sheet. See the Add section.)
@@ -666,7 +671,7 @@ All of these except `/health` need `Authorization: Bearer <Supabase access token
 | GET | `/health` | – | `{"status": "ok"}` (no auth) |
 | POST | `/transactions/scan` | multipart: `file` (jpg/png/webp), optional `mode` | 201 created transaction |
 | POST | `/transactions/text` | JSON `{"text": "...", "mode": "personal"}` | 201 created transaction |
-| POST | `/transactions` | JSON: `amount` (required), `txn_date` (default today), `merchant`, `category`, `type`, `mode`, `note` | 201 created transaction (422 bad value or unknown field, 409 duplicate) |
+| POST | `/transactions` | JSON: `amount` (required), `txn_date` (default today), `merchant`, `category`, `type`, `mode`, `note`, optional `commitment_id` (the Pay flow's link; must belong to the caller) | 201 created transaction (422 bad value or unknown field, 409 duplicate, 404 unknown/foreign `commitment_id`) |
 | GET | `/transactions?month=YYYY-MM&mode=personal` | – | 200 list, newest first |
 | GET | `/summary?month=YYYY-MM&mode=personal` | – | 200 totals |
 | GET | `/transactions/{id}` | – | 200 one transaction (404 unknown, 422 non-UUID id) |

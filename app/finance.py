@@ -10,8 +10,11 @@ Two rules the rest of the code depends on:
   the balance and the Home hero can never disagree about what a row means. A row stored with a negative
   amount pulls both figures the same way.
 - **A paid commitment leaves the unpaid set; it is never also subtracted again.** The expense the user
-  logged when paying is already in `total_expense` and in the month's spend, so subtracting the commitment
-  as well would take the money twice. That is what `commitment_payments` exists for.
+  logged when paying is already in `total_expense`, so subtracting the commitment as well would take the
+  money twice — that is what `commitment_payments` exists for. The budget bar handles the same expense
+  the other way round: rows saved through the Pay flow carry `commitment_id`, and the bar leaves them
+  out (`month_commitment_expense`), so a paid bill stops eating the budget the moment it is paid and the
+  bills still due are `unpaid`'s job alone.
 """
 
 from __future__ import annotations
@@ -68,14 +71,33 @@ def totals(rows: Iterable[Mapping[str, Any]]) -> tuple[Decimal, Decimal]:
 
 
 def month_expense(rows: Iterable[Mapping[str, Any]], month: str, mode: str) -> Decimal:
-    """One month's expenses for one mode: the spend the remaining budget is measured against.
+    """One month's raw expenses for one mode: every expense row the month holds, Pay flow or not.
 
-    The budget is a monthly spending cap, so it is scoped to the mode the caller is looking at rather
-    than to every row the account holds.
+    This is the spend the balance's month behaves on and what the month cards read. The budget bar
+    measures it less the Pay-flow slice (see `month_commitment_expense`), and is scoped to the mode the
+    caller is looking at rather than to every row the account holds, exactly like this call.
     """
     return sum(
         (
             money(row.get("total_expense"))
+            for row in rows
+            if month_key(row.get("month")) == month and row.get("mode") == mode
+        ),
+        Decimal("0"),
+    )
+
+
+def month_commitment_expense(rows: Iterable[Mapping[str, Any]], month: str, mode: str) -> Decimal:
+    """The slice of one month's expenses that came from the Pay flow, as the totals view labels them.
+
+    The view sums expenses whose `commitment_id` is set into `commitment_expense` (migrations/0004); a
+    null counts as zero, the same way an empty month's total is zero. `remaining_budget` subtracts this
+    from `month_expense`, so a paid bill stops eating the budget — its money is already reflected where
+    it belongs: the balance and `unpaid_commitments`, which drops by the same amount when the mark lands.
+    """
+    return sum(
+        (
+            money(row.get("commitment_expense"))
             for row in rows
             if month_key(row.get("month")) == month and row.get("mode") == mode
         ),
@@ -124,6 +146,7 @@ def derive(
     total_income: Decimal,
     total_expense: Decimal,
     month_expense: Decimal,
+    month_commitment_expense: Decimal,
     unpaid: Decimal,
     monthly_budget: Decimal,
 ) -> dict[str, Decimal | None]:
@@ -131,16 +154,23 @@ def derive(
 
     - `current_balance` = opening + income − expenses, over every mode and every month.
     - `safe_to_spend`   = balance − unpaid commitments: what is left after the bills still to come.
-    - `remaining_budget`= budget − unpaid − this month's spend, and **None when no budget is set**
-      (0 means "not set"), so the UI hides the line instead of showing a meaningless one.
+    - `remaining_budget`= budget − the month's spend **that is not a Pay expense**
+      (`month_expense − month_commitment_expense`), and **None when no budget is set** (0 means
+      "not set"), so the UI hides the line instead of showing a meaningless one. `unpaid` is
+      deliberately NOT in it: the bills still due are already on the same card through `safe_to_spend`,
+      and a bill the owner has not paid yet has not left the account, so subtracting it here would put
+      the same amount on the card twice.
 
-    Paying a commitment moves `unpaid` down by the commitment and `month_expense` (and the balance) up by
-    the same amount, so neither figure jumps when a bill is paid.
+    Paying a commitment therefore cannot move the bar: `month_expense` rises by the amount the Pay
+    expense adds and `month_commitment_expense` rises by the same amount, so the two cancel — and the
+    balance drops by it while `unpaid` does too, which leaves `safe_to_spend` exactly where it was.
     """
     current_balance = opening_balance + total_income - total_expense
     safe_to_spend = current_balance - unpaid
     remaining_budget = (
-        monthly_budget - unpaid - month_expense if monthly_budget > 0 else None
+        monthly_budget - (month_expense - month_commitment_expense)
+        if monthly_budget > 0
+        else None
     )
     return {
         "current_balance": current_balance,
