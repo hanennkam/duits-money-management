@@ -158,12 +158,12 @@ create or replace view public.transaction_totals with (security_invoker = true) 
          date_trunc('month', txn_date)::date as month,
          sum(amount) filter (where type = 'income')  as total_income,
          sum(amount) filter (where type = 'expense') as total_expense,
-         -- The Pay-flow expense (0004): commitment_id is null on every other row. The API subtracts this
-         -- from the same month's total_expense when it builds remaining_budget, and lets the balance
-         -- and the month totals keep counting it.
+         count(*) as row_count,
+         -- The Pay-flow expense (0004), LAST so the column order matches what CREATE OR REPLACE VIEW can
+         -- append to. commitment_id is null on every other row. The API subtracts this from the same
+         -- month's total_expense when it builds remaining_budget, and the balance keeps counting it.
          sum(amount) filter (where type = 'expense' and commitment_id is not null)
-             as commitment_expense,
-         count(*) as row_count
+             as commitment_expense
     from public.transactions
    -- The cast is repeated in the GROUP BY on purpose: Postgres matches a grouped expression by its shape,
    -- so a bare `date_trunc(...)` here with `date_trunc(...)::date` in the select list is rejected.

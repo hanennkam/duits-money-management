@@ -1,12 +1,14 @@
 -- 0004_commitment_link.down.sql
 -- Rollback for 0004_commitment_link.up.sql. Rehearse on staging first (docs/migration-runbook.md).
 --
--- One TO BE dropped column on public.transactions and one column on the view. Rows: none destroyed. The
--- only "data" the rollback loses is the set of links on Pay expenses (commitment_id), and every one of
--- those expenses stays in the table with its amount — the balance, the month totals, the categories and
--- the paid marks are undisturbed. This is why, unlike the 0003 down file, there is no data-loss
--- acknowledgement: nothing the owner typed survives only because of 0004. Run it after 0003's down has
--- run its snapshot, not before (this file neither needs nor restores that snapshot).
+-- It removes two things: the column public.transactions.commitment_id, and the commitment_expense output of
+-- the view public.transaction_totals (by rebuilding the view to its 0003 shape). Rows: none destroyed. The
+-- only "data" the rollback loses is the set of links on Pay expenses, and every one of those expenses stays
+-- in the table with its amount — the balance, the month totals, the categories and the paid marks are
+-- undisturbed. This is why, unlike the 0003 down file, there is no data-loss acknowledgement.
+--
+-- ORDER: run this file BEFORE 0003's down. 0003's down drops public.transaction_totals; running it first
+-- would leave this file nothing to rebuild and no view to reshape. This file does not use 0003's snapshot.
 --
 -- The view is rebuilt to its 0003 shape FIRST, while the column still exists — a view (or anything
 -- else with the column in its definition) holds a dependency that blocks `drop column`, so the view
@@ -24,15 +26,16 @@ declare
   has_column boolean;
   has_view   boolean;
 begin
+  if to_regclass('public.transactions') is null then
+    raise exception 'public.transactions does not exist: this migration cannot run here';
+  end if;
+
   select exists (
     select 1 from information_schema.columns
      where table_schema = 'public'
        and table_name  = 'transactions'
        and column_name = 'commitment_id'
   ) into has_column;
-  if has_column is null then
-    raise exception 'public.transactions does not exist: this migration cannot run here';
-  end if;
 
   select exists (
     select 1 from information_schema.columns

@@ -106,3 +106,18 @@ def test_verify_scripts_never_name_a_maybe_missing_relation_in_code() -> None:
                 "to_regclass(...), or query_to_xml('select count(*) as c from " + name + "', false, true, '') "
                 "inside xpath('//c/text()', ...) with a coalesce for the empty case."
             )
+
+
+def test_the_view_only_appends_columns_after_0003s_order() -> None:
+    """CREATE OR REPLACE VIEW may add columns only at the END: a new one in the middle is 42P16 on staging.
+
+    0003's view ends with row_count, so commitment_expense comes after it, in both the 0004 migration and
+    schema.sql, and the five outputs keep 0003's order ahead of it. Pinned here so a tidy-up cannot move it.
+    """
+    order = ["as month", "as total_income", "as total_expense", "as row_count", "as commitment_expense"]
+    for name in ("migrations/0004_commitment_link.up.sql", "schema.sql"):
+        text = (REPO / name).read_text(encoding="utf-8")
+        block = text[text.index("create or replace view public.transaction_totals"):]
+        block = block[:block.index("group by")]
+        positions = [block.index(part) for part in order]
+        assert positions == sorted(positions), f"{name}: outputs out of order"
