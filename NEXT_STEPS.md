@@ -27,6 +27,7 @@ Prepared after the auth-screen polish on branch `multi-user`. Read this before t
 | Phase 2, step 2a — budget, balance, commitments (SQL + API) | **Done; staging run reported clean by the owner** (up → verify → isolation suite → down → verify → up). Not observed by the assistant. See the 2a section. |
 | Phase 2, step 2b — the money UI | **Done, measured in desktop Chromium with the network stubbed; nothing has been on a phone or against staging.** The suite printed `296 passed, 21 skipped` then and prints `300 / 21` now. See the 2b section and the phone checklist at the end of this file. |
 | Phase 2, step 2b — Home reworked to the reference layout | **Done, measured in desktop Chromium at 390px and 375px in both themes; no phone and no real touch.** `300 passed, 21 skipped`. The four money states, the deleted card and where its breakdown still lives are recorded in the "Home reworked" section at the end. |
+| Phase 2, step 2c — the balance card: anchor, breakdown, budget offer (UI only) | **Done, measured in desktop Chromium at 390px in both themes; no phone and no real touch.** `306 passed, 21 skipped`. The five money states, the two new sheets and the anchor's round trip are recorded in the 2c section at the end. |
 
 ## Phase 1 — the Add Transaction chooser (UI only)
 
@@ -1328,3 +1329,109 @@ floor, the target-based guards and the sheet's opacity rule are pinned in the pa
 screenshot**, because this machine had no visible browser window for `browser.screenshot` to capture; no staging and
 no live database, so every figure above is the stub's; nothing saved through Settings in this pass; and the two
 rewritten items in the phone checklist above are still unrun.
+
+## 2026-10-19 — the balance card: the anchor, the breakdown, the budget offer (UI only)
+
+**Branch `feat/budget-balance-commitments`, UI only: `app/static/index.html`, `tests/test_static.py`,
+`tests/test_page_auth.py`.** No `app/*.py`, no `schema.sql`, no `migrations/`, no `.env*`, no API and no SQL
+change, nothing pushed, nothing touched on live or staging. This section replaces the first-run checklist that was
+proposed for this screen: that idea is dropped, and the card now asks for one figure instead.
+
+**The problem it answers.** The Balance is the all-time figure across every month and both modes, while the two
+cards under it are this month and one mode, so the three numbers never reconciled on their own. And with
+`opening_balance` still 0 the card showed a large negative number that read like a fact about the owner's money.
+
+**What the card is now.**
+1. **No opening balance yet (`opening_balance == 0`):** the card is titled `Set your balance`, carries one line
+   (`Tell us how much money you have right now. We keep track from there.`) and one primary button. No figure, no
+   Safe to spend — the whole figure area is `hidden`, so nothing on the card can be misread as a balance.
+2. **The anchor sheet** asks exactly one question (`How much money do you have right now?`, `type="text"`
+   `inputmode="decimal"`, 16px, comma and sign tolerant) and shows what will be stored before it is stored:
+   `Starting balance will be RM x`, where `x = typed − total_income + total_expense`, computed in **integer cents**
+   (`toCents`/`openingFor`), so the preview and the save cannot disagree. The save is the existing
+   `PUT /finance/settings { opening_balance: x }`.
+3. **With a balance set, the whole figure area is one real `<button id="balanceTap">`** (≥44px, accessible name
+   `Balance RM 1,400.00. How this is calculated`) opening the **breakdown sheet**: `Starting balance`,
+   `+ Income (all months, all modes)`, `− Expenses (all months, all modes)`, `= Balance`, `Bills still due this
+   month`, `= Safe to spend`, the one line that explains why they differ from the month cards, `Edit my balance`
+   (the anchor again, stacked over the list) and `Settings · Money`. Every figure is the API's own.
+4. **The two half cards say which month they are:** `Income · this month` and `Expenses · this month` (the mode is
+   still the header's toggle).
+5. **No budget yet (`monthly_budget == 0`):** the same slot offers one — a dashed card, `Set a monthly budget
+   (optional)`, a button to the one-field sheet (`PUT /finance/settings { monthly_budget }`), and the same caption,
+   `Monthly limit, separate from your balance.` With a budget the real card is unchanged.
+6. **Read failure:** `—` in the hero, `Not available right now.` and a **`Try again`** row that re-runs only
+   `/finance/summary`. The figure area is present but `disabled` (there is no breakdown to draw), and the
+   not-set prompt is not shown: unreachable is a different thing to unset.
+7. **Settings → Money** gained one helper line under Opening balance:
+   `Tip: use 'Set your balance' on Home if you are not sure what to enter.`
+
+**Measured, desktop Chromium, harness `http://127.0.0.1:8771/frame/390x844?state=…`, 390px wide, both themes,
+no sideways overflow in any state (0px).**
+
+| state (URL suffix) | what it is | measured |
+| --- | --- | --- |
+| `?state=setup` (a) | brand new: no balance, no budget | `Set your balance` card, no figure (the tap area is `hidden`, 0×0), button 321×50 @17px; the dashed budget offer with its 321×50 button and the caption; the real budget card `hidden`; both labels read `… · this month` |
+| `?state=zero` (b) | balance set, no budget | `RM 900.00` @50px, Safe to spend `RM 845.10`, `RM 54.90 still due this month`, tap area 321×134; the offer is dashed in both themes (`rgba(60, 60, 67, .18)` light, `rgba(84, 84, 88, .6)` dark) |
+| `?state=under` (c) | everything set, under budget | breakdown opens with six rows from the reply — `RM 500.00`, `RM 1,200.00`, `−RM 800.00`, `= RM 900.00`, `−RM 54.90`, `= RM 845.10` — the note, and both links at 326×44 |
+| `?state=over` (d) | over budget | `−RM 50.00`, pill `−RM 325.00`, draw at `--danger` (dark `rgb(255, 69, 58)`, light `rgb(186, 26, 26)`), `100% of RM 1,000.00`, `RM 250.00 over budget`, bar `aria-valuenow="100"` |
+| `?state=fail` (e) | `/finance/summary` answers 500 | `—` in the hero, `Not available right now.`, `Try again` 64×44, the tap area `disabled`, no budget card and no offer; the month cards, the rows and the list are untouched |
+
+**The three destinations inside the breakdown sheet (state `under`), one click each:**
+- **`Edit my balance`** opens the anchor sheet *over* the breakdown (breakdown still open underneath; **0 requests**).
+  `Cancel` closes the anchor and leaves the breakdown in place (settles in ~500ms, the usual close animation).
+- **`Settings · Money`** closes the breakdown, shows Settings with the Money section in view, both fields filled
+  (`1000.00` / `2000.00`). The only requests are that screen's own two: `GET /finance/settings` and
+  `GET /commitments?month=2026-10`.
+- **The `Bills still due this month` row** closes the breakdown and opens the commitments sheet (one request,
+  `GET /commitments?month=2026-10`; 3 rows; `October 2026 · RM 54.90 still due`). That row is the commitments
+  sheet's way in now that the card itself opens the breakdown.
+
+**`Try again` (state `fail`), requests per click: exactly 1 — `GET /finance/summary?month=2026-10&mode=personal`
+and nothing else.** With the API answering again the card repaints in place: `RM 1,400.00`, `RM 945.10`,
+`RM 54.90 still due this month`, the retry row hides again, the tap area is re-enabled, and the budget card comes
+back at `65% of RM 2,000.00`. (Harness caveat: the `fail` state has no finance object at all, so the first retry
+was answered with a `null` body — one request, and the page stayed in its error state rather than crashing visibly.
+The second retry, against a real-shaped body, is the one recorded above.)
+
+**The anchor's round trip, measured in state `setup`:** typing `1250.00` previewed `Starting balance will be
+RM 850.00`; `Save` sent `PUT /finance/settings {"opening_balance": 850}`, then one `GET /finance/summary` — and the
+card read **`RM 1,250.00`**, the figure the owner typed. Preview cases: `1,250 → RM 850.00`, `-80 → −RM 480.00`,
+`0.10 → −RM 399.90` (the drift case, exact), `abc`/empty → the hint line instead of a figure. The field computes
+**16px** (a bare `.money-field-input` rule lost to `.field`'s later `font: inherit` and computed 17px; the selector
+is now `.sheet .money-field-input`, and 17px would still be above the 16px zoom floor, so nothing ever zoomed).
+
+**The edge case, stated rather than hidden:** an anchor that computes to **exactly 0** is saved as computed and
+never nudged (no `x − 0.01`). `opening_balance == 0` is also the only signal for "not set", so the card then goes
+back to asking for the balance. That is honest — the prompt is one tap from being redone — and it is very unlikely
+to be reached, because the figure the owner types gets the month's income and spending added back out of it.
+
+**Tests.** `306 passed, 21 skipped` (baseline was `304 passed, 21 skipped`). The seven pins that went stale with
+the redesign were rewritten, not added; two tests are new: the anchor maths (a **Python mirror** of the JS
+`toCents`/`openingFor` — the page's JS is neither exported nor executed by the suite, so the mirror is kept honest
+by three string pins on the formula; cases: negative typed, `0.1 + 0.2`, `12,345,678.90`, exactly zero, comma
+tolerance, unreadable input) and the registration of the two new sheets (`openOverlay`/`attachSheetDrag`/
+`isOutsideTap`, the 16px field, the six breakdown rows).
+
+**One fragile pin was repaired, not a regression.** `test_sign_out_clears_the_session_and_the_cached_rows` read
+`clearCaches` through a fixed 1400-character slice; the six lines this pass added pushed `hideBudget();` past it
+and the test failed while nothing about sign-out changed. It now takes the whole function with a brace-matching
+helper (`function_body`), and pins the balance card's three reset nodes too.
+
+**Not verified:** **no iPhone and no real touch** — every interaction above is a DOM `click`/`input` event
+dispatched inside the harness iframe in desktop Chromium, so nothing here is a swipe, a keyboard, a zoom or a
+safe-area measurement; no real API, no staging and no live database (every figure is the stub's); nothing saved
+through the real backend; the anchor maths test mirrors the JS rather than running it; and `showMoneySettings`'
+smooth scroll settles with the Money section 6px above the viewport top (pre-existing, unrelated to this pass, and
+it leaves the helper line fully visible).
+
+**For the phone pass (unrun, on a real iPhone):**
+1. **The anchor.** Fresh account (or Settings → Money, empty the opening balance): tap `Set your balance`, type
+   `1250`, check the preview says `Starting balance will be RM 850.00` and that the keyboard does not zoom the
+   page (16px field), then `Save` — the card should read `RM 1,250.00` and the sheet should be gone.
+2. **The breakdown.** Tap the Balance figure: the sheet must open with a tap anywhere on the area (label, number,
+   pill or the line under it), drag down from the header must dismiss it, and `Edit my balance` must stack the
+   anchor over it and come back.
+3. **The budget offer and the retry.** With no budget, check the dashed card and that the button opens the
+   one-field sheet; kill the connection (or leave the tab offline) and reopen Home to see `Try again` — tapping it
+   once must repaint the card without a full reload.
