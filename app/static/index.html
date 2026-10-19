@@ -490,6 +490,8 @@
   .whats-new-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
   .whats-new-dot.is-on { background: var(--accent); }
   .whats-new-next { width: 100%; }
+  /* The action: a plain secondary button, the app's own, so it is a 44px target like every other. */
+  .whats-new-action { width: 100%; }
 
   /* The (i) beside "Safe to spend": it says the card opens the sheet that spells the figure out. It is
      decoration inside the card's own button, so it carries no name of its own — the button's label
@@ -1673,6 +1675,14 @@
         <div class="setting-row"><span class="setting-label">Build</span><span class="setting-value" id="buildValue">{{BUILD}}</span></div>
         <div class="row-divider"></div>
         <div class="setting-row"><span class="setting-label">Date format</span><span class="setting-value">DD/MM/YYYY</span></div>
+        <div class="row-divider"></div>
+        <!-- The way back into the notes, for a user who skipped them or wants to read them again. It
+             opens the card whatever the stored version says: this is a deliberate request, not the
+             one-shot nudge that appears by itself. -->
+        <button class="setting-row" id="whatsNewBtn" type="button">
+          <span class="setting-label">What&rsquo;s new</span>
+          <svg class="setting-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
+        </button>
       </div>
       <p class="footnote">Add to Home Screen for the full-screen app view: no Safari chrome, and the page paints behind the status bar and the home indicator.</p>
     </div>
@@ -3273,6 +3283,7 @@
   var WHATS_NEW_SCREENS = [
     {
       title: "Balance and safe to spend",
+      action: "balance",
       formula: "Balance: your starting balance, plus income, minus expenses.",
       lines: [
         "Your balance is the money you have, after everything you have spent, over every month and in both Personal and Business.",
@@ -3282,6 +3293,7 @@
     },
     {
       title: "Commitments",
+      action: "commitment",
       formula: null,
       lines: [
         "Commitments are your fixed monthly bills. Add them in Settings, and they appear under Bills due this month.",
@@ -3291,6 +3303,7 @@
     },
     {
       title: "Monthly budget",
+      action: "budget",
       formula: "Budget left: your budget, minus this month\u2019s spending, plus the bills you have already paid.",
       lines: [
         "Set a monthly budget in Settings, and Home shows a bar of what is left for the month.",
@@ -3329,6 +3342,8 @@
         ? '<span class="whats-new-formula">' + escapeHtml(screen.formula) + "</span>"
         : "") +
       screen.lines.map(function (line) { return "<p>" + escapeHtml(line) + "</p>"; }).join("") +
+      '<button class="btn-secondary whats-new-action" id="whatsNewActionBtn" type="button">' +
+      escapeHtml(whatsNewActionLabel(screen.action)) + "</button>" +
       "</div>";
     $("whatsNewDots").innerHTML = WHATS_NEW_SCREENS.map(function (unused, index) {
       return '<span class="whats-new-dot' + (index === whatsNewIndex ? " is-on" : "") + '"></span>';
@@ -3354,6 +3369,36 @@
     if (whatsNewIndex >= WHATS_NEW_SCREENS.length - 1) { closeWhatsNew(); return; }
     whatsNewIndex += 1;
     paintWhatsNew();
+  }
+
+  // Each screen's action opens a sheet that already exists — no new screen is built here. The
+  // balance is the one that changes: with a balance already set, the card's own "How this is
+  // calculated" sheet is the useful thing, and the ask for a figure is not.
+  function whatsNewActionLabel(action) {
+    if (action === "balance") {
+      return openingIsSet(financeSummary) ? "How this is calculated" : "Set my balance";
+    }
+    if (action === "commitment") return "Add a bill";
+    return "Set a budget";
+  }
+
+  // Close first, then open: the two sheets must not be on screen at once, and the app's own way of
+  // stacking one sheet on another (openBillsFromBalance) does it in this order.
+  function runWhatsNewAction() {
+    var action = WHATS_NEW_SCREENS[whatsNewIndex].action;
+    closeOverlay($("whatsNewOverlay"), function () {
+      if (action === "balance") {
+        if (openingIsSet(financeSummary)) { openBalanceSheet(); return; }
+        openMoneyField("balance");
+        return;
+      }
+      if (action === "commitment") {
+        openCommitSheet();
+        toggleCommitForm($("commitNewBtn"));   // the sheet opens with the add form ready
+        return;
+      }
+      openMoneyField("budget");
+    });
   }
 
   // Shown once per version, and only after the user is actually in: the sign-in, set-password and
@@ -5361,6 +5406,12 @@
     // it too — all three ways out write the version, so the sheet never comes back for this version.
     $("whatsNewSkipBtn").addEventListener("click", closeWhatsNew);
     $("whatsNewNextBtn").addEventListener("click", nextWhatsNew);
+    // The action button is inside the body, which is re-rendered on every screen, so the body is
+    // the one thing to listen on — the same shape the other re-rendered sheets use.
+    $("whatsNewBody").addEventListener("click", function (event) {
+      var hit = event.target.closest ? event.target.closest("#whatsNewActionBtn") : null;
+      if (hit) runWhatsNewAction();
+    });
     $("whatsNewOverlay").addEventListener("click", function (event) {
       if (isOutsideTap(event, $("whatsNewOverlay"))) closeWhatsNew();
     });
@@ -5409,6 +5460,9 @@
     });
     attachSheetDrag("moneyFieldSheet", "moneyFieldOverlay", closeMoneyField, false);
     $("commitmentsBtn").addEventListener("click", openCommitSheet);
+    // The way back into the notes. It opens the card even when the stored version says the user has
+    // read it — this is a deliberate request, and it must not write the version on the way in.
+    $("whatsNewBtn").addEventListener("click", function () { openWhatsNew(); });
     $("insightCats").addEventListener("click", function (event) {
       var hit = event.target.closest ? event.target.closest("#insightCatToggle") : null;
       if (hit) toggleInsightCategories();

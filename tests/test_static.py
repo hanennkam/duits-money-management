@@ -1390,3 +1390,64 @@ def test_the_safe_to_spend_info_mark_asks_the_card_it_sits_on(client: TestClient
     # No handler of its own, and no second way into the sheet.
     assert "safe-pill-info" not in page[page.index("function wire() {"):]
     assert '$("balanceTap").addEventListener("click", openBalanceSheet);' in page
+
+
+def test_each_whats_new_screen_has_an_action_that_opens_the_sheet_that_exists(
+    client: TestClient,
+) -> None:
+    """Each screen's button opens a sheet the app already has — no new screen is built for the card.
+
+    Balance opens the one-field balance sheet, or the "How this is calculated" breakdown when a
+    balance is already set; Commitments opens the commitments sheet with the add form ready; Monthly
+    budget opens the one-field budget sheet. The card closes first, so the two sheets are never on
+    screen together, and the way the app stacks one sheet on another does it in this order.
+    """
+    page = client.get("/").text
+    block = page[page.index("var WHATS_NEW_SCREENS = ["):page.index("var whatsNewIndex = 0;")]
+    assert block.count("action:") == 3, "every screen has an action"
+    assert 'action: "balance"' in block
+    assert 'action: "commitment"' in block
+    assert 'action: "budget"' in block
+    # The label, and the one that changes with the state: a balance that is already set has nothing
+    # to ask for, so the breakdown is the useful thing.
+    label = page[page.index("function whatsNewActionLabel(action) {"):page.index("function runWhatsNewAction()")]
+    assert 'openingIsSet(financeSummary) ? "How this is calculated" : "Set my balance"' in label
+    assert 'if (action === "commitment") return "Add a bill";' in label
+    assert 'return "Set a budget";' in label
+    # The action opens the sheets that exist, through their own openers.
+    run = page[page.index("function runWhatsNewAction() {"):page.index("// Shown once per version")]
+    assert 'openMoneyField("balance")' in run
+    assert "openBalanceSheet()" in run
+    assert "openCommitSheet()" in run
+    assert 'toggleCommitForm($("commitNewBtn"))' in run, "the add form is open when the sheet is"
+    assert 'openMoneyField("budget")' in run
+    # The card closes before the other sheet opens, so the two are never on screen together.
+    assert run.index("closeOverlay(") < run.index('openMoneyField("balance")')
+    assert 'closeOverlay($("whatsNewOverlay"), function () {' in run
+    # The button lives in the body, which is re-rendered on every screen, so the body listens for it.
+    assert '$("whatsNewBody").addEventListener("click", function (event) {' in page
+    assert 'event.target.closest("#whatsNewActionBtn")' in page
+    assert "if (hit) runWhatsNewAction();" in page
+    # A 44px target, the app's own secondary button.
+    assert 'class="btn-secondary whats-new-action"' in page
+    assert "min-height: 44px" in page[page.index(".btn-secondary {"):page.index(".btn-secondary:active")]
+
+
+def test_settings_has_a_row_that_opens_the_whats_new_card_again(client: TestClient) -> None:
+    """Settings > About carries a "What's new" row that opens the card whenever the user wants it.
+
+    The row opens the card even when the stored version says the user has read it: that is the
+    difference between the one-shot nudge that appears by itself and a deliberate request. It must
+    not write the version on the way in either.
+    """
+    page = client.get("/").text
+    assert 'id="whatsNewBtn"' in page
+    about = page[page.index('class="form-label settings-heading">About</h3>'):]
+    about = about[:about.index("</div>\n      <p class=\"footnote\">Add to Home Screen")]
+    assert 'id="whatsNewBtn"' in about, "the row is in the About section"
+    assert "What&rsquo;s new" in about
+    # It opens the card directly — not through the once-per-version path.
+    assert '$("whatsNewBtn").addEventListener("click", function () { openWhatsNew(); });' in page
+    open_call = page[page.index("function openWhatsNew() {"):page.index("// Every way out of the sheet")]
+    assert 'openOverlay($("whatsNewOverlay"));' in open_call
+    assert "rememberWhatsNew" not in open_call, "opening it does not mark the version as read"
