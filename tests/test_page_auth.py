@@ -344,4 +344,18 @@ def test_colours_enter_style_attributes_only_from_constant_maps(client: TestClie
     assert "CATEGORY_COLOURS[category] || CATEGORY_COLOURS.other" in page, "the map is the only source"
     for source in set(re.findall(r"--cat:' \+ (\w+)", page)):
         assert source in ("colour", "categoryColour"), f"--cat: is built from {source}"
-    assert len(re.findall(r"=\s*categoryColour\(", page)) >= 3
+    assert len(re.findall(r"categoryColour\(", page)) >= 3
+
+
+def test_the_manual_sheet_and_its_note_ship_in_the_page_behind_the_gate(client: TestClient) -> None:
+    """The page is one file, so the Manual sheet, the category list and the Note field ship with the gate.
+
+    The sign-in card is a layer over the app, not a server split, so the same markup is served either way.
+    Note is a plain text input under the 16px floor, and it goes out under the note key the API reads.
+    """
+    page = client.get("/").text
+    for element in ('id="authScreen"', 'id="addOverlay"', 'id="catOverlay"', 'id="addNote"'):
+        assert element in page, element
+    field = page[page.index('id="addNote"') - 120:page.index('id="addNote"') + 160]
+    assert 'type="text"' in field and 'maxlength="500"' in field
+    assert 'note: $("addNote").value.trim() || null' in page

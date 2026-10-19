@@ -96,7 +96,7 @@ def test_the_add_sheet_opens_on_a_two_option_chooser(client: TestClient) -> None
     opened = page[page.index("function openAddSheet("):page.index("function closeAddSheet(")]
     assert 'showAddView("chooser")' in opened, "a fresh sheet must start on the chooser"
     assert "function showAddView(view)" in page
-    assert 'if (view === "manual") showManualStep("amount");' in page, "Manual opens on step 1"
+    assert 'if (view === "manual") $("manualBody").scrollTop = 0;' in page, "Manual opens at its top"
     assert '$("saveAddBtn").hidden = view !== "manual";' in page
 
 
@@ -140,9 +140,9 @@ def test_each_flow_returns_to_the_chooser_and_cancel_leaves_the_sheet(client: Te
     assert 'addEventListener("click", function () { showAddView("ai"); })' in page
     assert 'id="closeAddBtn"' in page
     assert '$("closeAddBtn").addEventListener("click", closeAddSheet);' in page
-    # Two sheets were added with the balance breakdown (the breakdown itself and the one-field anchor),
-    # so the guard now appears on six overlays; each still closes its own sheet.
-    assert page.count('isOutsideTap(event, $("') == 6, "the scrim still closes the sheet"
+    # Two sheets were added with the balance breakdown (the breakdown itself and the one-field anchor), and
+    # the category list joins them, so the guard now appears on seven overlays; each still closes its own.
+    assert page.count('isOutsideTap(event, $("') == 7, "the scrim still closes the sheet"
     # Back takes the keyboard with it, or the chooser returns under a keyboard with nothing to type into
     back = page[page.index("function reverseAddView("):page.index("function reverseAddView(") + 400]
     assert "active.blur()" in back
@@ -186,7 +186,8 @@ def test_the_detail_sheet_swipes_and_keeps_its_old_edit_buttons(client: TestClie
     for surface in (".kv", ".card-title", ".sheet-title", ".sheet-amount", ".sheet"):
         assert surface in surfaces, surface + " must be able to start a swipe"
     # the gate: a sheet that scrolls keeps its own gesture until it is back at the top
-    assert "if (sheet.scrollTop > 0) return;" in page
+    assert "if (sheet.scrollTop > 0 || scrolledInside(sheet)) return;" in page
+    assert "function scrolledInside(sheet)" in page
     assert '$("txnSheet").scrollTop = 0;' in page, "a fresh or closed sheet must start at the top"
     # the surfaces the browser must not treat as a pan
     assert "#txnSheet .kv, #txnSheet .card-title { touch-action: none; }" in page
@@ -257,7 +258,8 @@ def test_the_sheet_tap_guards_are_target_based(client: TestClient) -> None:
     # the breakdown's own content is replaced on every render, so a detached-node guard would fail there.
     assert 'if (isOutsideTap(event, $("balanceOverlay"))) closeBalanceSheet();' in page
     assert 'if (isOutsideTap(event, $("moneyFieldOverlay"))) closeMoneyField();' in page
-    assert page.count("isOutsideTap(event, $(") == 6, "all six overlays must use the guard"
+    assert page.count("isOutsideTap(event, $(") == 7, "all seven overlays must use the guard"
+    assert 'if (isOutsideTap(event, $("catOverlay"))) closeCatSheet();' in page
 
 
 def test_the_drag_waits_for_the_threshold_before_capturing(client: TestClient) -> None:
@@ -984,50 +986,98 @@ def test_the_name_merchant_and_note_inputs_keep_autocomplete_off(client: TestCli
         assert 'autocomplete="off"' in tag, element
 
 
-def test_the_manual_sheet_is_two_steps_at_65_percent_height(client: TestClient) -> None:
-    """Manual is 65dvh and splits into an amount step and a details step, one on screen at a time.
+def test_the_manual_sheet_is_one_screen_with_a_four_row_card(client: TestClient) -> None:
+    """Manual is one screen, top to bottom, in the reference order.
 
-    Step 1 carries the type, the amount and the three pills, and the keypad sits under it. Step 2 is
-    Merchant, Note and the chips; it has no keypad, so the real keyboard has the room. The Details pill
-    goes forward, its own Back comes back, and every open starts on step 1.
+    Type and Back, the amount and its currency, the category row, then the four-row card: Merchant, Date,
+    Mode and Note. The Details step is gone, and every field it held sits on this screen. Only the middle
+    of the sheet can scroll; the keypad is the sheet's footer and never moves.
     """
     page = client.get("/").text
-    # 65% of the dynamic viewport: dvh, never vh
-    assert "#addSheet.is-manual { height: 65dvh; }" in page
-    assert "65vh" not in page, "the sheet must follow the dynamic viewport, not the static one"
-    assert '$("addSheet").classList.toggle("is-manual", view === "manual");' in page
-    # the two steps exist, one of them hidden, each its own flex column inside the manual section
-    assert '<div class="manual-step" id="manualStepAmount">' in page
-    assert '<div class="manual-step" id="manualStepDetails" hidden>' in page
-    assert ".manual-step { display: flex; flex-direction: column; flex: 1; min-height: 0; }" in page
-    assert "add-details" not in page, "the old inline expansion is gone"
-    # step 1 holds the amount and every pill, including Details; step 2 holds the fields and chips
-    step1 = page[page.index('id="manualStepAmount"'):page.index('id="manualStepDetails"')]
-    for element in ('id="addTypeToggle"', 'id="addAmount"', 'id="addDate"', 'id="addModePill"',
-                    'id="addDetailsPill"'):
-        assert element in step1, element
-    step2 = page[page.index('id="manualStepDetails"'):page.index('<section id="screen-ai"')]
-    for element in ('id="addMerchant"', 'id="addNote"', 'id="addChips"'):
-        assert element in step2, element
-    assert 'id="addDetailsPill"' not in step2 and 'id="addAmount"' not in step2
-    # Details goes forward, step 2's Back comes back, and the step swap is one function
-    assert '$("addDetailsPill").addEventListener("click", function () { showManualStep("details"); });' in page
-    assert '$("addBackDetails").addEventListener("click", function () { showManualStep("amount"); });' in page
-    swap = page[page.index("function showManualStep(step)"):page.index("function updateKeypadVisibility()")]
-    assert '$("manualStepAmount").hidden = manualStep !== "amount";' in swap
-    assert '$("manualStepDetails").hidden = manualStep !== "details";' in swap
-    assert 'focusWithoutScroll($("addMerchant"));' in swap, "step 2 puts the caret in Merchant"
-    # the two fields of the new step are touch targets: 44px, still on 16px
-    assert ".add-fields > .add-field { min-height: 44px; }" in page
-    # the keypad is for the amount only: not in step 2, and not while a text field has the caret
+    assert "65dvh" not in page and "65%" not in page, "the sheet is full height now"
+    assert "showManualStep" not in page and "manualStep" not in page, "the two steps are gone"
+    assert "addDetailsPill" not in page and "addBackDetails" not in page
+    manual = page[page.index('<section id="screen-add" hidden>'):page.index("<!-- 3. AI")]
+    order = [manual.index(marker) for marker in (
+        'id="addBackManual"', 'id="addTypeToggle"', 'id="addAmount"', 'id="addCatViewAll"',
+        'id="addChips"', 'class="add-card"')]
+    assert order == sorted(order), "the rows must read top to bottom in the reference order"
+    assert 'class="manual-body sheet-scroll" id="manualBody"' in manual
+    assert 'class="add-caret"' in manual and "Malaysian Ringgit" in manual
+    assert ">View All<" in manual and ">Category<" in manual
+    card = manual[manual.index('class="add-card"'):]
+    for label in (">Merchant<", ">Date<", ">Mode<", ">Note<"):
+        assert label in card, label
+    for element in ('id="addMerchant"', 'id="addDate"', 'id="addModeToggle"', 'id="addNote"'):
+        assert element in card, element
+    assert "Scan Receipt" not in manual, "Scan Receipt stays in the AI view"
+    assert 'data-add-mode="personal"' in manual and 'data-add-mode="business"' in manual
+    # touch targets: the new controls are 44px, and the inputs keep the 16px floor
+    assert ".add-type .seg-btn, .add-mode .seg-btn { min-height: 44px; }" in page
+    assert ".add-back-icon {\n    flex: none; width: 44px; height: 44px;" in page
+    assert "min-height: 44px; padding: 0 16px 0 12px;" in page, "the category chips are 44px"
+    assert "font: inherit; font-size: 16px; color: var(--text-2);" in page
+    # Back sits beside the type control; the Details pill and its step are not in the markup any more
+    back = manual[manual.index('class="add-back-icon"'):manual.index('id="addTypeToggle"')]
+    assert "add-back-icon" in back and 'aria-label="Back to the chooser"' in back
+    # the keypad hides while Merchant or Note holds the caret, and only then
     keys = page[page.index("function updateKeypadVisibility()"):page.index("function keypadHtml()")]
-    assert '$("addKeypad").hidden = !(addView === "manual" && manualStep === "amount" && !manualFieldFocused);' in keys
+    assert "$(\"addKeypad\").hidden = !(addView === \"manual\" && !manualFieldFocused);" in keys
     assert 'manualFieldFocused = true; updateKeypadVisibility();' in page
     assert 'manualFieldFocused = false; updateKeypadVisibility();' in page
-    # the prefilled Pay sheet stays on step 1 and leaves the merchant for step 2
+    # the prefilled Pay sheet fills the merchant in the card, for the user to check
     prefill = page[page.index("function applyAddPrefill("):page.index("function closeAddSheet(")]
     assert '$("addMerchant").value = prefill.merchant || "";' in prefill
-    assert "classList.add(\"is-open\")" not in prefill
+    # the sheet is still a registered overlay: it opens with openOverlay and swipes with attachSheetDrag
+    assert 'openOverlay($("addOverlay"));' in page
+    assert 'attachSheetDrag("addSheet", "addOverlay", closeAddSheet, false);' in page
+
+
+def test_the_manual_save_sends_one_payload_whether_or_not_there_is_a_note(client: TestClient) -> None:
+    """The note always travels under its key, as null when blank, so the payload's keys never change.
+
+    A note is stored as raw_extraction.note by the API (there is no column for it). Nothing here adds a key
+    or a shape: the seven keys below are the whole body with or without a note. The browser side of the
+    same check is run on the harness, where the two bodies are captured and compared.
+    """
+    page = client.get("/").text
+    save = page[page.index("async function saveAdd("):page.index("/* ---------- transaction sheet")]
+    body = save[save.index("body: JSON.stringify({"):]
+    body = body[:body.index("})")]
+    keys = re.findall(r"^\s+(\w+):", body, flags=re.M)
+    assert keys == ["amount", "txn_date", "merchant", "category", "type", "mode", "note"]
+    assert 'note: $("addNote").value.trim() || null' in save
+    assert 'api("/transactions", {' in save and 'method: "POST"' in save
+
+
+def test_view_all_opens_the_full_category_list_over_the_add_sheet(client: TestClient) -> None:
+    """View All opens a plain sheet with every category; a tap picks it and closes the list only."""
+    page = client.get("/").text
+    assert 'id="catOverlay"' in page and 'id="catSheet"' in page
+    assert page.index('id="addOverlay"') < page.index('id="catOverlay"') < page.index('id="txnOverlay"'), (
+        "the list sits above the Add sheet and stacks by DOM order, like the other overlays"
+    )
+    assert '$("addCatViewAll").addEventListener("click", openCatSheet);' in page
+    assert 'attachSheetDrag("catSheet", "catOverlay", closeCatSheet, false);' in page
+    assert '$("catDoneBtn").addEventListener("click", closeCatSheet);' in page
+    assert "pickCategory(row.dataset.catRow);" in page
+    pick = page[page.index("function pickCategory("):page.index("function pickCategory(") + 160]
+    assert "toggleAddCategory(category);" in pick and "closeCatSheet();" in pick
+    opened = page[page.index("function openCatSheet()"):page.index("function closeCatSheet(")]
+    assert "paintCatList();" in opened and 'openOverlay($("catOverlay"));' in opened
+    assert "pageBehind" not in opened
+
+
+def test_the_chips_show_every_category_in_one_scrolling_row(client: TestClient) -> None:
+    """The category row is one horizontal strip of the app's own categories, in their own order."""
+    page = client.get("/").text
+    assert "var CATEGORIES = [\"food\", \"transport\", \"groceries\", \"bills\", \"shopping\", \"health\"," in page
+    chips = page[page.index("function paintAddChips()"):page.index("function paintAddToggle(")]
+    assert "CATEGORIES.map(" in chips and "categoryIcon(category)" in chips
+    assert 'class="cat-chip' in chips and "is-on" in chips
+    strip = page[page.index("  .chip-scroll {\n"):page.index("  .chip-scroll {\n") + 300]
+    assert "overflow-x: auto" in strip and "scrollbar-width: none" in strip, "one row, scrollbar hidden"
+    assert ".cat-chip.is-on { background: var(--accent); color: var(--on-accent); }" in page
 
 
 def test_the_keyboard_lifts_the_sheet_and_centres_the_focused_field(client: TestClient) -> None:
@@ -1070,8 +1120,8 @@ def test_the_keyboard_lifts_the_sheet_and_centres_the_focused_field(client: Test
         )
     # the centring scrolls the sheet's own box only, after the keyboard has had time to settle
     centre = page[page.index("function centreFocusedField()"):page.index("function resetKeyboard()")]
-    assert 'var sheet = field.closest(".sheet");' in centre
-    assert "sheet.scrollTop +=" in centre
+    assert 'var scroller = field.closest(".sheet-scroll") || field.closest(".sheet");' in centre
+    assert "scroller.scrollTop +=" in centre
     assert "window.scroll" not in centre and "documentElement.scrollTop" not in centre
     assert "centreTimer = setTimeout(centreFocusedField, 300);" in page
     # focus is the trigger, by delegation, and it still keeps the page from panning to "help"
