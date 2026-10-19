@@ -496,8 +496,13 @@ def test_the_calculation_sheet_is_the_short_list_and_a_pencil(client: TestClient
     assert "These totals include every month" not in page
     assert "(all months, all modes)" not in page
     assert "differ from the monthly cards on Home" not in page
-    # the one sentence the sheet keeps is the budget's, verbatim
-    assert '<p class="balance-note">Budget guna perbelanjaan mod ini + bil belum bayar.</p>' in page
+    # The one sentence the sheet keeps is the budget's, and it must be the CURRENT rule:
+    # remaining_budget = budget - (month_expense - month_commitment_expense) (app/finance.py). The
+    # old wording said the budget used "this mode's spending + unpaid bills", which is the formula
+    # that was thrown out with 0004 — and it was not even in the app's language.
+    assert ('<p class="balance-note">Budget counts spending in this mode for the month, '
+            'less the bills you have already paid.</p>') in page
+    assert "guna perbelanjaan" not in page, "the stale note is gone"
     # the pencil is the anchor's control: an icon-only button with a name and a 44px target
     assert ('<button class="balance-edit" id="editBalanceBtn" type="button" aria-label="Edit my balance">'
             in page)

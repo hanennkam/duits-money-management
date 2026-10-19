@@ -3064,7 +3064,10 @@
       row("= Balance", signedMoney(balance), " is-eq") +
       bills +
       row("= Safe to spend", signedMoney(safe), " is-eq") +
-      '<p class="balance-note">Budget guna perbelanjaan mod ini + bil belum bayar.</p>';
+      // The budget bar's own rule, in words: this mode's spending for the month, less the bills that were
+      // paid through Pay (a paid bill is a bill, not spending). The bills still due are NOT in it — they
+      // are what Safe to spend is for, one line above.
+      '<p class="balance-note">Budget counts spending in this mode for the month, less the bills you have already paid.</p>';
   }
 
   function openBalanceSheet() {
