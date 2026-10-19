@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 import struct
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 import pytest
@@ -139,7 +140,9 @@ def test_each_flow_returns_to_the_chooser_and_cancel_leaves_the_sheet(client: Te
     assert 'addEventListener("click", function () { showAddView("ai"); })' in page
     assert 'id="closeAddBtn"' in page
     assert '$("closeAddBtn").addEventListener("click", closeAddSheet);' in page
-    assert page.count('isOutsideTap(event, $("') == 4, "the scrim still closes the sheet"
+    # Two sheets were added with the balance breakdown (the breakdown itself and the one-field anchor),
+    # so the guard now appears on six overlays; each still closes its own sheet.
+    assert page.count('isOutsideTap(event, $("') == 6, "the scrim still closes the sheet"
     # Back takes the keyboard with it, or the chooser returns under a keyboard with nothing to type into
     back = page[page.index("function reverseAddView("):page.index("function reverseAddView(") + 400]
     assert "active.blur()" in back
@@ -250,7 +253,11 @@ def test_the_sheet_tap_guards_are_target_based(client: TestClient) -> None:
     assert "function isOutsideTap(event, overlay)" in page
     assert 'return event.target === overlay || (!!scrim && event.target === scrim);' in page
     assert '!event.target.closest(".sheet")' not in page, "the detached-node guard is back"
-    assert page.count("isOutsideTap(event, $(") == 4, "all four overlays must use the guard"
+    # Both sheets added with the balance breakdown use the guard too, by overlay and not by re-query:
+    # the breakdown's own content is replaced on every render, so a detached-node guard would fail there.
+    assert 'if (isOutsideTap(event, $("balanceOverlay"))) closeBalanceSheet();' in page
+    assert 'if (isOutsideTap(event, $("moneyFieldOverlay"))) closeMoneyField();' in page
+    assert page.count("isOutsideTap(event, $(") == 6, "all six overlays must use the guard"
 
 
 def test_the_drag_waits_for_the_threshold_before_capturing(client: TestClient) -> None:
@@ -313,20 +320,22 @@ def test_the_icon_links_are_versioned(client: TestClient) -> None:
 # ---------------------------------------------------------------- money: the hero, the sheet, the settings
 
 def test_home_is_a_balance_hero_with_a_safe_to_spend_pill(client: TestClient) -> None:
-    """The all-time balance, and what is safe to spend as the sheet's front door.
+    """The all-time balance, the safe-to-spend pill under it, and the one target that explains them.
 
     What the served page can pin: the balance is /finance/summary's current_balance (never a total the
-    page works out itself), it is the largest figure on the screen, the pill is a real button with a 44px
-    floor so the tap target is the whole row, the one state that colours a figure is a negative
-    safe-to-spend in the shared --danger, and the setup state still asks for the opening balance instead
-    of showing a number that would read as one.
+    page works out itself), it is the largest figure on the screen, the whole figure area is one real
+    button with an accessible name (>=44px) that opens the breakdown sheet, the one state that colours a
+    figure is a negative safe-to-spend in the shared --danger, and with no opening balance the card asks
+    for the one figure it cannot know instead of showing a number that would read as one.
     """
     page = client.get("/").text
-    assert 'id="balanceCard"' in page and ">Balance<" in page
+    assert 'id="balanceCard"' in page and "Set your balance" in page
     assert 'class="hero-amount hero-balance" id="balanceAmount"' in page
-    # the balance comes from the reply, not from arithmetic on the page
-    assert '$("balanceAmount").textContent = setup' in page
+    # the balance comes from the reply, and money() drops the sign so signedMoney puts the minus back
     assert "var balance = Number(summary.current_balance) || 0;" in page
+    assert '$("balanceAmount").textContent = signedMoney(balance);' in page
+    assert "function signedMoney(value)" in page
+    assert '(number < 0 ? "\\u2212" : "") + money(Math.abs(number))' in page
     # The month is named once, by the picker in the shared header. The hero used to repeat it as a pill;
     # a second "Oct 2026" one line under the first read as a duplicate, so the hero has none.
     hero = page[page.index('id="balanceCard"'):page.index('id="budgetCard"')]
@@ -336,23 +345,135 @@ def test_home_is_a_balance_hero_with_a_safe_to_spend_pill(client: TestClient) ->
     assert ".hero-amount {\n    font-size: 40px; font-weight: 800" in page
     assert ".hero-balance { font-size: 50px; }" in page
     assert 'fitText($("balanceAmount"), 50, 22);' in page
-    # the pill is the button: >=44px, so the whole row is the target, and a chevron says it opens
-    assert '<button class="safe-pill" id="safeDetailsBtn" type="button">' in page
-    assert "min-height: 44px" in page[page.index(".safe-pill {"):page.index("}", page.index(".safe-pill {"))]
+    # The whole figure area is one button, so its accessible name has to carry the figure: >=44px, a real
+    # button (keyboard, no ARIA stand-in), and the name is repainted with the figure it shows.
+    assert '<button class="hero-tap" id="balanceTap" type="button" aria-label="Balance. How this is calculated">' in page
+    tap = page[page.index(".hero-tap {"):page.index("}", page.index(".hero-tap {"))]
+    assert "min-height: 44px" in tap
+    assert '$("balanceTap").setAttribute("aria-label", "Balance " + signedMoney(balance)' in page
+    # ...and the pill is inside it, so it is a span, not a second target
+    assert '<span class="safe-pill" id="safePill">' in page
+    assert 'id="safeDetailsBtn"' not in page
     assert 'class="safe-pill-chev"' in page
-    for element in ('id="safeAmount"', 'id="safeMeta"', 'id="safeDetailsBtn"'):
+    for element in ('id="safeAmount"', 'id="safeMeta"'):
         assert element in page, element
-    # money() drops the sign, so the pill puts the minus back itself
-    assert '(safe < 0 ? "\\u2212" : "") + money(Math.abs(safe))' in page
-    assert 'classList.toggle("neg", !setup && safe < 0)' in page
     assert ".safe-pill-amount.neg { color: var(--danger); }" in page
-    # nothing saved yet: the pill asks for the opening balance instead of showing a meaningless total
-    assert "Set your opening balance" in page
-    assert "function hasMoneySettings(summary)" in page
-    # one pill, two targets, and the commitments sheet keeps a second way in from Settings
+    assert '$("safeAmount").classList.toggle("neg", safe < 0);' in page
+    # No opening balance yet: the card asks for it, and the figure area is not on screen at all.
+    assert 'id="balanceNotSet"' in page and 'id="setBalanceBtn"' in page
+    assert "Tell us how much money you have right now. We keep track from there." in page
+    assert "function openingIsSet(summary)" in page
+    assert '$("balanceNotSet").hidden = set;' in page
+    assert '$("balanceTap").hidden = !set;' in page
+    # The anchor's own maths, which is what the sheet asks for: the export is not reachable from here, so
+    # tests/test_static.py mirrors it in integer cents (see test_the_anchor_maths_is_integer_cents).
+    assert "function toCents(value)" in page and "function openingFor(typed, income, expense)" in page
+    # the commitments sheet keeps its second way in from Settings
     assert "function showMoneySettings()" in page
     assert 'addEventListener("click", openCommitSheet)' in page
-    assert 'if (financeSummary && !hasMoneySettings(financeSummary)) { showMoneySettings(); return; }' in page
+
+
+def mirror_cents(text: str) -> int:
+    """The page's toCents(): a typed money string to integer cents.
+
+    Mirrors `parseMoneyInput` (commas and spaces are noise, a leading minus is a real sign) and then the
+    page's `Math.round(value * 100)`. Decimal, not float: the whole point of the cents step is that 0.1 +
+    0.2 cannot come out as 0.30000000000000004.
+    """
+    cleaned = re.sub(r"[,\s]", "", text)
+    if not re.fullmatch(r"-?\d+(\.\d{0,2})?", cleaned):
+        return 0          # what the page does with unreadable input: 0, said out loud in the preview line
+    return int((Decimal(cleaned) * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
+def mirror_opening(typed: str, income: str, expense: str) -> Decimal:
+    """The page's openingFor(): typed - income + expense, all three in integer cents."""
+    cents = mirror_cents(typed) - mirror_cents(income) + mirror_cents(expense)
+    return (Decimal(cents) / 100).quantize(Decimal("0.01"))
+
+
+def test_the_anchor_maths_is_integer_cents(client: TestClient) -> None:
+    """A Python mirror of the page's anchor arithmetic — the JS itself is neither exported nor run here.
+
+    The anchor sheet asks for the money the owner has right now and stores the opening balance that makes
+    it true (`opening = typed - income + expense`), because the API derives the balance from the opening
+    balance plus the all-time totals. What this test pins is the contract: integer cents, so 0.1 + 0.2
+    cannot drift; a negative typed figure stays negative; and the answer is a 2-decimal figure. The mirror
+    is kept honest by the three string pins — change the page's formula and this test fails even though the
+    arithmetic it mirrors still passes. What it does NOT prove is that the JS computes it the same way;
+    only running the page does that (see the harness measurement in the report).
+    """
+    page = client.get("/").text
+    assert "Math.round(number * 100)" in page
+    assert "(toCents(typed) - toCents(income) + toCents(expense)) / 100" in page
+    assert page.count("openingFor(typed, summary.total_income, summary.total_expense)") == 2, (
+        "the preview and the save must run the same conversion, or what is stored is not what was shown"
+    )
+
+    # What was typed is what the balance becomes: 1250 with 1200 in and 800 out is an opening of 850 —
+    # the figure the harness measured, where the card then read RM 1,250.00.
+    assert mirror_opening("1250.00", "1200.00", "800.00") == Decimal("850.00")
+    # Comma and space tolerant, because parseMoneyInput is.
+    assert mirror_opening("1,250", "1,200", "800") == Decimal("850.00")
+    assert mirror_opening(" 1,250 ", "1200.00", "800.00") == Decimal("850.00")
+    # A negative typed figure is a real overdraft, not a typo to be dropped.
+    assert mirror_opening("-80", "1200.00", "800.00") == Decimal("-480.00")
+    # The cents the harness measured for the drift case: 0.10 typed, 1200 in, 800 out.
+    assert mirror_opening("0.10", "1200.00", "800.00") == Decimal("-399.90")
+    # 0.1 + 0.2 in cents is 0.30 typed with 0.10 in and 0.20 out: an opening of 0.40, exact.
+    assert mirror_opening("0.30", "0.10", "0.20") == Decimal("0.40")
+    # Why the cents step is not decoration: in floats neither of these is true. (0.30 - 0.10 happens to
+    # land back on 0.20 in double precision, so the drift is shown on the two that do not.)
+    assert 0.1 + 0.2 != 0.3
+    assert 0.30 - 0.10 != 0.20
+    assert mirror_opening("0.30", "0.10", "0.00") == Decimal("0.20")
+    # Large: 12,345,678.90 typed, 2,345,678.90 in, 1,000,000.00 out.
+    assert mirror_opening("12345678.90", "2345678.90", "1000000.00") == Decimal("11000000.00")
+    # Exactly zero, the edge case: saved as computed, never nudged. The reply's zero is also what "not set
+    # yet" looks like, so the card goes back to asking for the balance — honest, and one tap to redo.
+    assert mirror_opening("0.00", "1200.00", "1200.00") == Decimal("0.00")
+    assert mirror_opening("12345678.90", "12345678.90", "0.00") == Decimal("0.00")
+    # Unreadable input counts as 0 in toCents (the field itself refuses to save it, with its own message).
+    assert mirror_cents("") == 0 and mirror_cents("abc") == 0 and mirror_cents("1.234") == 0
+
+
+def test_the_breakdown_sheet_and_the_one_field_sheet_are_registered(client: TestClient) -> None:
+    """Two more sheets, same parts as the rest: scrim, grab, drag, outside-tap guard and a close.
+
+    The breakdown is the balance area's destination, and the one-field sheet is shared by the anchor and
+    the budget offer. Both are overlays, so both must be registered rather than hand-rolled — and the
+    anchor's field must clear the 16px floor, or iOS zooms the page on focus.
+    """
+    page = client.get("/").text
+    for overlay, sheet in (("balanceOverlay", "balanceSheet"), ("moneyFieldOverlay", "moneyFieldSheet")):
+        start = page.index('id="' + overlay + '"')
+        block = page[start:start + 400]
+        assert '<div class="scrim" aria-hidden="true"></div>' in block, overlay
+        assert 'id="' + sheet + '"' in block, overlay
+        assert 'openOverlay($("' + overlay + '"))' in page, overlay
+        assert 'attachSheetDrag("' + sheet + '", "' + overlay + '"' in page, overlay
+        assert 'isOutsideTap(event, $("' + overlay + '"))' in page, overlay
+    # The balance area is the breakdown's way in, and the not-set button is the anchor's.
+    assert '$("balanceTap").addEventListener("click", openBalanceSheet);' in page
+    assert '$("setBalanceBtn").addEventListener("click", function () { openMoneyField("balance"); });' in page
+    assert '$("setBudgetBtn").addEventListener("click", function () { openMoneyField("budget"); });' in page
+    # One field, one save: the same sheet, told which setting it is setting.
+    assert '$("moneyFieldSaveBtn").addEventListener("click", function () { saveMoneyField(this); });' in page
+    assert "var moneyFieldTarget = " in page
+    assert "body.monthly_budget = typed;" in page
+    assert "body.opening_balance = openingFor(" in page
+    # the 16px floor, stated on the selector that wins (a bare .money-field-input loses to .field later on)
+    assert ".sheet .money-field-input { font-size: 16px; }" in page
+    assert ".field {\n    width: 100%; min-height: 44px;" in page
+    # the breakdown's six rows are built from the reply, and the note explains the incomparable totals
+    assert "function renderBalanceRows()" in page
+    for label in ("Starting balance", "+ Income (all months, all modes)",
+                  "\\u2212 Expenses (all months, all modes)", "= Balance",
+                  "Bills still due this month", "= Safe to spend"):
+        assert label in page, label
+    assert "These totals include every month and both Personal and Business" in page
+    assert 'id="editBalanceBtn"' in page and ">Edit my balance<" in page
+    assert 'id="balanceMoneyBtn"' in page and "Settings &middot; Money<" in page
 
 
 def test_the_month_is_split_into_two_half_cards(client: TestClient) -> None:
@@ -367,7 +488,9 @@ def test_the_month_is_split_into_two_half_cards(client: TestClient) -> None:
     assert 'id="itemsPill"' not in page
     assert 'class="stat-row"' in page
     assert page.count('class="card stat-card"') == 2
-    assert 'class="stat-label">Income<' in page and 'class="stat-label">Expenses<' in page
+    # Both halves say which month they belong to: the balance above them is all-time and every mode.
+    assert 'class="stat-label">Income &middot; this month<' in page
+    assert 'class="stat-label">Expenses &middot; this month<' in page
     for element in ('id="incomeTotal"', 'id="expenseTotal"'):
         assert element in page, element
     # half width each, and the income figure carries the green token
@@ -385,16 +508,19 @@ def test_the_month_is_split_into_two_half_cards(client: TestClient) -> None:
     for call in ('fitText($("incomeTotal"), 19, 14);', 'fitText($("expenseTotal"), 19, 14);',
                  'fitText($("safeAmount"), 17, 12);'):
         assert call in page, call
-    # the setup pill is sized by its class, so a previous paint's inline size must not survive into it
-    assert 'if (setup) $("safeAmount").style.fontSize = "";' in page
-    assert 'else fitText($("safeAmount"), 17, 12);' in page
+    # The old setup pill was sized by its own class, so a paint had to clear the inline size the previous
+    # one left. That class is gone: the pill only ever shows a real figure now, so it is always fitted.
+    assert ".safe-pill.is-setup" not in page
+    assert "if (setup) $(\"safeAmount\").style.fontSize" not in page
 
 
 def test_the_budget_card_only_appears_with_a_budget_in_the_current_month(client: TestClient) -> None:
-    """One card, hidden unless a budget is set and the viewed month is this one.
+    """Three states in one slot, and never a fourth: bar, offer, or nothing.
 
     The bar is the used share — budget minus what is left, clamped — and it is a real progressbar, so a
     screen reader hears the same percentage the card prints. Over budget is said in words, not colour.
+    With no budget the same slot offers to set one (dashed, so it cannot be mistaken for a figure); in a
+    month that is not the current one it does neither, because a budget is a live thing.
     """
     page = client.get("/").text
     assert '<div class="card budget-card" id="budgetCard" hidden>' in page
@@ -406,11 +532,23 @@ def test_the_budget_card_only_appears_with_a_budget_in_the_current_month(client:
     assert 'role="progressbar"' in bar and 'aria-valuemin="0"' in bar and 'aria-valuemax="100"' in bar
     assert 'aria-valuenow="0"' in bar and "aria-label=" in bar
     assert '$("budgetBar").setAttribute("aria-valuenow", String(pct));' in page
-    # shown only with a budget, only for the month we are in, and never without a remaining figure
-    assert "if (!(budget > 0) || remaining == null || state.month !== currentMonth()) {" in page
-    # hidden and reset in one place, so the card never holds the last month's bar
+    # Branch one: any month that is not the one we are in shows neither card.
+    assert "if (state.month !== currentMonth()) { hideBudget(); return; }" in page
+    # Branch two: no budget set offers one, and the offer is dashed so it reads as an invitation.
+    assert "if (!(budget > 0)) { hideBudget(); paintBudgetPrompt(); return; }" in page
+    assert "function paintBudgetPrompt()" in page
+    assert '<div class="card budget-card budget-prompt" id="budgetPromptCard" hidden>' in page
+    assert ">Set a monthly budget (optional)<" in page
+    assert 'id="setBudgetBtn"' in page
+    prompt = page[page.index(".budget-prompt {"):page.index("}", page.index(".budget-prompt {"))]
+    assert "border-style: dashed" in prompt
+    # Branch three: set but unreadable claims nothing at all rather than guessing.
+    assert "if (remaining == null) { hideBudget(); return; }" in page
+    # hidden and reset in one place, so neither card holds the last month's bar
     assert "function hideBudget()" in page
-    assert '$("budgetCard").hidden = true;' in page
+    hide = page[page.index("function hideBudget()"):page.index("function paintFinanceError()")]
+    assert '$("budgetCard").hidden = true;' in hide
+    assert '$("budgetPromptCard").hidden = true;' in hide
     # used share, clamped; over budget still sayable
     assert "Math.round(Math.min(Math.max((budget - left) / budget, 0), 1) * 100)" in page
     assert '$("budgetPct").textContent = pct + "% of " + money(budget);' in page
@@ -422,8 +560,8 @@ def test_the_budget_card_only_appears_with_a_budget_in_the_current_month(client:
     assert "function daysLeftLabel()" in page
     assert "daysInMonth(state.month) - Number(localIso(new Date()).slice(8, 10))" in page
     assert '" day remaining" : " days remaining"' in page
-    # the one line that says what the figure above it is not, in the secondary text token
-    assert '<p class="budget-note">Monthly limit, separate from your balance.</p>' in page
+    # the one line that says what the figure above it is not, in the secondary text token — on both cards
+    assert page.count('<p class="budget-note">Monthly limit, separate from your balance.</p>') == 2
     assert ".budget-note { margin: 10px 0 0; font-size: 13px; color: var(--text-2); }" in page
 
 
@@ -471,7 +609,13 @@ def test_a_failing_finance_read_never_blanks_home(client: TestClient) -> None:
     assert home.count("catch(function () { return null; })") == 1
     # "could not read it" must not read as "you have not set it up yet"
     assert '$("safeMeta").textContent = "Not available right now.";' in page
-    assert "Set your opening balance" in page
+    # ...and the one action that fits is the one read that failed, so the retry row re-runs /finance/summary
+    # and nothing else. The card keeps its shape but is not tappable: there is no breakdown to draw.
+    assert '$("balanceNotSet").hidden = true;' in page
+    assert '$("balanceTap").disabled = true;' in page
+    assert '$("retryFinanceBtn").hidden = false;' in page
+    assert '$("retryFinanceBtn").addEventListener("click", refreshFinanceCard);' in page
+    assert '<button class="btn-link hero-retry" id="retryFinanceBtn" type="button" hidden>Try again</button>' in page
     # the budget card cannot be drawn from figures that never arrived
     error = page[page.index("function paintFinanceError()"):page.index("// One row shape")]
     assert "hideBudget();" in error

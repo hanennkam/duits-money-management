@@ -369,9 +369,10 @@
   .stat-amount.in { color: var(--green); }
 
   /* ---------- home: safe to spend, on the balance card ---------- */
-  /* One number and one line of why: what is left after the bills still to come. The whole pill is the
-     front door to the commitments sheet, so its 44px floor is the tap target — and it is the only place
-     --danger appears on Home for a figure, and only when the number is negative. */
+  /* One number and one line of why: what is left after the bills still to come. The pill keeps its 44px
+     row height and its chevron, but it is no longer the target on its own — the whole figure area is one
+     button (see .hero-tap), which is how the breakdown sheet is reached. --danger appears here for a
+     figure only, and only when the number is negative. */
   .safe-pill {
     display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px;
     margin-top: 8px; padding: 9px 14px; border: 0; border-radius: 9999px;
@@ -384,12 +385,19 @@
   }
   .safe-pill-amount.neg { color: var(--danger); }
   .safe-pill-chev { width: 14px; height: 14px; color: var(--chevron); flex: none; }
-  /* No opening balance saved yet: the pill asks for the one figure it cannot know instead of a total
-     that would only say "minus your spending", and it goes to Settings' Money section, not the sheet —
-     so it drops the "Safe to spend" label rather than reading as "Safe to spend: set your balance". */
-  .safe-pill.is-setup .safe-pill-label { display: none; }
-  .safe-pill.is-setup .safe-pill-amount { margin-left: 0; font-size: 15px; font-weight: 600; color: var(--accent); }
-  .safe-meta { margin-top: 9px; font-size: 13px; color: var(--muted); }
+  .safe-meta { display: block; margin-top: 9px; font-size: 13px; color: var(--muted); }
+  /* The whole figure area is one button: label, balance, the safe pill and the line under it. It opens
+     the breakdown sheet, which is the only place the arithmetic is spelled out. 44px is a floor even
+     though the content is far taller, so the target is never only the number. */
+  .hero-tap {
+    display: block; width: 100%; min-height: 44px; padding: 0; border: 0; background: none;
+    color: inherit; font: inherit; text-align: left; cursor: pointer;
+  }
+  .hero-tap:active { opacity: .6; }
+  /* No opening balance yet: the card asks for the one figure it cannot know, instead of showing a total
+     that would only say "minus everything you have ever spent". */
+  .hero-setup-line { margin: 8px 0 14px; font-size: 15px; line-height: 1.45; color: var(--text-2); }
+  .hero-retry { display: block; min-height: 44px; margin-top: 4px; text-align: left; }
 
   /* ---------- home: monthly budget limit ---------- */
   .budget-card { padding: 16px 18px 18px; }
@@ -403,6 +411,39 @@
   .budget-left.over { color: var(--danger); font-weight: 600; }
   /* The one line that says what the figure above is not: a limit on the month, not part of the balance. */
   .budget-note { margin: 10px 0 0; font-size: 13px; color: var(--text-2); }
+  /* No budget set: the same slot offers one instead of leaving nothing where the card would be, and the
+     dashed outline is the whole signal that this is an invitation rather than a figure. */
+  .budget-prompt { border-style: dashed; border-color: var(--hairline); background: none; box-shadow: none; }
+  .budget-prompt-line { margin: 6px 0 12px; font-size: 14px; line-height: 1.45; color: var(--muted); }
+
+  /* ---------- sheets: how the balance is worked out, and the two one-field asks ---------- */
+  /* A breakdown row is a row, not a table: label left, figure right, hairline above. The two answers
+     (balance, safe to spend) wear the same shape one step louder, and the tap row is the one that leads
+     somewhere else. */
+  .balance-row {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 12px; width: 100%;
+    padding: 11px 0; border: 0; border-top: .5px solid var(--hairline); background: none;
+    color: inherit; font: inherit; font-size: 15px; text-align: left;
+  }
+  .balance-row:first-child { border-top: 0; }
+  .balance-row .k { flex: 1; min-width: 0; color: var(--text-2); }
+  .balance-row .v { flex: none; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .balance-row.is-eq { font-size: 16px; }
+  .balance-row.is-eq .k { color: var(--text); font-weight: 600; }
+  .balance-row.is-eq .v { font-weight: 700; }
+  .balance-row.is-tap { cursor: pointer; }
+  .balance-row.is-tap:active { background: var(--card-2); }
+  .balance-row.is-tap .v { display: flex; align-items: center; gap: 4px; }
+  .balance-chev { width: 14px; height: 14px; color: var(--chevron); flex: none; }
+  .balance-note { margin: 14px 0 0; font-size: 13px; line-height: 1.45; color: var(--text-2); }
+  .balance-actions { display: flex; flex-direction: column; margin-top: 8px; }
+  .balance-actions .btn-link { display: block; min-height: 44px; text-align: left; }
+  /* The one field the anchor asks for, and the preview line that answers it before anything is saved.
+     The 16px is said here and not left to inherit: .field carries `font: inherit` and is declared later
+     in the sheet, so a bare .money-field-input rule would lose to it (it computed 17px). */
+  .money-field-q { display: block; margin: 6px 0 8px; font-size: 16px; font-weight: 500; }
+  .sheet .money-field-input { font-size: 16px; }
+  .money-field-note { margin: 10px 0 0; font-size: 13px; line-height: 1.45; color: var(--text-2); }
 
   /* ---------- category list (Insights; Home's ring used to sit on these too) ---------- */
   .cat-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
@@ -1071,6 +1112,8 @@
      loses the press tint. 16px is the iOS zoom floor — anything less zooms the whole page on focus. */
   .setting-row.is-field { cursor: default; }
   .setting-row.is-field:active { background: none; }
+  /* The one helper line inside a settings list: full width, under the field it is about. */
+  .setting-tip { margin: 0; padding: 0 14px 12px; font-size: 13px; line-height: 1.45; color: var(--muted); }
   .setting-field {
     margin-left: auto; width: 46%; min-width: 0; padding: 0; border: 0; background: none;
     color: var(--text); font: inherit; font-size: 16px; text-align: right;
@@ -1246,34 +1289,47 @@
 
     <div id="homeError"></div>
 
-    <!-- Balance: the one real-world number (all time, every mode), and — as a pill you can tap — what is
-         safe to spend after the bills still to come. The pill is the commitments sheet's front door. The
-         month those bills belong to is named by the picker in the header above. -->
+    <!-- Balance: the one real-world number (all time, every mode). The whole area is one button, and it
+         opens the sheet that spells out how the figure and the safe-to-spend line under it are worked
+         out. The month those bills belong to is named by the picker in the header above.
+         With no opening balance there is no balance to show, so the card asks for the one figure it
+         cannot know instead — a number here would read as a fact when it is only "minus your spending". -->
     <div class="card hero-card" id="balanceCard">
-      <span class="hero-label">Balance</span>
-      <div class="hero-amount hero-balance" id="balanceAmount">RM 0.00</div>
-      <button class="safe-pill" id="safeDetailsBtn" type="button">
-        <span class="safe-pill-label">Safe to spend</span>
-        <span class="safe-pill-amount" id="safeAmount">RM 0.00</span>
-        <svg class="safe-pill-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
+      <div id="balanceNotSet" hidden>
+        <span class="hero-label">Set your balance</span>
+        <p class="hero-setup-line">Tell us how much money you have right now. We keep track from there.</p>
+        <button class="btn-primary" id="setBalanceBtn" type="button">Set your balance</button>
+      </div>
+      <button class="hero-tap" id="balanceTap" type="button" aria-label="Balance. How this is calculated">
+        <span class="hero-label">Balance</span>
+        <span class="hero-amount hero-balance" id="balanceAmount">RM 0.00</span>
+        <span class="safe-pill" id="safePill">
+          <span class="safe-pill-label">Safe to spend</span>
+          <span class="safe-pill-amount" id="safeAmount">RM 0.00</span>
+          <svg class="safe-pill-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
+        </span>
+        <span class="safe-meta" id="safeMeta"></span>
       </button>
-      <div class="safe-meta" id="safeMeta"></div>
+      <!-- The figures were unreachable: a different thing from never having set them, so the card keeps
+           its shape, says so in the line above, and offers the one read that can fix it. -->
+      <button class="btn-link hero-retry" id="retryFinanceBtn" type="button" hidden>Try again</button>
     </div>
 
     <!-- The viewed month, split in two. Both figures are this month and this mode, unlike the balance. -->
     <div class="stat-row">
       <div class="card stat-card">
-        <span class="stat-label">Income</span>
+        <span class="stat-label">Income &middot; this month</span>
         <span class="stat-amount in" id="incomeTotal">+RM 0.00</span>
       </div>
       <div class="card stat-card">
-        <span class="stat-label">Expenses</span>
+        <span class="stat-label">Expenses &middot; this month</span>
         <span class="stat-amount" id="expenseTotal">RM 0.00</span>
       </div>
     </div>
 
-    <!-- Shown only with a budget set, and only while the viewed month is the one we are in: a budget is a
-         live thing, and "days remaining" in a month that has ended is not a number. -->
+    <!-- Shown only while the viewed month is the one we are in: a budget is a live thing, and "days
+         remaining" in a month that has ended is not a number. With a budget it shows the bar; without
+         one the same slot offers to set one, so an unset budget is not a silent absence. -->
     <div class="card budget-card" id="budgetCard" hidden>
       <div class="card-head">
         <span class="card-title">Monthly budget limit</span>
@@ -1287,6 +1343,13 @@
         <span class="budget-left" id="budgetLeft">RM 0.00 left to spend</span>
         <span class="budget-days" id="budgetDays"></span>
       </div>
+      <p class="budget-note">Monthly limit, separate from your balance.</p>
+    </div>
+
+    <div class="card budget-card budget-prompt" id="budgetPromptCard" hidden>
+      <span class="card-title">Set a monthly budget (optional)</span>
+      <p class="budget-prompt-line">A limit for the month, so Duits can tell you what is left to spend.</p>
+      <button class="btn-primary" id="setBudgetBtn" type="button">Set a monthly budget</button>
       <p class="budget-note">Monthly limit, separate from your balance.</p>
     </div>
 
@@ -1401,6 +1464,7 @@
           <input class="setting-field" id="openingBalance" type="text" inputmode="decimal"
                  placeholder="0.00" autocomplete="off" autocapitalize="none" spellcheck="false">
         </div>
+        <p class="setting-tip">Tip: use 'Set your balance' on Home if you are not sure what to enter.</p>
         <div class="row-divider"></div>
         <div class="setting-row is-field">
           <label class="setting-label" for="monthlyBudget">Monthly budget</label>
@@ -1507,6 +1571,45 @@
           <button class="btn-primary" id="commitAddBtn" type="button">Add</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- The balance breakdown: the only place the all-time arithmetic is spelled out. It is declared before
+       the one-field sheet so that "Edit my balance" stacks that sheet over this list and comes back. -->
+  <div class="overlay" id="balanceOverlay" aria-hidden="true">
+    <!-- The dim is its own layer so the only animated opacity in an overlay is this one; the
+         sheet above it can never be tinted by it. -->
+    <div class="scrim" aria-hidden="true"></div>
+    <div class="sheet" id="balanceSheet">
+      <div class="sheet-grab" id="balanceGrab" aria-hidden="true"><span></span></div>
+      <div class="sheet-head has-done">
+        <span></span>
+        <h2 class="sheet-title">How this is calculated</h2>
+        <button class="btn-ghost sheet-done" id="balanceDoneBtn" type="button">Done</button>
+      </div>
+      <div id="balanceRows"></div>
+      <div class="balance-actions">
+        <button class="btn-link" id="editBalanceBtn" type="button">Edit my balance</button>
+        <button class="btn-link" id="balanceMoneyBtn" type="button">Settings &middot; Money</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- One field, one save. The opening-balance anchor and the monthly budget share this sheet because
+       they are the same ask; which one is being set decides the title, the question and the body. -->
+  <div class="overlay" id="moneyFieldOverlay" aria-hidden="true">
+    <div class="scrim" aria-hidden="true"></div>
+    <div class="sheet" id="moneyFieldSheet">
+      <div class="sheet-grab" id="moneyFieldGrab" aria-hidden="true"><span></span></div>
+      <div class="sheet-head has-done">
+        <button class="btn-ghost sheet-cancel" id="moneyFieldCancelBtn" type="button">Cancel</button>
+        <h2 class="sheet-title" id="moneyFieldTitle">Set your balance</h2>
+        <button class="btn-ghost sheet-done" id="moneyFieldSaveBtn" type="button">Save</button>
+      </div>
+      <label class="money-field-q" id="moneyFieldLabel" for="moneyFieldInput">How much money do you have right now?</label>
+      <input class="field money-field-input" id="moneyFieldInput" type="text" inputmode="decimal"
+             placeholder="RM 0.00" autocomplete="off" autocapitalize="none" spellcheck="false">
+      <p class="money-field-note" id="moneyFieldNote"></p>
     </div>
   </div>
 
@@ -1703,6 +1806,26 @@
     var parts = Math.abs(Number(value) || 0).toFixed(2).split(".");
     parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
     return "RM " + parts.join(".");
+  }
+
+  // money() drops the sign, so every figure that is allowed to go negative puts its own minus back — the
+  // same U+2212 the rows use, never a hyphen.
+  function signedMoney(value) {
+    var number = Number(value) || 0;
+    return (number < 0 ? "\u2212" : "") + money(Math.abs(number));
+  }
+
+  // Cents, never floats: 0.1 + 0.2 has to come out as 0.30, and what is stored must be what was previewed.
+  // Anything unreadable counts as 0, which is what the preview line is for.
+  function toCents(value) {
+    var number = Number(value);
+    return isFinite(number) ? Math.round(number * 100) : 0;
+  }
+
+  // The opening balance that makes the balance the figure the owner just typed: the API computes
+  // balance = opening + income - expense, so opening = typed - income + expense. Both sides are cents.
+  function openingFor(typed, income, expense) {
+    return (toCents(typed) - toCents(income) + toCents(expense)) / 100;
   }
 
   function isoDate(iso) {
@@ -2163,8 +2286,14 @@
       $("expenseTotal").textContent = "\u2212" + money(0);
       $("safeAmount").textContent = "RM 0.00";
       $("safeAmount").classList.remove("neg");
-      $("safeDetailsBtn").classList.remove("is-setup");
       $("safeMeta").textContent = "";
+      // Back to "nothing known yet": the prompt off, the figure area on but unset, no retry row. The
+      // next screen load paints whichever state the reply says.
+      $("balanceNotSet").hidden = true;
+      $("balanceTap").hidden = false;
+      $("balanceTap").disabled = false;
+      $("retryFinanceBtn").hidden = true;
+      $("balanceTap").setAttribute("aria-label", "Balance");
       hideBudget();
       $("commitSub").textContent = "";
       $("commitList").innerHTML = "";
@@ -2604,55 +2733,56 @@
   /* ---------- home: balance, safe to spend, monthly budget ---------- */
 
   // The last /finance/summary reply: the balance hero, the safe pill and the budget card are all drawn
-  // from it, and the same reply is what tells the setup state below. Nothing is stored here.
+  // from it, and the same reply is what tells the not-set state below. Nothing is stored here.
   var financeSummary = null;
 
   // There is no "settings saved" flag in the reply: the defaults (RM 0.00, no budget) come back for a
-  // user who has never opened Settings, and an explicit zero looks the same. Reading the two zeros as
-  // "nothing saved yet" is therefore the only signal available — and it keeps asking, which is honest:
-  // with no opening balance there is still nothing for the card to subtract from.
-  function hasMoneySettings(summary) {
-    return !!(summary && (Number(summary.opening_balance) || Number(summary.monthly_budget)));
+  // user who has never opened Settings, and an explicit zero looks the same, so a zero opening balance is
+  // the only signal there is — which means a genuine zero opening balance cannot be told apart from
+  // "never set". The sheet asks for the money the owner has right now (income and spending are added back
+  // out of it), so an exact zero is very unlikely to be what they type; if they do, the prompt simply
+  // stays, and re-setting it is one tap.
+  function openingIsSet(summary) {
+    return !!(summary && Number(summary.opening_balance));
   }
 
   function paintFinance(summary) {
     financeSummary = summary;
-    var setup = !hasMoneySettings(summary);
+    var set = openingIsSet(summary);
     var balance = Number(summary.current_balance) || 0;
     var safe = Number(summary.safe_to_spend) || 0;
     var unmet = Number(summary.unpaid_commitments) || 0;
 
-    // Without an opening balance the balance is just this month's net, which is not a balance: the hero
-    // asks for the missing figure instead of showing a number that would read as one.
-    $("balanceAmount").textContent = setup
-      ? "\u2014"
-      : (balance < 0 ? "\u2212" : "") + money(Math.abs(balance));
+    // No opening balance: the card asks for it, and the figure area is not on screen at all — a balance
+    // worked out from nothing would read as a fact about the owner's money.
+    $("balanceNotSet").hidden = set;
+    $("balanceTap").hidden = !set;
+    $("balanceTap").disabled = false;
+    $("retryFinanceBtn").hidden = true;
+    if (!set) { paintBudget(summary); return; }   // nothing to draw: the prompt is the whole card
+
+    $("balanceAmount").textContent = signedMoney(balance);
     // money() drops the sign, so the pill puts the minus back itself — the one figure on Home that is
     // allowed to go red.
-    $("safeAmount").textContent = setup
-      ? "Set your opening balance"
-      : (safe < 0 ? "\u2212" : "") + money(Math.abs(safe));
-    $("safeAmount").classList.toggle("neg", !setup && safe < 0);
-    $("safeDetailsBtn").classList.toggle("is-setup", setup);
-    $("safeMeta").textContent = setup
-      ? "Add what you had before Duits, and it can tell you what is safe to spend."
-      : (unmet > 0 ? money(unmet) + " still due this month" : "");
+    $("safeAmount").textContent = signedMoney(safe);
+    $("safeAmount").classList.toggle("neg", safe < 0);
+    $("safeMeta").textContent = unmet > 0 ? money(unmet) + " still due this month" : "";
+    // The whole area is one button, so its accessible name has to carry the figure the eye reads first.
+    $("balanceTap").setAttribute("aria-label", "Balance " + signedMoney(balance) + ". How this is calculated");
     fitText($("balanceAmount"), 50, 22);
-    // The setup pill is sized by its own class (15px), so only a real figure is stepped down; the inline
-    // size from a previous paint is cleared either way.
-    if (setup) $("safeAmount").style.fontSize = "";
-    else fitText($("safeAmount"), 17, 12);
+    fitText($("safeAmount"), 17, 12);
     paintBudget(summary);
   }
 
-  // The budget is a live thing: the card is for the month we are actually in, and only while one is set.
+  // The budget is a live thing: its card is for the month we are actually in, and only there. With a
+  // budget it is the bar; without one the same slot offers to set one, so "no budget" is never a gap.
   function paintBudget(summary) {
     var budget = Number(summary.monthly_budget) || 0;
     var remaining = summary.remaining_budget;
-    if (!(budget > 0) || remaining == null || state.month !== currentMonth()) {
-      hideBudget();
-      return;
-    }
+    if (state.month !== currentMonth()) { hideBudget(); return; }
+    if (!(budget > 0)) { hideBudget(); paintBudgetPrompt(); return; }
+    if (remaining == null) { hideBudget(); return; }   // set, but unreadable: claim nothing about it
+    $("budgetPromptCard").hidden = true;
     $("budgetCard").hidden = false;
     var left = Number(remaining) || 0;
     // What is used: the budget minus what is left, clamped — the bar cannot overfill, but "over budget"
@@ -2669,6 +2799,13 @@
     $("budgetDays").textContent = daysLeftLabel();
   }
 
+  // Not the current month: the offer is not made either. A budget is set for the month you are living
+  // in, and a prompt on a January screen would read as a January offer.
+  function paintBudgetPrompt() {
+    if (state.month !== currentMonth()) return;
+    $("budgetPromptCard").hidden = false;
+  }
+
   // Days left after today, in the month being viewed. Only ever asked about the current month.
   function daysLeftLabel() {
     var left = daysInMonth(state.month) - Number(localIso(new Date()).slice(8, 10));
@@ -2680,6 +2817,7 @@
   // hear the last month's percentage the next time it is shown.
   function hideBudget() {
     $("budgetCard").hidden = true;
+    $("budgetPromptCard").hidden = true;
     $("budgetFill").style.width = "0%";
     $("budgetFill").classList.remove("over");
     $("budgetBar").setAttribute("aria-valuenow", "0");
@@ -2687,14 +2825,158 @@
 
   function paintFinanceError() {
     financeSummary = null;
+    // Not the "set your balance" prompt: this is the figures being unreachable, which is a different
+    // thing to a user who has simply never put an opening balance in. The card keeps its shape and says
+    // so, and the retry row is the one action that fits.
+    $("balanceNotSet").hidden = true;
+    $("balanceTap").hidden = false;
+    $("balanceTap").disabled = true;
+    $("retryFinanceBtn").hidden = false;
     $("balanceAmount").textContent = "\u2014";
     $("safeAmount").textContent = "\u2014";
     $("safeAmount").classList.remove("neg");
-    $("safeDetailsBtn").classList.remove("is-setup");
-    // Not the setup prompt: this is the figures being unreachable, which is a different thing to a user
-    // who has simply never put an opening balance in.
     $("safeMeta").textContent = "Not available right now.";
+    $("balanceTap").setAttribute("aria-label", "Balance unavailable.");
     hideBudget();                       // no figures to draw a budget from
+  }
+
+  /* ---------- home: how the balance is worked out, and the two one-field asks ---------- */
+
+  // Every figure comes from the reply, never from arithmetic here: the sheet spells out the API's own
+  // numbers, so the breakdown cannot disagree with the card above it.
+  function renderBalanceRows() {
+    var summary = financeSummary || {};
+    var opening = Number(summary.opening_balance) || 0;
+    var income = Number(summary.total_income) || 0;
+    var expense = Number(summary.total_expense) || 0;
+    var balance = Number(summary.current_balance) || 0;
+    var unpaid = Number(summary.unpaid_commitments) || 0;
+    var safe = Number(summary.safe_to_spend) || 0;
+
+    function row(label, figure, extra) {
+      return '<div class="balance-row' + (extra || "") + '">' +
+        '<span class="k">' + escapeHtml(label) + "</span>" +
+        '<span class="v">' + escapeHtml(figure) + "</span></div>";
+    }
+    // The bills row is the one row that leads somewhere: it is the commitments sheet's way in now that
+    // the card itself opens this breakdown.
+    var bills = '<button class="balance-row is-tap" id="balanceBillsBtn" type="button" data-bills="1">' +
+      '<span class="k">Bills still due this month</span>' +
+      '<span class="v">' + escapeHtml(signedMoney(-unpaid)) +
+      '<svg class="balance-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" ' +
+      'stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></span></button>';
+
+    $("balanceRows").innerHTML =
+      row("Starting balance", signedMoney(opening)) +
+      row("+ Income (all months, all modes)", signedMoney(income)) +
+      row("\u2212 Expenses (all months, all modes)", signedMoney(-expense)) +
+      row("= Balance", signedMoney(balance), " is-eq") +
+      bills +
+      row("= Safe to spend", signedMoney(safe), " is-eq") +
+      '<p class="balance-note">These totals include every month and both Personal and Business, so they ' +
+      "differ from the monthly cards on Home.</p>";
+  }
+
+  function openBalanceSheet() {
+    if (!financeSummary) return;      // nothing read to draw from: the card offers Try again instead
+    renderBalanceRows();
+    $("balanceSheet").scrollTop = 0;
+    openOverlay($("balanceOverlay"));
+  }
+
+  function closeBalanceSheet(fromOffset) {
+    closeOverlay($("balanceOverlay"), null, fromOffset);
+  }
+
+  // Close first, then open: the list of bills comes back to a clean page rather than a stack of two.
+  function openBillsFromBalance() {
+    closeOverlay($("balanceOverlay"), function () { openCommitSheet(); });
+  }
+
+  // One handler for the sheet's parts, because the rows are replaced by every render.
+  function handleBalanceSheetClick(event) {
+    var hit = event.target.closest
+      ? event.target.closest("[data-bills], #editBalanceBtn, #balanceMoneyBtn") : null;
+    if (!hit) return;
+    if (hit.dataset.bills) { openBillsFromBalance(); return; }
+    if (hit.id === "editBalanceBtn") { openMoneyField("balance"); return; }
+    closeOverlay($("balanceOverlay"), function () { showMoneySettings(); });
+  }
+
+  /* The one-field sheet: the opening-balance anchor or the monthly budget, whichever the opener asked
+     for. They are the same ask — one figure, one save — so they are one sheet with one target. */
+
+  var moneyFieldTarget = "balance";
+
+  function openMoneyField(target) {
+    moneyFieldTarget = target === "budget" ? "budget" : "balance";
+    var budget = moneyFieldTarget === "budget";
+    $("moneyFieldTitle").textContent = budget ? "Set a monthly budget" : "Set your balance";
+    $("moneyFieldLabel").textContent = budget
+      ? "How much do you want to limit each month to?"
+      : "How much money do you have right now?";
+    $("moneyFieldInput").value = "";
+    $("moneyFieldInput").placeholder = "RM 0.00";
+    paintMoneyFieldNote();
+    $("moneyFieldSheet").scrollTop = 0;
+    openOverlay($("moneyFieldOverlay"));
+  }
+
+  function closeMoneyField(fromOffset) {
+    closeOverlay($("moneyFieldOverlay"), null, fromOffset);
+  }
+
+  // What will be stored, before it is stored. The typed figure is what the owner has right now; what gets
+  // saved is the opening balance that produces it, because that is what the API derives the balance from.
+  // The preview runs the same integer-cent conversion the save does, so the two cannot disagree.
+  function paintMoneyFieldNote() {
+    var note = $("moneyFieldNote");
+    if (moneyFieldTarget !== "balance") { note.textContent = ""; return; }
+    var typed = parseMoneyInput($("moneyFieldInput").value);
+    if (typed === null || !isFinite(typed)) {
+      note.textContent = "Type what you have now, and Duits keeps track from there.";
+      return;
+    }
+    var summary = financeSummary || {};
+    note.textContent = "Starting balance will be " +
+      signedMoney(openingFor(typed, summary.total_income, summary.total_expense));
+  }
+
+  async function saveMoneyField(button) {
+    var typed = parseMoneyInput($("moneyFieldInput").value);
+    if (typed === null || !isFinite(typed)) {
+      toast("Enter an amount like 1250.00.", "warn");
+      return;
+    }
+    var body = {};
+    if (moneyFieldTarget === "budget") {
+      if (typed <= 0) { toast("Enter an amount above zero.", "warn"); return; }
+      body.monthly_budget = typed;
+    } else {
+      // The anchor: an opening balance of exactly zero is saved as computed, never nudged. The reply's
+      // zero is also what "not set yet" looks like, so an anchor that comes out at exactly zero leaves
+      // the card asking — which is honest, and one tap to redo.
+      var summary = financeSummary || {};
+      body.opening_balance = openingFor(typed, summary.total_income, summary.total_expense);
+    }
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    try {
+      financeSettings = await api("/finance/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      paintMoneySettings();            // Settings > Money is the other view of the same two values
+      toast("Saved.");
+      closeOverlay($("moneyFieldOverlay"));
+      refreshFinanceCard();
+    } catch (error) {
+      toast(friendly(error), "error");
+    } finally {
+      button.disabled = false;
+      button.setAttribute("aria-busy", "false");
+    }
   }
 
   // One row shape, shared by Home and the Transactions page so they cannot drift apart.
@@ -4611,13 +4893,30 @@
       renderTransactions(state.rows);
     });
     $("seeAllBtn").addEventListener("click", function () { showScreen("transactions"); });
-    // One pill, two targets. With no opening balance there is nothing for the sheet to subtract from, so
-    // the setup state goes to the field that fixes it instead of opening a list of bills; otherwise the
-    // pill is the commitments sheet's front door. Either way it is the same 44px tap target.
-    $("safeDetailsBtn").addEventListener("click", function () {
-      if (financeSummary && !hasMoneySettings(financeSummary)) { showMoneySettings(); return; }
-      openCommitSheet();
+    // The balance card is one target, and it opens the breakdown — the one place the arithmetic is
+    // written out. Its not-set state has its own button, and the failed state offers the one read that
+    // can fix it and nothing else.
+    $("balanceTap").addEventListener("click", openBalanceSheet);
+    $("setBalanceBtn").addEventListener("click", function () { openMoneyField("balance"); });
+    $("setBudgetBtn").addEventListener("click", function () { openMoneyField("budget"); });
+    $("retryFinanceBtn").addEventListener("click", refreshFinanceCard);
+    $("balanceDoneBtn").addEventListener("click", closeBalanceSheet);
+    $("balanceSheet").addEventListener("click", handleBalanceSheetClick);
+    $("balanceOverlay").addEventListener("click", function (event) {
+      if (isOutsideTap(event, $("balanceOverlay"))) closeBalanceSheet();
     });
+    attachSheetDrag("balanceSheet", "balanceOverlay", closeBalanceSheet, false);
+    // The one-field sheet: Save is a real button, and Enter in the field is the same tap.
+    $("moneyFieldCancelBtn").addEventListener("click", closeMoneyField);
+    $("moneyFieldSaveBtn").addEventListener("click", function () { saveMoneyField(this); });
+    $("moneyFieldInput").addEventListener("input", paintMoneyFieldNote);
+    $("moneyFieldInput").addEventListener("keydown", function (event) {
+      if (event.key === "Enter") { event.preventDefault(); saveMoneyField($("moneyFieldSaveBtn")); }
+    });
+    $("moneyFieldOverlay").addEventListener("click", function (event) {
+      if (isOutsideTap(event, $("moneyFieldOverlay"))) closeMoneyField();
+    });
+    attachSheetDrag("moneyFieldSheet", "moneyFieldOverlay", closeMoneyField, false);
     $("commitmentsBtn").addEventListener("click", openCommitSheet);
     $("insightCats").addEventListener("click", function (event) {
       var hit = event.target.closest ? event.target.closest("#insightCatToggle") : null;

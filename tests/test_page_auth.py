@@ -27,6 +27,26 @@ def csp_parts(client: TestClient) -> tuple[str, dict[str, str]]:
     return policy, directives
 
 
+def function_body(page: str, signature: str) -> str:
+    """One whole function, braces balanced, so a pin cannot go stale from a fixed-width slice.
+
+    Reading a function as `page[index:index + 1400]` rots the moment the body grows: the assertion that
+    names something near the end starts failing while nothing about the behaviour changed. Counting braces
+    from the signature's own `{` gives the body whatever its length (these bodies contain no braces inside
+    string literals or regexes).
+    """
+    start = page.index(signature)
+    depth = 0
+    for index in range(page.index("{", start), len(page)):
+        if page[index] == "{":
+            depth += 1
+        elif page[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return page[start:index + 1]
+    raise AssertionError("unterminated function: " + signature)
+
+
 # ---------------------------------------------------------------- the sign-in settings
 
 def test_the_page_carries_the_publishable_key_and_never_the_service_key(client: TestClient) -> None:
@@ -208,8 +228,9 @@ def test_sign_out_clears_the_session_and_the_cached_rows(client: TestClient) -> 
     assert "function clearCaches()" in page
     assert "state.rows = [];" in page and "state.summary = null;" in page
     # Clearing the state is not enough: a list is only re-rendered when its own tab loads, so the previous
-    # user's rows would stay on screen. The rendered lists are cleared too.
-    body = page[page.index("function clearCaches()"):page.index("function clearCaches()") + 1400]
+    # user's rows would stay on screen. The rendered lists are cleared too. The body is taken whole — a
+    # fixed-width slice used to sit here and it rotted as soon as the function grew (no behaviour changed).
+    body = function_body(page, "function clearCaches()")
     for node in ("txnList", "txnGroups", "insightDonut", "insightHighlights"):
         assert node in body, f"clearCaches must empty {node}"
     # the previous user's money must go too: the balance, the month's two cards and the budget bar
@@ -217,6 +238,9 @@ def test_sign_out_clears_the_session_and_the_cached_rows(client: TestClient) -> 
         assert node in body, f"clearCaches must reset {node}"
     assert '"RM 0.00"' in body, "the Insights total must be reset"
     assert "hideBudget();" in body, "the budget bar is reset with its card"
+    # The balance card's own three pieces of state go back to "nothing known yet" with the rest.
+    for node in ("balanceNotSet", "balanceTap", "retryFinanceBtn"):
+        assert node in body, f"clearCaches must reset {node}"
     signout = page[page.index("async function signOut()"):page.index("async function signOut()") + 700]
     assert "writeSession(null);" in signout and "clearCaches();" in signout
 
