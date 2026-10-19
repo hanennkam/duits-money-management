@@ -471,15 +471,70 @@ def test_the_breakdown_sheet_and_the_one_field_sheet_are_registered(client: Test
     # the 16px floor, stated on the selector that wins (a bare .money-field-input loses to .field later on)
     assert ".sheet .money-field-input { font-size: 16px; }" in page
     assert ".field {\n    width: 100%; min-height: 44px;" in page
-    # the breakdown's six rows are built from the reply, and the note explains the incomparable totals
+    # the breakdown is built from the reply: the six rows of the calculation, in order
     assert "function renderBalanceRows()" in page
-    for label in ("Starting balance", "+ Income (all months, all modes)",
-                  "\\u2212 Expenses (all months, all modes)", "= Balance",
-                  "Bills still due this month", "= Safe to spend"):
-        assert label in page, label
-    assert "These totals include every month and both Personal and Business" in page
-    assert 'id="editBalanceBtn"' in page and ">Edit my balance<" in page
+    # the bills row is built first, as a variable; the order that matters is the one that is painted
+    painted = page[page.index('$("balanceRows").innerHTML ='):page.index("function openBalanceSheet()")]
+    labels = ["Starting balance", "+ Income", "\\u2212 Expenses", "= Balance",
+              "bills", "= Safe to spend", "balance-note"]
+    positions = [painted.index(label) for label in labels]
+    assert positions == sorted(positions), "the rows keep the order of the calculation"
     assert 'id="balanceMoneyBtn"' in page and "Settings &middot; Money<" in page
+
+
+def test_the_calculation_sheet_is_the_short_list_and_a_pencil(client: TestClient) -> None:
+    """Six rows, one line about the budget, and a pencil for the anchor; the long note is gone.
+
+    The sheet says what the balance is made of. The all-months and all-modes arithmetic is still true,
+    but it now lives in the balance card's own label ("all modes"), not in a paragraph under the rows.
+    """
+    page = client.get("/").text
+    sheet = page[page.index('<div class="overlay" id="balanceOverlay"'):page.index('<div class="overlay" id="moneyFieldOverlay"')]
+    # the markup carries no prose: the rows are rendered from the reply
+    assert "These totals include every month" not in page
+    assert "(all months, all modes)" not in page
+    assert "differ from the monthly cards on Home" not in page
+    # the one sentence the sheet keeps is the budget's, verbatim
+    assert '<p class="balance-note">Budget guna perbelanjaan mod ini + bil belum bayar.</p>' in page
+    # the pencil is the anchor's control: an icon-only button with a name and a 44px target
+    assert ('<button class="balance-edit" id="editBalanceBtn" type="button" aria-label="Edit my balance">'
+            in page)
+    assert ">Edit my balance<" not in page, "the text link is replaced by the pencil"
+    assert "Edit my balance" not in sheet.replace('aria-label="Edit my balance"', ""), "no visible text left"
+    edit_css = page[page.index(".balance-edit {"):page.index("}", page.index(".balance-edit {"))]
+    assert "width: 44px; height: 44px;" in edit_css
+    assert 'data-bills="1"' in page and 'id="balanceBillsBtn"' in page
+    # the pencil opens the one-field sheet, and Settings · Money is still the text link
+    assert 'event.target.closest("[data-bills], #editBalanceBtn, #balanceMoneyBtn")' in page
+    assert 'if (hit.id === "editBalanceBtn") { openMoneyField("balance"); return; }' in page
+
+
+def test_the_money_icons_are_named_by_their_labels_or_by_aria_label(client: TestClient) -> None:
+    """Each money icon sits beside its visible text, so it is decorative and says nothing twice.
+
+    The one icon with no text beside it is the pencil, and it is the one that carries an aria-label.
+    Every icon is stroked in currentColor, so none adds a colour of its own.
+    """
+    page = client.get("/").text
+    # Income (up arrow) and Expenses (down arrow): each icon is inside its own stat label, before the text
+    for path, text in (("M12 19V5", "Income &middot; this month</span>"),
+                       ("M12 5v14", "Expenses &middot; this month</span>")):
+        label = page.index('<span class="stat-label"><svg class="money-icon"')
+        assert path in page[label:page.index(text)], text
+    assert page.count('<span class="stat-label"><svg class="money-icon" viewBox="0 0 24 24"') == 2
+    # Budget (gauge) beside both budget titles
+    assert page.count('class="money-icon budget-icon"') == 2
+    # Commitments (calendar) in the Settings row, and beside the bills label on the sheet
+    settings_row = page[page.index('id="commitmentsBtn"'):page.index('id="commitmentsValue"')]
+    assert '<rect x="3.5" y="5" width="17" height="15.5" rx="3.5"/>' in settings_row
+    assert 'aria-hidden="true"' in settings_row
+    assert "Commitments</span>" in settings_row
+    assert "Bills due this month" in page and "BILLS_ICON" in page
+    # Every paired icon is hidden from assistive tech, because its label is the name.
+    # The pencil is the one icon with no text beside it, so it is the one control that carries a name.
+    assert page.count('aria-hidden="true" focusable="false"') >= 6
+    assert page.count('aria-label="Edit my balance"') == 1
+    assert "BILLS_ICON = '<svg class=\"money-icon\"" in page
 
 
 def test_the_month_is_split_into_two_half_cards(client: TestClient) -> None:
@@ -495,8 +550,9 @@ def test_the_month_is_split_into_two_half_cards(client: TestClient) -> None:
     assert 'class="stat-row"' in page
     assert page.count('class="card stat-card"') == 2
     # Both halves say which month they belong to: the balance above them is all-time and every mode.
-    assert 'class="stat-label">Income &middot; this month<' in page
-    assert 'class="stat-label">Expenses &middot; this month<' in page
+    assert 'class="stat-label"><svg class="money-icon"' in page
+    assert 'Income &middot; this month</span>' in page
+    assert 'Expenses &middot; this month</span>' in page
     for element in ('id="incomeTotal"', 'id="expenseTotal"'):
         assert element in page, element
     # half width each, and the income figure carries the green token

@@ -368,7 +368,9 @@
   /* The month's two halves, side by side at half width each. They read the /summary the hero used to. */
   .stat-row { display: flex; gap: 12px; }
   .stat-card { flex: 1 1 0; min-width: 0; padding: 13px 15px 15px; }
-  .stat-label { display: block; font-size: 13px; font-weight: 500; color: var(--muted); }
+  /* The icon sits beside its label and takes no width from it: the label wraps, it never runs under the icon. */
+  .stat-label { display: flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 500; color: var(--muted); }
+  .money-icon { width: 14px; height: 14px; flex: none; }
   .stat-amount {
     display: block; margin-top: 3px; font-size: 19px; font-weight: 700; letter-spacing: -.02em;
     font-variant-numeric: tabular-nums; white-space: nowrap;
@@ -410,7 +412,11 @@
 
   /* ---------- home: monthly budget limit ---------- */
   .budget-card { padding: 16px 18px 18px; }
-  .budget-card .card-head { margin-bottom: 12px; }
+  /* With the gauge icon the title and the percentage no longer fit one row on a 375px phone (325px needed,
+     307px there). The percentage drops to the line under the title; the title stays on one line. */
+  .budget-card .card-head { margin-bottom: 12px; flex-wrap: wrap; row-gap: 4px; }
+  .budget-card .card-title { display: inline-flex; align-items: center; gap: 6px; }
+  .budget-icon { width: 16px; height: 16px; }
   .budget-pct { font-size: 13px; font-weight: 600; color: var(--text-2); font-variant-numeric: tabular-nums; }
   .budget-foot {
     display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
@@ -433,7 +439,7 @@
     color: inherit; font: inherit; font-size: 15px; text-align: left;
   }
   .balance-row:first-child { border-top: 0; }
-  .balance-row .k { flex: 1; min-width: 0; color: var(--text-2); }
+  .balance-row .k { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; color: var(--text-2); }
   .balance-row .v { flex: none; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .balance-row.is-eq { font-size: 16px; }
   .balance-row.is-eq .k { color: var(--text); font-weight: 600; }
@@ -443,8 +449,14 @@
   .balance-row.is-tap .v { display: flex; align-items: center; gap: 4px; }
   .balance-chev { width: 14px; height: 14px; color: var(--chevron); flex: none; }
   .balance-note { margin: 14px 0 0; font-size: 13px; line-height: 1.45; color: var(--text-2); }
-  .balance-actions { display: flex; flex-direction: column; margin-top: 8px; }
-  .balance-actions .btn-link { display: block; min-height: 44px; text-align: left; }
+  /* The pencil is the one icon-only control in the sheet: a 44px target, in the accent the links use. */
+  .balance-actions { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+  .balance-actions .btn-link { min-height: 44px; }
+  .balance-edit {
+    width: 44px; height: 44px; padding: 0; border: 0; border-radius: 9999px;
+    background: none; color: var(--accent); display: inline-flex; align-items: center; justify-content: center;
+  }
+  .balance-edit svg { width: 20px; height: 20px; }
   /* The one field the anchor asks for, and the preview line that answers it before anything is saved.
      The 16px is said here and not left to inherit: .field carries `font: inherit` and is declared later
      in the sheet, so a bare .money-field-input rule would lose to it (it computed 17px). */
@@ -1348,11 +1360,11 @@
     <!-- The viewed month, split in two. Both figures are this month and this mode, unlike the balance. -->
     <div class="stat-row">
       <div class="card stat-card">
-        <span class="stat-label">Income &middot; this month</span>
+        <span class="stat-label"><svg class="money-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 19V5"/><path d="M6 11l6-6 6 6"/></svg>Income &middot; this month</span>
         <span class="stat-amount in" id="incomeTotal">+RM 0.00</span>
       </div>
       <div class="card stat-card">
-        <span class="stat-label">Expenses &middot; this month</span>
+        <span class="stat-label"><svg class="money-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 5v14"/><path d="M6 13l6 6 6-6"/></svg>Expenses &middot; this month</span>
         <span class="stat-amount" id="expenseTotal">RM 0.00</span>
       </div>
     </div>
@@ -1362,7 +1374,7 @@
          one the same slot offers to set one, so an unset budget is not a silent absence. -->
     <div class="card budget-card" id="budgetCard" hidden>
       <div class="card-head">
-        <span class="card-title">Monthly budget limit</span>
+        <span class="card-title"><svg class="money-icon budget-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4.5 16.5a7.5 7.5 0 1 1 15 0"/><path d="M12 15l3.6-4.2"/><circle cx="12" cy="15" r="1.2"/></svg>Monthly budget limit</span>
         <span class="budget-pct" id="budgetPct">0% of RM 0.00</span>
       </div>
       <div class="bar" id="budgetBar" role="progressbar" aria-label="Monthly budget used"
@@ -1376,7 +1388,7 @@
     </div>
 
     <div class="card budget-card budget-prompt" id="budgetPromptCard" hidden>
-      <span class="card-title">Set a monthly budget (optional)</span>
+      <span class="card-title"><svg class="money-icon budget-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4.5 16.5a7.5 7.5 0 1 1 15 0"/><path d="M12 15l3.6-4.2"/><circle cx="12" cy="15" r="1.2"/></svg>Set a monthly budget (optional)</span>
       <p class="budget-prompt-line">A limit for the month, so Duits can tell you what is left to spend.</p>
       <button class="btn-primary" id="setBudgetBtn" type="button">Set a monthly budget</button>
     </div>
@@ -1501,6 +1513,9 @@
         </div>
         <div class="row-divider"></div>
         <button class="setting-row" id="commitmentsBtn" type="button">
+          <span class="setting-icon" style="background:var(--accent-soft);color:var(--accent)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3.5" y="5" width="17" height="15.5" rx="3.5"/><path d="M3.5 10h17M8 3.6V6.4M16 3.6V6.4"/></svg>
+          </span>
           <span class="setting-label">Commitments</span>
           <span class="setting-value" id="commitmentsValue">None</span>
           <svg class="setting-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
@@ -1618,7 +1633,10 @@
       </div>
       <div id="balanceRows"></div>
       <div class="balance-actions">
-        <button class="btn-link" id="editBalanceBtn" type="button">Edit my balance</button>
+        <button class="balance-edit" id="editBalanceBtn" type="button" aria-label="Edit my balance">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+               stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 20h4L19 9l-4-4L4 16v4Z"/><path d="M13.5 6.5l4 4"/></svg>
+        </button>
         <button class="btn-link" id="balanceMoneyBtn" type="button">Settings &middot; Money</button>
       </div>
     </div>
@@ -2890,6 +2908,12 @@
 
   // Every figure comes from the reply, never from arithmetic here: the sheet spells out the API's own
   // numbers, so the breakdown cannot disagree with the card above it.
+  // The calendar that stands for commitments, at the size of a row label. Decorative: the label beside it
+  // is the name, so it is hidden from assistive tech rather than announced twice.
+  var BILLS_ICON = '<svg class="money-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+    'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' +
+    '<rect x="3.5" y="5" width="17" height="15.5" rx="3.5"/><path d="M3.5 10h17M8 3.6V6.4M16 3.6V6.4"/></svg>';
+
   function renderBalanceRows() {
     var summary = financeSummary || {};
     var opening = Number(summary.opening_balance) || 0;
@@ -2907,20 +2931,19 @@
     // The bills row is the one row that leads somewhere: it is the commitments sheet's way in now that
     // the card itself opens this breakdown.
     var bills = '<button class="balance-row is-tap" id="balanceBillsBtn" type="button" data-bills="1">' +
-      '<span class="k">Bills still due this month</span>' +
+      '<span class="k">' + BILLS_ICON + '<span>Bills due this month</span></span>' +
       '<span class="v">' + escapeHtml(signedMoney(-unpaid)) +
       '<svg class="balance-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" ' +
       'stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></span></button>';
 
     $("balanceRows").innerHTML =
       row("Starting balance", signedMoney(opening)) +
-      row("+ Income (all months, all modes)", signedMoney(income)) +
-      row("\u2212 Expenses (all months, all modes)", signedMoney(-expense)) +
+      row("+ Income", signedMoney(income)) +
+      row("\u2212 Expenses", signedMoney(-expense)) +
       row("= Balance", signedMoney(balance), " is-eq") +
       bills +
       row("= Safe to spend", signedMoney(safe), " is-eq") +
-      '<p class="balance-note">These totals include every month and both Personal and Business, so they ' +
-      "differ from the monthly cards on Home.</p>";
+      '<p class="balance-note">Budget guna perbelanjaan mod ini + bil belum bayar.</p>';
   }
 
   function openBalanceSheet() {
