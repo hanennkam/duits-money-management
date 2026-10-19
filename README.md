@@ -273,10 +273,11 @@ Settings keeps the large title alone.
     **Merchant**, **Date** (`Today, 19 Oct 2026`, with the native picker invisibly over the row), **Mode**
     (Personal | Business, the rounded toggle described below) and **Note**. Each row is a label, so a
     tap anywhere on it opens its input. The keypad is the sheet's footer.
-  - The **keypad** is pinned to the bottom: 3 columns and 4 rows of 44px keys (the tap floor on every
-    phone). It hides while *Merchant* or *Note* holds the caret, derived from state and never remembered.
-  - The whole screen fits at 375×667 and 390×844 (the card sits 12-14px under the chip row and 12-16px
-    above the keypad at both sizes); nothing in Manual scrolls. The chosen chip scrolls into
+  - The **keypad** is pinned to the bottom: 3 columns and 4 rows of 48-52px keys (never under the 48px
+    tap floor) with 10px gaps, and the amount block above it takes whatever height the keypad leaves.
+    It hides while *Merchant* or *Note* holds the caret, derived from state and never remembered.
+  - The whole screen fits at 390×844 and 430×932 (the card sits 12-14px under the chip row); nothing in
+    Manual scrolls. A 375×667 box is tight enough to scroll a little. The chosen chip scrolls into
     view with part of the previous chip showing when the
     sheet opens or a chip is picked; with nothing chosen the row starts at 0.
   - **Mode** is the row's compact toggle, right-aligned, in the Expense | Income control's style: a
@@ -378,8 +379,8 @@ The standalone app is edge to edge, in both themes:
   status bar.
 - **When the box is short, the sheet gives height back instead of scrolling.** The insets and the top
   gap are real space (a 375×667 screen has a 592px box), so container queries on
-  the sheet's own box step in: the Manual amount block takes whatever is left (its floor is 48px), the
-  keypad's chrome gives next (grid gap and padding — the keys never drop below their 44px tap floor),
+  the sheet's own box step in: the keypad's chrome gives first (grid gap and padding, with 48px rows —
+  the tap floor), then the amount block shrinks to the figure's line box,
   then the gaps. A tall phone trips none of them (844 and
   932 give boxes of 760 and 830) and keeps every size it was tuned with. (That was the old 65% Manual;
   the Stitch layout is the full sheet. See the Add section.)
