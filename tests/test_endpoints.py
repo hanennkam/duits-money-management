@@ -284,6 +284,231 @@ def test_a_plain_save_sends_no_commitment_key_at_all(
     assert created["rows"][0]["commitment_id"] is None
 
 
+# ---------- the Pay flow's own guard: one bill, one expense, one month ----------
+
+# The Pay flow's two writes are the expense and the paid mark. The mark is idempotent (the same
+# month twice leaves one mark), but the expense in front of it was not: a Pay whose mark failed,
+# retried, charged the same bill twice. The three scenarios below are that failure, measured.
+
+
+@pytest.fixture
+def pay_rows(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """The Pay flow's rows, with the one-bill-one-expense lookup answered from them.
+
+    The lookup is mocked the way the table would answer it: this owner's Pay expense for this
+    commitment in this month. A plain save never asks, so the counter shows that too.
+    """
+    state: dict[str, Any] = {"rows": [], "lookups": []}
+
+    def find_pay_expense(
+        commitment_id: str, month: str, *, user_id: Any
+    ) -> dict[str, Any] | None:
+        state["lookups"].append((commitment_id, month, str(user_id)))
+        return next(
+            (
+                row
+                for row in state["rows"]
+                if row.get("commitment_id") == commitment_id
+                and row["user_id"] == str(user_id)
+                and str(row["txn_date"])[:7] == month
+            ),
+            None,
+        )
+
+    def insert(row: dict[str, Any], *, user_id: Any) -> dict[str, Any]:
+        stored = {
+            **row,
+            "user_id": str(user_id),
+            "id": str(len(state["rows"])),
+            "created_at": "2026-10-13T09:00:00+00:00",
+        }
+        state["rows"].append(stored)
+        return stored
+
+    monkeypatch.setattr("app.db.find_pay_expense", find_pay_expense)
+    monkeypatch.setattr("app.db.insert_transaction", insert)
+    yield state
+
+
+def test_a_pay_that_finds_the_bill_already_charged_answers_409(
+    client: TestClient, pay_rows: dict[str, Any], money: dict[str, Any]
+) -> None:
+    """Scenario A: the expense is saved, the mark fails, and the user pays again.
+
+    The first Pay's expense is in the table. The second Pay is the same bill in the same month, so
+    the answer is 409 carrying the row that is already there — the UI then carries on to the mark
+    instead of showing an error, and the bill is paid once and charged once.
+    """
+    money["commitments"] = [commitment_row()]
+    body = {
+        "amount": 300,
+        "txn_date": "2026-10-11",
+        "merchant": "Sewa rumah",
+        "category": "bills",
+        "commitment_id": COMMITMENT_ID,
+    }
+
+    first = client.post("/transactions", headers=HEADERS, json=body)
+    assert first.status_code == 201
+    assert len(pay_rows["rows"]) == 1
+
+    second = client.post("/transactions", headers=HEADERS, json=body)
+    assert second.status_code == 409
+    assert len(pay_rows["rows"]) == 1, "the bill is charged once, not twice"
+    detail = second.json()["detail"]
+    assert detail["error"] == "duplicate"
+    assert detail["transaction"]["id"] == pay_rows["rows"][0]["id"], "the row that is already there"
+
+
+def test_paying_the_same_bill_twice_costs_once(
+    client: TestClient, pay_rows: dict[str, Any], money: dict[str, Any]
+) -> None:
+    """Scenario B: the retry that follows a failed mark leaves one expense and one paid mark.
+
+    The whole point of the guard: the user paid, the mark failed, and they paid again. One expense
+    (so the balance drops once) and one mark (so the bill stops counting as due).
+    """
+    money["commitments"] = [commitment_row()]
+    money["settings"] = {"user_id": TEST_USER, "opening_balance": 1000.0, "monthly_budget": 0.0}
+    money["totals"] = []
+    body = {
+        "amount": 300,
+        "txn_date": "2026-10-11",
+        "merchant": "Sewa rumah",
+        "category": "bills",
+        "commitment_id": COMMITMENT_ID,
+    }
+    client.post("/transactions", headers=HEADERS, json=body)          # the first Pay
+    # The expense half of the Pay, as the totals see it.
+    money["totals"] = [totals_row(expense=300.0, commitment=300.0)]
+    marked = client.post(
+        f"/commitments/{COMMITMENT_ID}/paid", headers=HEADERS, json={"month": "2026-10"}
+    )
+    assert marked.status_code == 200
+    assert len(money["payments"]) == 1
+
+    retry = client.post("/transactions", headers=HEADERS, json=body)  # the second Pay
+    assert retry.status_code == 409
+    assert len(pay_rows["rows"]) == 1
+    assert len(money["payments"]) == 1
+
+    summary = client.get("/finance/summary?month=2026-10", headers=HEADERS).json()
+    assert summary["unpaid_commitments"] == 0.0, "the bill is paid"
+    assert summary["current_balance"] == 700.0, "and it was charged once"
+
+
+def test_the_same_pay_payload_twice_is_refused(
+    client: TestClient, pay_rows: dict[str, Any], money: dict[str, Any]
+) -> None:
+    """Scenario C: the identical payload sent twice, the second one is a 409 and no second row."""
+    money["commitments"] = [commitment_row()]
+    body = {
+        "amount": 300,
+        "txn_date": "2026-10-11",
+        "merchant": "Sewa rumah",
+        "category": "bills",
+        "commitment_id": COMMITMENT_ID,
+    }
+
+    first = client.post("/transactions", headers=HEADERS, json=body)
+    second = client.post("/transactions", headers=HEADERS, json=body)
+
+    assert (first.status_code, second.status_code) == (201, 409)
+    assert len(pay_rows["rows"]) == 1
+
+
+def test_the_pay_guard_is_scoped_to_the_owner(
+    client: TestClient, pay_rows: dict[str, Any], money: dict[str, Any]
+) -> None:
+    """Another owner's Pay expense must not stop this owner's Pay, and this owner's must not stop theirs.
+
+    The service key bypasses RLS, so the owner filter is the query's own `user_id` condition and
+    not a policy. This test reads the filter: the lookup is asked with the caller's id, and a row
+    that belongs to somebody else is not a match.
+    """
+    money["commitments"] = [commitment_row()]
+    body = {
+        "amount": 300,
+        "txn_date": "2026-10-11",
+        "merchant": "Sewa rumah",
+        "category": "bills",
+        "commitment_id": COMMITMENT_ID,
+    }
+    client.post("/transactions", headers=HEADERS, json=body)
+
+    # The lookup is asked with the caller's own id, so the rows it can see are the caller's rows.
+    assert pay_rows["lookups"] == [(COMMITMENT_ID, "2026-10", TEST_USER)]
+
+    # A row that belongs to another owner is not this caller's row, so it does not block the Pay.
+    other = dict(pay_rows["rows"][0])
+    other["user_id"] = OTHER_USER
+    pay_rows["rows"] = [other]
+    response = client.post("/transactions", headers=HEADERS, json=body)
+    assert response.status_code == 201
+    assert len(pay_rows["rows"]) == 2
+
+
+def test_a_deleted_pay_expense_lets_the_bill_be_paid_again(
+    client: TestClient, pay_rows: dict[str, Any], money: dict[str, Any]
+) -> None:
+    """The guard looks at the rows that exist, so deleting the expense frees the bill again.
+
+    A mistaken Pay is undone by deleting its expense. The bill must then be payable once more —
+    a guard that outlived the row it was about would lock the user out of their own bill.
+    """
+    money["commitments"] = [commitment_row()]
+    body = {
+        "amount": 300,
+        "txn_date": "2026-10-11",
+        "merchant": "Sewa rumah",
+        "category": "bills",
+        "commitment_id": COMMITMENT_ID,
+    }
+    first = client.post("/transactions", headers=HEADERS, json=body)
+    assert first.status_code == 201
+
+    pay_rows["rows"] = []                      # the expense was deleted
+
+    again = client.post("/transactions", headers=HEADERS, json=body)
+    assert again.status_code == 201
+    assert len(pay_rows["rows"]) == 1
+
+
+def test_a_plain_save_never_asks_the_pay_lookup(
+    client: TestClient, pay_rows: dict[str, Any]
+) -> None:
+    """Only a Pay is guarded: an ordinary manual save is deliberate and must never be refused."""
+    response = client.post("/transactions", headers=HEADERS, json={"amount": 12.5})
+
+    assert response.status_code == 201
+    assert pay_rows["lookups"] == [], "a plain save does not look for a Pay expense"
+
+
+def test_a_pay_in_another_month_is_a_different_bill(
+    client: TestClient, pay_rows: dict[str, Any], money: dict[str, Any]
+) -> None:
+    """The month is the transaction's own, so a bill paid in two months is two charges.
+
+    The guard answers for one commitment in one month. Paying last month's bill and this month's
+    bill are two expenses, and neither is a duplicate of the other.
+    """
+    money["commitments"] = [commitment_row()]
+    october = {
+        "amount": 300,
+        "txn_date": "2026-10-11",
+        "merchant": "Sewa rumah",
+        "category": "bills",
+        "commitment_id": COMMITMENT_ID,
+    }
+    november = {**october, "txn_date": "2026-11-11"}
+
+    first = client.post("/transactions", headers=HEADERS, json=october)
+    second = client.post("/transactions", headers=HEADERS, json=november)
+
+    assert (first.status_code, second.status_code) == (201, 201)
+    assert len(pay_rows["rows"]) == 2
+
+
 def test_create_transaction_needs_the_api_key(client: TestClient) -> None:
     assert client.post("/transactions", json={"amount": 5}).status_code == 401
 

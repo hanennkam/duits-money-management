@@ -4091,8 +4091,18 @@
       afterAdd(transaction, "Added.");    // toast + refresh, sheet already gone
       if (paying) await markCommitmentPaid(paying);   // never the other way round: no mark without a save
     } catch (error) {
-      // Always say what went wrong, in the sheet and as a toast: never a silent Save.
+      // A Pay that finds the bill already charged is not a failure: the expense is there, and the
+      // only thing left is the mark. The server answers 409 with the row that is already saved, so
+      // the flow carries on to mark the bill paid rather than showing an error and leaving the
+      // user with a paid bill and an unpaid mark.
       var duplicate = error instanceof ApiError && error.code === "duplicate" && error.transaction;
+      if (duplicate && paying) {
+        closeAddSheet();
+        await markCommitmentPaid(paying);   // the mark is the half that is still missing
+        afterAdd(error.transaction, "Already recorded. Marked as paid.");
+        return;
+      }
+      // Always say what went wrong, in the sheet and as a toast: never a silent Save.
       var reason = duplicate ? "Already recorded." : friendly(error);
       showAddNotice(duplicate ? resultCard(error.transaction, true)
         : '<div class="error-card">' + escapeHtml(reason) + "</div>");

@@ -192,6 +192,30 @@ def find_by_dedupe_hash(dedupe: str, *, user_id: UUID) -> dict[str, Any] | None:
     return rows[0] if rows else None
 
 
+def find_pay_expense(
+    commitment_id: str, month: str, *, user_id: UUID
+) -> dict[str, Any] | None:
+    """This owner's Pay expense for one commitment in one month, if any.
+
+    The month is the transaction's own `txn_date` month, so the range is the whole month and the
+    link column is the commitment. `user_id` is filtered here rather than left to a policy: the
+    service key bypasses RLS, so this filter is what keeps one owner's rows away from another.
+
+    A Pay expense is a manual row and manual rows are never deduped (a typed entry is deliberate),
+    so this lookup is what stops a retried Pay from charging the same bill twice.
+    """
+    start, end = month_bounds(month)
+    query = (
+        _table()
+        .select("*")
+        .eq("commitment_id", commitment_id)
+        .gte("txn_date", start.isoformat())
+        .lt("txn_date", end.isoformat())
+    )
+    rows = _owned(query, user_id).order("txn_date", desc=True).limit(1).execute().data or []
+    return rows[0] if rows else None
+
+
 def find_by_image_hash(image_hash: str, *, user_id: UUID) -> dict[str, Any] | None:
     """This owner's row for this exact uploaded file, if any."""
     rows = _owned(_table().select("*").eq("image_hash", image_hash), user_id).limit(1).execute().data or []

@@ -815,6 +815,30 @@ def test_pay_is_an_add_sheet_save_and_the_mark_comes_after_it(client: TestClient
     assert 'loadCommitments()' in mark
 
 
+def test_a_pay_that_finds_the_bill_already_charged_carries_on_to_the_mark(
+    client: TestClient,
+) -> None:
+    """A 409 on a Pay is not an error: the expense is there, so the flow goes on to the mark.
+
+    Paying is two writes — the expense and the paid mark — and the guard on the server (one bill,
+    one expense, one month) answers 409 with the row that is already saved. The user must not be
+    shown a failure for a bill that is in fact already paid, so the 409 takes the same path as a
+    successful save: the sheet closes, the mark is made, and the toast says what happened.
+    """
+    page = client.get("/").text
+    save = page[page.index("async function saveAdd("):page.index("/* ---------- transaction sheet")]
+    branch = save[save.index("if (duplicate && paying) {"):save.index("// Always say what went wrong")]
+    assert "closeAddSheet();" in branch, "the sheet closes as a saved one does"
+    assert "await markCommitmentPaid(paying);" in branch, "the mark is the half that is still missing"
+    assert 'afterAdd(error.transaction, "Already recorded. Marked as paid.");' in branch
+    # The row that is already there is the one the list repaints, so the row is flashed, not a ghost.
+    assert "error.transaction" in branch
+    # And no error card: the 409 for a Pay never reaches the notice.
+    assert "showAddNotice" not in branch
+    # The plain duplicate (a scan of the same receipt) still shows the card, as it always did.
+    assert 'showAddNotice(duplicate ? resultCard(error.transaction, true)' in save
+
+
 def test_settings_money_sits_above_account(client: TestClient) -> None:
     """Opening balance and budget save one field at a time; commitments opens the one sheet."""
     page = client.get("/").text

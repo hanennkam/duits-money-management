@@ -355,11 +355,23 @@ async def create_transaction(payload: TransactionCreate, user_id: CurrentUser) -
     `commitment_id` ties the row to the Pay flow's commitment (0004): it must be a commitment of the
     caller's — another owner's id is a 404, so a cross-owner link cannot be made — and it is data rather
     than a foreign key on purpose, so deleting a commitment never takes an expense (or a balance) with it.
+
+    A Pay expense is a manual row, and a manual row is never deduped (a typed entry is deliberate), so
+    the Pay flow gets its own guard: one bill, one expense, one month. Paying is two writes — the
+    expense and the paid mark — and the mark is idempotent, but the expense in front of it was not: a
+    Pay whose mark failed, retried, charged the same bill twice. The second attempt now answers 409
+    with the row that is already there, and the UI carries on to mark the bill paid.
     """
-    if payload.commitment_id is not None and (
-        db.get_commitment(str(payload.commitment_id), user_id=user_id) is None
-    ):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "No commitment with that id.")
+    if payload.commitment_id is not None:
+        if db.get_commitment(str(payload.commitment_id), user_id=user_id) is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "No commitment with that id.")
+        # The month is the transaction's own, so a bill paid in a different month is a different bill.
+        month = f"{payload.txn_date.year:04d}-{payload.txn_date.month:02d}"
+        existing = db.find_pay_expense(
+            str(payload.commitment_id), month, user_id=user_id
+        )
+        if existing is not None:
+            raise _duplicate(existing, "Already recorded.")
     return _insert(payload.to_row(), user_id=user_id)
 
 

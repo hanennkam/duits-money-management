@@ -712,7 +712,7 @@ All of these except `/health` need `Authorization: Bearer <Supabase access token
 | GET | `/health` | – | `{"status": "ok"}` (no auth) |
 | POST | `/transactions/scan` | multipart: `file` (jpg/png/webp), optional `mode` | 201 created transaction |
 | POST | `/transactions/text` | JSON `{"text": "...", "mode": "personal"}` | 201 created transaction |
-| POST | `/transactions` | JSON: `amount` (required), `txn_date` (default today), `merchant`, `category`, `type`, `mode`, `note`, optional `commitment_id` (the Pay flow's link; must belong to the caller) | 201 created transaction (422 bad value or unknown field, 409 duplicate, 404 unknown/foreign `commitment_id`) |
+| POST | `/transactions` | JSON: `amount` (required), `txn_date` (default today), `merchant`, `category`, `type`, `mode`, `note`, optional `commitment_id` (the Pay flow's link; must belong to the caller) | 201 created transaction (422 bad value or unknown field, 409 duplicate — a scan of the same receipt, or a Pay whose bill is already charged this month — 404 unknown/foreign `commitment_id`) |
 | GET | `/transactions?month=YYYY-MM&mode=personal` | – | 200 list, newest first |
 | GET | `/summary?month=YYYY-MM&mode=personal` | – | 200 totals |
 | GET | `/transactions/{id}` | – | 200 one transaction (404 unknown, 422 non-UUID id) |
@@ -720,6 +720,34 @@ All of these except `/health` need `Authorization: Bearer <Supabase access token
 | DELETE | `/transactions/{id}` | – | 204 empty body — deletes the row **and** its receipt object |
 | GET | `/transactions/{id}/receipt-url` | – | 200 `{"url": "https://…", "expires_in": 60}` (404 if the row has no receipt). `url` is absolute and ready to open |
 
+
+### The Pay flow's guard: one bill, one expense, one month
+
+Paying a commitment is **two writes**: the expense, then the paid mark. The mark was already
+idempotent (the same month twice leaves one mark, so a retried tap cannot subtract the money twice),
+but the **expense in front of it was not** — and a manual row is never deduped, because a typed
+entry is deliberate.
+
+So a Pay whose *mark* failed, retried by the user, charged the same bill **twice**: the balance
+dropped by twice the amount and Safe to spend went with it, while the bill was still unpaid.
+
+`POST /transactions` now answers **409 with the row that is already saved** when the payload carries
+a `commitment_id` and that commitment already has an expense in the transaction's own month:
+
+- The month is the **transaction's own**, so last month's bill and this month's bill are two
+  charges, and neither is a duplicate of the other.
+- The lookup filters `user_id` explicitly (`app/db.py`'s `find_pay_expense`). The service key
+  bypasses RLS, so the query's own filter — not a policy — is what keeps one owner's rows away from
+  another.
+- The guard looks at the rows that **exist**, so deleting a mistaken expense frees the bill again.
+- A plain save never asks, and is never refused.
+- The UI treats a 409 on a Pay as what it is — the expense is there, only the mark is missing — so it
+  closes the sheet, carries on to the mark, and says "Already recorded. Marked as paid."
+
+**Known limit:** this is a check, not a constraint. Two Pay requests that arrive *at the same
+instant* can both pass the lookup and both insert — there is no unique index on
+`(commitment_id, month)`, so a genuine race is still possible. Closing that would need a SQL
+migration, which is a separate decision.
 
 ### curl
 

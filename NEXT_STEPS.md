@@ -1616,3 +1616,35 @@ pytest: 333 passed, 21 skipped. Backend + UI commitments complete, pinned by tes
 - 0004: staging attempt failed 42P16 (view column order), fixed in c6c9c69 (commitment_expense now last). NOT re-run anywhere yet. Live has the 0003 view, staging mirrors it, so staging is the real rehearsal.
 - Not tested on real iPhone: Pay flow, budget bar, 422 error message (f5506c7).
 Next, in order: (1) backup staging, run 0004 up on staging, re-run verify_after_0003.sql + isolation suite; (2) deploy code to staging, smoke-test Pay flow + budget bar on iPhone; (3) fresh pg_dump of live, run 0004 up on live, then merge to main (Render auto-deploys).
+
+## 2026-10-19 — the Pay guard, the What's New sheet, and the stale note
+
+Three commits on `feat/budget-balance-commitments`, none pushed to `main`:
+
+- **`fix stale budget note`** — the note under the balance breakdown still described the budget rule
+  that 0004 threw out ("this mode's spending + unpaid bills"), and it was in Malay while the app is in
+  English. It now says what the code does.
+- **`whats-new sheet`** — a three-screen sheet shown once per version (`WHATS_NEW_VERSION` against
+  `localStorage["duits.whatsnew"]`), opened only after the user is on Home and never on the sign-in,
+  set-password or reset screens. The copy is the app's own rules in words, with no example amounts.
+  The (i) beside "Safe to spend" says the card opens "How this is calculated"; it is decoration
+  inside the card's own button, so it has no handler.
+- **`pay duplicate guard`** — `POST /transactions` with a `commitment_id` now answers **409 with the
+  row that is already saved** when that commitment already has an expense in the transaction's own
+  month. This closes a real bug: paying is two writes, the *mark* was idempotent but the *expense*
+  was not, so a Pay whose mark failed and was retried charged the same bill **twice**. The UI treats
+  a 409 on a Pay as "the expense is there, only the mark is missing": it closes the sheet, carries on
+  to the mark, and says "Already recorded. Marked as paid."
+
+**Known limit (the guard is a check, not a constraint):** two Pay requests that arrive *at the same
+instant* can both pass the lookup and both insert. There is no unique index on
+`(commitment_id, month)`, so a genuine race is still possible. Closing it needs a SQL migration —
+`0005`, a unique partial index on `public.transactions (commitment_id, date_trunc('month',
+txn_date))` where `commitment_id is not null` — and the 0004 rollback would have to drop it with
+0004's column. Not done, and not to be done without the owner's decision: the index would refuse
+the second insert with a 23505, which the API does not translate into the 409 the UI expects.
+
+**To show the What's New sheet again:** change `WHATS_NEW_VERSION` in `app/static/index.html`. It
+is the only switch — the constant is compared with `localStorage["duits.whatsnew"]`, and a different
+value means the sheet opens for every user once more. Nothing else has to be touched, and there is
+no dev-only override to remember.
