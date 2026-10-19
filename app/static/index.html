@@ -616,10 +616,10 @@
     background: var(--grab); margin: 0 auto;
   }
   .sheet-done[disabled] { color: var(--muted); }
-  /* The Add sheet is a bottom sheet, anchored to the bottom edge with its top edge at
-     --sheet-top-gap, and its height is the rest of the screen: the keypad's background reaches the
-     bottom, so there is never a strip of scrim under it. Nothing inside scrolls, and the keyboard does
-     not resize it (iOS leaves 100dvh alone when the keyboard opens). */
+  /* The Add sheet is a bottom sheet, anchored to the bottom edge. Each of its three views sets its own
+     height: the chooser hugs its two cards, Manual takes exactly 65% of the dynamic viewport, and AI
+     keeps the rest of the screen. The keypad's background reaches the bottom, so there is never a strip
+     of scrim under it. Nothing inside scrolls. */
   #addOverlay { padding: 0; background: var(--scrim-sheet); }
   #addSheet {
     position: fixed; left: 0; right: 0; bottom: 0;
@@ -634,6 +634,10 @@
        sees the phone. A 375x667 screen with a 47px status bar has ~586px to spend here. */
     container-type: size;
   }
+  /* Manual is 65dvh, not vh: the dynamic viewport is the one that follows the phone's toolbars, and it
+     is the number the two-step layout was tuned against. AI keeps the full sheet, and the chooser hugs
+     its cards (see .is-compact). */
+  #addSheet.is-manual { height: 65dvh; }
   #addSheet .sheet-grab { margin: 0; padding: 4px 0 8px; }   /* handle, 8px, then the header */
   /* Swipe-to-dismiss. A pointer may claim the gesture anywhere on the sheet except over something that
      has its own: the chips row pans sideways, the expanded Details row can scroll, and everywhere else
@@ -641,7 +645,6 @@
      whole surface is drag-locked and the exclusions above hand their gestures back. */
   #addSheet { touch-action: none; }
   #addSheet .chip-scroll { touch-action: pan-x; }
-  #addSheet .add-details > * { touch-action: pan-y; }
   /* The edit sheet can scroll (a receipt or a long note), so only its head and amounts are locked:
      dragging from them always starts the dismiss instead of scrolling the sheet. */
   /* Everything on the detail sheet that may start a swipe is drag-locked, or the browser claims the pan
@@ -685,25 +688,15 @@
   /* The real picker sits invisibly over the pill, so a tap opens the native date sheet. 16px because
      iOS zooms the whole page in when a focused control is smaller, and this one is focusable. */
   .add-date-input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; border: 0; font-size: 16px; }
-  /* Merchant + Note open between the pills and the chips. The block grows a 0fr grid row (the one way
-     to animate an expand without touching height/width) so a closed block is exactly 0 tall — no
-     leftover margin — and the inner row is the one area still allowed to scroll on a very short
-     screen. visibility flips only after the collapse has finished, so a closed block cannot be tabbed
-     into. */
-  .add-details {
-    flex: 0 1 auto; display: grid; grid-template-rows: 0fr; overflow: hidden;
-    transition: grid-template-rows var(--dur-page) var(--ease-ios);
-  }
-  .add-details.is-open { grid-template-rows: 1fr; }
-  .add-details > * {
-    min-height: 0; max-height: 132px; overflow: hidden auto;
-    -webkit-overflow-scrolling: touch; visibility: hidden;
-    transition: visibility 0s linear var(--dur-page);
-  }
-  .add-details.is-open > * { visibility: visible; transition-delay: 0s; }
-  /* The 8px that used to sit above the fields lives inside the clipped row, so it costs nothing shut. */
-  .add-fields { display: flex; gap: 8px; }
-  .add-fields > .add-field { margin-top: 8px; }
+  /* Manual is two steps, and only one of them is in the sheet's column at a time: step 1 is the amount
+     and its date/mode/Details pills, with the keypad below them (the keypad is the sheet's own last row,
+     outside this section); step 2 is Merchant, Note and the category chips. Each step fills the section,
+     so its content starts at the top and never overlays the other one. */
+  .manual-step { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  /* Merchant and Note sit side by side under the Back that returns to step 1. They are touch targets,
+     so they are 44px; the field keeps its 16px so iOS does not zoom on focus. */
+  .add-fields { display: flex; gap: 8px; margin-top: 8px; }
+  .add-fields > .add-field { min-height: 44px; }
   .add-field {
     flex: 1; min-width: 0; min-height: 38px; padding: 0 12px;
     border: .5px solid var(--line); border-radius: 12px;
@@ -828,20 +821,20 @@
   }
   .key:active { background: var(--pressed); }
   .key svg { width: 24px; height: 24px; }
-  /* A short screen keeps 48px keys so nothing else has to give; a tall one spends the spare
-     height on 56px keys, which the amount block has already proven we can afford. */
+  /* A short screen keeps 48px keys so nothing else has to give; a tall one spends the spare height on
+     56px keys. Manual is 65dvh, so its own container query below has the last word and lands on 44px
+     keys: these media rules stay for the AI view and for any future full-height sheet. */
   @media (min-height: 780px) {
     .key { height: 56px; }
     .keypad-grid { gap: 8px; }
   }
-  /* Second in line behind the amount font: 44px keys, which is 4 rows of 44 plus gaps = 16px back.
-     Both target sizes (667 and 844) are above this, so they keep 48px keys. */
+  /* Second in line behind the amount font: 44px keys, which is 4 rows of 44 plus gaps = 16px back. */
   @media (max-height: 620px) { .key { height: 44px; } }
   /* The sheet's own box is the honest measure of the room left: its height minus its padding, with the
-     top gap and both safe areas already taken out. When it is short the content gives height back in
-     this order — the amount font (56 -> 44), then the keypad keys (56 -> 44), then the vertical gaps —
-     and it never scrolls: a 375x667 screen has a 592px box, an iPhone SE (568px, no notch) about 500px.
-     A tall phone trips none of this and keeps every size the layout was tuned with. */
+     top gap and both safe areas already taken out. Manual is 65dvh, so this box is under 640 on every
+     phone — a 375x667 box is ~434px, a 390x844 one ~549px — and the content gives height back in this
+     order: the amount font (56 -> 44), then the keypad keys (56 -> 44), then the vertical gaps. It never
+     scrolls. The deeper 560 query only trips on the shorter screen. */
   @container (max-height: 640px) {
     /* 1. the amount: the only flexible block, so its own floor decides whether the column fits */
     .add-amount { font-size: clamp(34px, 7.2dvh, 44px); min-height: .85em; padding: 0; }
@@ -1690,43 +1683,50 @@
         </div>
       </section>
 
-      <!-- 2. Manual: the keypad's own view. The amount, the date, the chips and the header's Save are
-           the only things that submit from here, and Back above them returns to the chooser. -->
+      <!-- 2. Manual: two steps, one on screen at a time. Step 1 is the amount and its date, mode and
+           Details pills, with the keypad below them; step 2 (the Details pill) is Merchant, Note and
+           the category chips. The header's Save submits from either step, and each step has its own
+           Back: step 2's returns to step 1, step 1's leaves for the chooser. -->
       <section id="screen-add" hidden>
-        <button class="add-back" id="addBackManual" type="button">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
-          Back
-        </button>
-        <div class="segmented" id="addTypeToggle" role="group" aria-label="Type">
-          <button class="seg-btn is-active" type="button" data-add-type="expense">Expense</button>
-          <button class="seg-btn" type="button" data-add-type="income">Income</button>
+        <div class="manual-step" id="manualStepAmount">
+          <button class="add-back" id="addBackManual" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+            Back
+          </button>
+          <div class="segmented" id="addTypeToggle" role="group" aria-label="Type">
+            <button class="seg-btn is-active" type="button" data-add-type="expense">Expense</button>
+            <button class="seg-btn" type="button" data-add-type="income">Income</button>
+          </div>
+
+          <div class="add-amount" id="addAmount">RM 0.00</div>
+
+          <div class="add-pills">
+            <label class="add-pill add-pill-date" for="addDate">
+              <span id="addDateLabel">Today</span>
+              <input class="add-date-input" id="addDate" type="date" aria-label="Date">
+            </label>
+            <button class="add-pill" id="addModePill" type="button" aria-label="Switch between Personal and Business">
+              <span id="addModeLabel">Personal</span>
+            </button>
+            <button class="add-pill" id="addDetailsPill" type="button" aria-expanded="false" aria-controls="manualStepDetails">
+              <span>Details</span>
+            </button>
+          </div>
         </div>
 
-        <div class="add-amount" id="addAmount">RM 0.00</div>
-
-        <div class="add-pills">
-          <label class="add-pill add-pill-date" for="addDate">
-            <span id="addDateLabel">Today</span>
-            <input class="add-date-input" id="addDate" type="date" aria-label="Date">
-          </label>
-          <button class="add-pill" id="addModePill" type="button" aria-label="Switch between Personal and Business">
-            <span id="addModeLabel">Personal</span>
+        <div class="manual-step" id="manualStepDetails" hidden>
+          <button class="add-back" id="addBackDetails" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+            Back
           </button>
-          <button class="add-pill" id="addDetailsPill" type="button" aria-expanded="false" aria-controls="addDetails">
-            <span>Details</span>
-          </button>
-        </div>
-
-        <div class="add-details" id="addDetails">
           <div class="add-fields">
             <input class="add-field add-text" id="addMerchant" type="text" placeholder="Merchant"
                    autocomplete="off" autocapitalize="words">
             <input class="add-field add-text" id="addNote" type="text" placeholder="Note" maxlength="500"
                    autocomplete="off">
           </div>
+          <div class="chip-scroll" id="addChips" role="group" aria-label="Category"></div>
         </div>
-
-        <div class="chip-scroll" id="addChips" role="group" aria-label="Category"></div>
       </section>
 
       <!-- 3. AI: Smart Entry, then Scan Receipt. No keypad: the real keyboard is the input here, and
@@ -3575,6 +3575,8 @@
   var ADD_VIEWS = ["chooser", "manual", "ai"];
   var ADD_VIEW_TITLES = { chooser: "Add Transaction", manual: "New Transaction", ai: "Smart Entry" };
   var addView = "chooser";
+  var manualStep = "amount";        // Manual's step 1; step 2 is Merchant, Note and the chips
+  var manualFieldFocused = false;   // true while a text field holds the caret (the keyboard is up)
 
   function addViewNode(view) {
     return $(view === "manual" ? "screen-add" : "screen-" + view);
@@ -3584,10 +3586,32 @@
     if (ADD_VIEWS.indexOf(view) < 0) view = "chooser";
     addView = view;
     ADD_VIEWS.forEach(function (name) { addViewNode(name).hidden = name !== view; });
-    $("addKeypad").hidden = view !== "manual";
     $("saveAddBtn").hidden = view !== "manual";
     $("addSheet").classList.toggle("is-compact", view === "chooser");
+    $("addSheet").classList.toggle("is-manual", view === "manual");
     $("addSheetTitle").textContent = ADD_VIEW_TITLES[view];
+    manualFieldFocused = false;
+    if (view === "manual") showManualStep("amount");   // every visit to Manual starts on step 1
+    else updateKeypadVisibility();
+  }
+
+  // Manual is two steps and only one is in the sheet at a time. Step 1 is the amount and its pills, with
+  // the keypad under them; step 2 (the Details pill) is Merchant, Note and the chips, with no keypad.
+  function showManualStep(step) {
+    manualStep = step === "details" ? "details" : "amount";
+    $("manualStepAmount").hidden = manualStep !== "amount";
+    $("manualStepDetails").hidden = manualStep !== "details";
+    $("addDetailsPill").setAttribute("aria-expanded", manualStep === "details" ? "true" : "false");
+    $("addDetailsPill").classList.toggle("is-on", manualStep === "details");
+    updateKeypadVisibility();
+    if (manualStep === "details") focusWithoutScroll($("addMerchant"));
+  }
+
+  // The keys belong to the amount and to nothing else: step 2 has no amount on screen, and while either
+  // text field holds the caret the real keyboard is up and the keypad steps aside. Derived from state
+  // each time, never remembered.
+  function updateKeypadVisibility() {
+    $("addKeypad").hidden = !(addView === "manual" && manualStep === "amount" && !manualFieldFocused);
   }
 
   // Back moves inside the sheet; Cancel is what leaves it, so both stay on screen in both flows. The
@@ -3670,15 +3694,6 @@
   function focusWithoutScroll(field) {
     if (!field || !field.focus) return;
     try { field.focus({ preventScroll: true }); } catch (error) { field.focus(); }
-  }
-
-  // Details holds Merchant and Note: collapsed until the pill is tapped.
-  function toggleAddDetails() {
-    var open = !$("addDetails").classList.contains("is-open");   // about to open?
-    $("addDetails").classList.toggle("is-open", open);
-    $("addDetailsPill").setAttribute("aria-expanded", open ? "true" : "false");
-    $("addDetailsPill").classList.toggle("is-on", open);
-    if (open) focusWithoutScroll($("addMerchant"));
   }
 
   async function saveAdd() {
@@ -4670,9 +4685,7 @@
     $("addNote").value = "";
     $("textInput").value = "";
     setSmartEntryOpen(false);         // Smart Entry starts as one row, every time the sheet opens
-    $("addDetails").classList.remove("is-open");   // Merchant and Note start collapsed
-    $("addDetailsPill").setAttribute("aria-expanded", "false");
-    $("addDetailsPill").classList.remove("is-on");
+    showManualStep("amount");         // Manual starts on the amount step, every time
     $("scanHint").hidden = true;      // the privacy note only appears with Scan Receipt
     $("keypadGrid").innerHTML = keypadHtml();
     setScanBusy(false);
@@ -4697,13 +4710,8 @@
     addCategory = prefill.category || "bills";
     addType = prefill.type === "income" ? "income" : "expense";
     $("addMerchant").value = prefill.merchant || "";
-    // The merchant lives in Details; open it so what is being paid is on screen — without focusing,
-    // because the keyboard would cover the amount the prefilled sheet is already showing.
-    if (prefill.merchant) {
-      $("addDetails").classList.add("is-open");
-      $("addDetailsPill").setAttribute("aria-expanded", "true");
-      $("addDetailsPill").classList.add("is-on");
-    }
+    // The merchant lives on step 2; it is filled in there for the user to check, without opening that
+    // step or focusing the field — the prefilled sheet is showing the amount, and stays on it.
     paintAddAmount();
     paintAddChips();
     paintAddToggle("addTypeToggle", "addType", addType);
@@ -4773,7 +4781,7 @@
   var DRAG_SURFACES = ".sheet-grab, .sheet-head, .add-amount, .sheet-title, .sheet-sub, .sheet-amount, " +
     ".result-merchant, .result-amount, .result-meta, .kv, .card-title, .sheet";
   var DRAG_BLOCKERS = "button, a, label, input, select, textarea, .no-drag, .key, .keypad, " +
-    ".chip-scroll, .cat-chip, .add-rows, .smart-card, .add-pills, .add-details, .sheet-actions, " +
+    ".chip-scroll, .cat-chip, .add-rows, .smart-card, .add-pills, .add-fields, .sheet-actions, " +
     ".kv, .item-row, .form-row, .receipt-img, .wheel, .wheel-cols";
   var DRAG_START_PX = 8;          // movement before the drag is claimed at all (a tap may wobble)
   var DRAG_CLOSE_PX = 120;        // dragged this far down and it closes
@@ -4947,6 +4955,7 @@
     $("chooseManualBtn").addEventListener("click", function () { showAddView("manual"); });
     $("chooseAiBtn").addEventListener("click", function () { showAddView("ai"); });
     $("addBackManual").addEventListener("click", reverseAddView);
+    $("addBackDetails").addEventListener("click", function () { showManualStep("amount"); });
     $("addBackAi").addEventListener("click", reverseAddView);
     $("closeAddBtn").addEventListener("click", closeAddSheet);
     $("addOverlay").addEventListener("click", function (event) {
@@ -5020,7 +5029,13 @@
     $("addModePill").addEventListener("click", function () {
       setAddMode(addMode === "personal" ? "business" : "personal");
     });
-    $("addDetailsPill").addEventListener("click", toggleAddDetails);
+    $("addDetailsPill").addEventListener("click", function () { showManualStep("details"); });
+    // The keys are for the amount: while Merchant or Note holds the caret the real keyboard is up, so the
+    // keypad hides. It is derived from these two flags, never remembered.
+    ["addMerchant", "addNote"].forEach(function (id) {
+      $(id).addEventListener("focus", function () { manualFieldFocused = true; updateKeypadVisibility(); });
+      $(id).addEventListener("blur", function () { manualFieldFocused = false; updateKeypadVisibility(); });
+    });
     $("addDate").addEventListener("change", function () {
       paintAddDate();
       if ($("addDate").value > addToday()) {          // the picker's max is a hint, not a guarantee
@@ -5042,8 +5057,6 @@
       if (hit) setAddType(hit.dataset.addType);
     });
     $("saveAddBtn").addEventListener("click", saveAdd);
-    // The keys are for the amount: any focused text field (merchant, note, date, smart entry) means
-    // the real keyboard is up, so the keypad steps aside. Re-derived from state, never remembered.
     $("authSubmit").addEventListener("click", submitAuth);
     $("authForgot").addEventListener("click", function () { setAuthView("forgot"); });
     $("authBack").addEventListener("click", function () { setAuthView("signin"); });

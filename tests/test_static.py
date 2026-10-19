@@ -96,7 +96,7 @@ def test_the_add_sheet_opens_on_a_two_option_chooser(client: TestClient) -> None
     opened = page[page.index("function openAddSheet("):page.index("function closeAddSheet(")]
     assert 'showAddView("chooser")' in opened, "a fresh sheet must start on the chooser"
     assert "function showAddView(view)" in page
-    assert '$("addKeypad").hidden = view !== "manual";' in page
+    assert 'if (view === "manual") showManualStep("amount");' in page, "Manual opens on step 1"
     assert '$("saveAddBtn").hidden = view !== "manual";' in page
 
 
@@ -982,3 +982,49 @@ def test_the_name_merchant_and_note_inputs_keep_autocomplete_off(client: TestCli
     for element in ('id="commitName"', 'id="addMerchant"', 'id="addNote"'):
         tag = page[page.index(element) - 60:page.index(">", page.index(element)) + 1]
         assert 'autocomplete="off"' in tag, element
+
+
+def test_the_manual_sheet_is_two_steps_at_65_percent_height(client: TestClient) -> None:
+    """Manual is 65dvh and splits into an amount step and a details step, one on screen at a time.
+
+    Step 1 carries the type, the amount and the three pills, and the keypad sits under it. Step 2 is
+    Merchant, Note and the chips; it has no keypad, so the real keyboard has the room. The Details pill
+    goes forward, its own Back comes back, and every open starts on step 1.
+    """
+    page = client.get("/").text
+    # 65% of the dynamic viewport: dvh, never vh
+    assert "#addSheet.is-manual { height: 65dvh; }" in page
+    assert "65vh" not in page, "the sheet must follow the dynamic viewport, not the static one"
+    assert '$("addSheet").classList.toggle("is-manual", view === "manual");' in page
+    # the two steps exist, one of them hidden, each its own flex column inside the manual section
+    assert '<div class="manual-step" id="manualStepAmount">' in page
+    assert '<div class="manual-step" id="manualStepDetails" hidden>' in page
+    assert ".manual-step { display: flex; flex-direction: column; flex: 1; min-height: 0; }" in page
+    assert "add-details" not in page, "the old inline expansion is gone"
+    # step 1 holds the amount and every pill, including Details; step 2 holds the fields and chips
+    step1 = page[page.index('id="manualStepAmount"'):page.index('id="manualStepDetails"')]
+    for element in ('id="addTypeToggle"', 'id="addAmount"', 'id="addDate"', 'id="addModePill"',
+                    'id="addDetailsPill"'):
+        assert element in step1, element
+    step2 = page[page.index('id="manualStepDetails"'):page.index('<section id="screen-ai"')]
+    for element in ('id="addMerchant"', 'id="addNote"', 'id="addChips"'):
+        assert element in step2, element
+    assert 'id="addDetailsPill"' not in step2 and 'id="addAmount"' not in step2
+    # Details goes forward, step 2's Back comes back, and the step swap is one function
+    assert '$("addDetailsPill").addEventListener("click", function () { showManualStep("details"); });' in page
+    assert '$("addBackDetails").addEventListener("click", function () { showManualStep("amount"); });' in page
+    swap = page[page.index("function showManualStep(step)"):page.index("function updateKeypadVisibility()")]
+    assert '$("manualStepAmount").hidden = manualStep !== "amount";' in swap
+    assert '$("manualStepDetails").hidden = manualStep !== "details";' in swap
+    assert 'focusWithoutScroll($("addMerchant"));' in swap, "step 2 puts the caret in Merchant"
+    # the two fields of the new step are touch targets: 44px, still on 16px
+    assert ".add-fields > .add-field { min-height: 44px; }" in page
+    # the keypad is for the amount only: not in step 2, and not while a text field has the caret
+    keys = page[page.index("function updateKeypadVisibility()"):page.index("function keypadHtml()")]
+    assert '$("addKeypad").hidden = !(addView === "manual" && manualStep === "amount" && !manualFieldFocused);' in keys
+    assert 'manualFieldFocused = true; updateKeypadVisibility();' in page
+    assert 'manualFieldFocused = false; updateKeypadVisibility();' in page
+    # the prefilled Pay sheet stays on step 1 and leaves the merchant for step 2
+    prefill = page[page.index("function applyAddPrefill("):page.index("function closeAddSheet(")]
+    assert '$("addMerchant").value = prefill.merchant || "";' in prefill
+    assert "classList.add(\"is-open\")" not in prefill
