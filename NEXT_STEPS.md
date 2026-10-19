@@ -1435,3 +1435,15 @@ it leaves the helper line fully visible).
 3. **The budget offer and the retry.** With no budget, check the dashed card and that the button opens the
    one-field sheet; kill the connection (or leave the tab offline) and reopen Home to see `Try again` — tapping it
    once must repaint the card without a full reload.
+
+## 2026-10-19 — Smart Entry as a row, shorter income/expense labels (UI only)
+
+- **Smart Entry** is one row (bolt, label, chevron), the same `.add-row` as Scan Receipt. Its field and Add open
+  under it. Collapsed card **100.95px → 48px** (375 and 390, clone measure). Open card **128px**.
+- **Income / Expenses** cards lost "· this month". Both are **92.74px → 75.2px** (clone, 375 and 390), labels on one
+  line, amounts aligned at 35.55px from the top. Real desktop page: 72.19px in both themes.
+- **Autocomplete:** the commitment name, Merchant and Note already carried `autocomplete="off"`; now pinned, not added.
+  Smart Entry's field (`textInput`) does not have it.
+- **Not done, found on the way:** the commitment name, Merchant and Note inputs are still 38px (`.add-field`), under
+  the 44px touch floor. They share the class with the Manual sheet, which is not decided yet.
+- **Not verified:** iPhone, touch, keyboard, safe-area. Harness: DOM clicks in desktop Chromium.
