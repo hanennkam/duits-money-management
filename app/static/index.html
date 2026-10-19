@@ -660,11 +660,14 @@
      (Manual only) stays pinned to the bottom. min-height: 0 keeps the column shrinkable. No bottom
      padding: the keypad is the sheet's last row whenever it is on screen. */
   #screen-chooser, #screen-add, #screen-ai { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  /* Manual's wrapper and body size to their content, so the one row that is left with the sheet's spare
+     height is the keypad. */
+  #screen-add { flex: 0 0 auto; }
   /* Manual, top to bottom: the type row (Back and the segmented control), the amount with its currency
      pill, the category row, the four-row card and the keypad as the sheet's own footer. Only the middle,
      .manual-body, can scroll, and only when the phone is too short for all of it; the keypad never moves. */
   .manual-body {
-    flex: 1; min-height: 0; display: flex; flex-direction: column;
+    flex: 0 0 auto; min-height: 0; display: flex; flex-direction: column;
     margin: 0 -16px; padding: 0 16px 0;
     overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
     touch-action: pan-y; scrollbar-width: none;
@@ -680,14 +683,14 @@
   .add-back-icon svg { width: 18px; height: 18px; }
   .add-type { flex: 1; min-width: 0; margin: 0; }
   .add-type .seg-btn { min-height: 44px; }
-  /* The amount block takes the sheet's leftover height and centres the figure in it, so the dead band that
-     used to sit between the card and the keypad now sits above the category row instead. Its floor (48px)
-     is what a 375x667 sheet can spare once the card keeps its 12px to the keys; the 56px figure overhangs
-     that box by a few pixels, which is clear air on both sides. The caret blinks with a plain CSS loop:
-     it repeats in place, it does not animate a display change. */
+  /* The amount block: the figure with 14px of air above and below, centred, and never more than 16px of
+     air a side — 96px at the 64px figure. It is not the row that drinks the sheet's spare height; the
+     keys are (see #addKeypad), and whatever is still left after they reach 64px stays above the keypad.
+     On a short sheet the container rule pins the block to the figure's own line box. The caret blinks
+     with a plain CSS loop: it repeats in place, it does not animate a display change. */
   .add-amount-block {
-    flex: 1 1 auto; min-height: 48px; display: flex; flex-direction: column; align-items: center;
-    justify-content: center; padding: 0;
+    flex: 0 1 auto; min-height: 56px; max-height: 96px; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; padding: 14px 0;
   }
   /* 56px on a 667px screen, 64px on a tall one. fitAddAmount() steps it down for a long value, so a
      figure never wraps or runs off the sheet. */
@@ -757,13 +760,17 @@
   }
   .add-mode .seg-btn.is-active { background: none; box-shadow: none; }
   .add-mode .seg-btn.is-active::after { background: var(--seg-selected); box-shadow: var(--seg-shadow); }
-  /* Manual's keys stay at the 44px tap floor on every phone. The 56px keys of a tall screen would stretch
-     the column past the fold on a short one, so Manual pins 44px and tightens the keypad's own chrome:
-     less padding in the grid and around it. The short-phone step tightens it further — see the 640px
-     container rule below. */
-  #addKeypad .key { height: 44px; }
-  #addKeypad .keypad-grid { gap: 5px; padding: 2px; }
-  #addKeypad { margin-top: 2px; padding-top: 2px; padding-bottom: calc(2px + var(--sab)); }
+  /* The keypad is the row that drinks the sheet's spare height: its four rows flex between 48px and 64px,
+     so the keys grow on a tall phone and never drop below the 48px tap target. The panel itself stops at
+     four 64px rows and margin-top: auto keeps it on the bottom edge, so a phone taller than that keeps
+     its leftover as air above the keypad rather than as grey panel or a stretched figure. Digits are
+     26px. The short-sheet step below pins 48px rows instead. */
+  #addKeypad { flex: 1 1 auto; display: flex; flex-direction: column; margin-top: auto; padding-top: 2px;
+    padding-bottom: calc(2px + var(--sab)); max-height: calc(286px + var(--sab)); }
+  #addKeypad .keypad-grid {
+    flex: 1 1 auto; gap: 8px; padding: 1px; grid-template-rows: repeat(4, minmax(48px, 64px));
+  }
+  #addKeypad .key { height: auto; font-size: 26px; }
   /* The real picker sits invisibly over the pill, so a tap opens the native date sheet. 16px because
      iOS zooms the whole page in when a focused control is smaller, and this one is focusable. */
   .add-date-input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; border: 0; font-size: 16px; }
@@ -923,21 +930,25 @@
      sheet.) The Add sheet's full-height views land under 640 on a short phone and over it on a tall one,
      so the AI view's rules below still apply. */
   @container (max-height: 640px) {
-    /* 1. the keys: 44px is the floor, because that is the tap target; the grid's chrome tightens instead */
-    .key { height: 44px; }
-    #addKeypad .keypad-grid { gap: 3px 5px; padding: 1px; }
-    #addKeypad { margin-top: 0; padding-top: 0; }
-    /* 2. the gaps — measured on 375x667, where the whole top cluster must land above the keys */
-    #addSheet .sheet-grab { padding: 0 0 2px; }
+    /* 1. the keys: 48px is the tap target, so the rows stop there and the keypad's own chrome gives instead */
+    #addKeypad { flex: none; max-height: none; margin-top: 0; padding-top: 0; padding-bottom: 0; }
+    #addKeypad .keypad-grid { flex: none; gap: 1px 5px; padding: 0; grid-template-rows: repeat(4, 48px); }
+    /* 2. the amount: exactly its own line box. A 375x667 sheet has nothing left over once four 48px key
+       rows are paid for, so the 56px figure keeps its size and gives up the 14px of air instead — the
+       figure must not be clipped to less than its line box or RM runs into the CATEGORY label. */
+    .add-amount-block { flex: none; min-height: 0; padding: 0; height: 56px; }
+    /* 3. the gaps — measured on 375x667, where the whole top cluster must land above the keys */
+    /* the sheet's own 8px top padding still holds the handle; pulling it up spends that, not the header */
+    #addSheet .sheet-grab { margin: -8px 0 0; padding: 0; }
     .add-cat-head { margin-top: 0; line-height: 1; }
     .smart-card { margin-bottom: 6px; }
     .chip-scroll { margin-top: 0; }
-    .add-card { margin: 12px 0; }
+    .add-card { margin: 10px 0; }
     .add-rows { margin-top: 4px; }
     .keypad-grid { gap: 6px; }
     .keypad { padding-top: 4px; padding-bottom: calc(4px + var(--sab)); }
   }
-  /* Deeper again for a small screen with no notch: the option boxes tighten, the keys stay at 44. */
+  /* Deeper again for a small screen with no notch: the option boxes tighten, the keys stay at 48. */
   @container (max-height: 560px) {
     .smart-card { padding: 8px 12px; }
     .add-rows { margin-top: 4px; }
