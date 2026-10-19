@@ -472,6 +472,47 @@ The Add sheet and the edit sheet are native-style bottom sheets, not full-screen
   measured from the finger, so it behaves the same from the lifted position), the scrim tap, and the
   page behind staying locked while a sheet is open.
 
+### What's new
+
+One bottom sheet, shown once per version, for a user who has just met a big change:
+
+- **A version, not a date.** `WHATS_NEW_VERSION` in `app/static/index.html` is compared with
+  `localStorage["duits.whatsnew"]`. Equal means the user has read this version and is never asked
+  again; different means the sheet opens. **To show it again, change the constant** — that is the only
+  switch, and it is what a copy change or a new feature uses.
+- **Storage can fail.** Private mode, a full quota, a browser that says no. Both the read and the
+  write are wrapped in `try`/`catch`: a failed read means "not seen yet" (the sheet shows), and a
+  failed write means it shows again next time. Nothing throws either way.
+- **Never on a sign-in screen.** The sheet is opened from the two places the user arrives at Home — a
+  fresh sign-in (`afterSignIn`) and a restored session (`restoreSession`) — and only after the splash
+  has faded, since the splash covers the app until it does. The sign-in, set-password and reset
+  screens never carry it.
+- **Three screens, a dot each, and a way out.** The screens live in one list (`WHATS_NEW_SCREENS`), so
+  the dots are painted from that same list and the count can never drift. *Skip* is in the header,
+  *Next* is the button at the foot, and it reads *Got it* on the last screen. Every way out — the
+  button, the scrim and the drag — writes the version, so a user who dismisses it is never asked again.
+- **The copy is the app's own rules, in words.** Every sentence comes from the code that computes the
+  figures (`app/finance.py`) or from what the UI does, and **there are no example amounts**: a number
+  that is not the user's own would be a lie. The budget screen says a bill already paid is not counted
+  against the budget and one not yet paid is not counted either, because that is exactly what
+  `remaining_budget = budget − (month_expense − month_commitment_expense)` does. A test in
+  `tests/test_static.py` holds the copy to the code, so a formula that changes means the copy changes
+  with it.
+
+### The (i) on the balance card
+
+A small **i** mark sits beside the *Safe to spend* label on the balance card. It says the card opens
+the sheet that spells the figure out — *How this is calculated*.
+
+- It is **decoration inside the card's own button**, so it carries no name of its own (`aria-hidden`)
+  and has no handler: the whole balance card is one `<button>` that opens that sheet, and a button
+  inside a button is invalid HTML. A second control for the same sheet would also be a tap target the
+  app does not otherwise have.
+- The circle is filled with `--text-2` and the letter with `--card`, so it reads in both themes; a
+  pale letter on a faint circle would vanish on the light card.
+- The button's own accessible name already says "How this is calculated", so a screen reader is told
+  what the card does without the mark adding a second name to read.
+
 ### iOS touch behaviour
 Safari's own gestures are kept out of the way, because each one breaks the sheet:
 

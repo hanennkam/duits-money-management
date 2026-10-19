@@ -142,8 +142,9 @@ def test_each_flow_returns_to_the_chooser_and_cancel_leaves_the_sheet(client: Te
     assert 'id="closeAddBtn"' in page
     assert '$("closeAddBtn").addEventListener("click", closeAddSheet);' in page
     # Two sheets were added with the balance breakdown (the breakdown itself and the one-field anchor),
-    # so the guard now appears on six overlays; each still closes its own sheet.
-    assert page.count('isOutsideTap(event, $("') == 6, "the scrim still closes the sheet"
+    # and the What's New sheet with them, so the guard now appears on seven overlays; each still closes
+    # its own sheet.
+    assert page.count('isOutsideTap(event, $("') == 7, "the scrim still closes the sheet"
     # Back takes the keyboard with it, or the chooser returns under a keyboard with nothing to type into
     back = page[page.index("function reverseAddView("):page.index("function reverseAddView(") + 400]
     assert "active.blur()" in back
@@ -259,7 +260,8 @@ def test_the_sheet_tap_guards_are_target_based(client: TestClient) -> None:
     # the breakdown's own content is replaced on every render, so a detached-node guard would fail there.
     assert 'if (isOutsideTap(event, $("balanceOverlay"))) closeBalanceSheet();' in page
     assert 'if (isOutsideTap(event, $("moneyFieldOverlay"))) closeMoneyField();' in page
-    assert page.count("isOutsideTap(event, $(") == 6, "all six overlays must use the guard"
+    assert 'if (isOutsideTap(event, $("whatsNewOverlay"))) closeWhatsNew();' in page
+    assert page.count("isOutsideTap(event, $(") == 7, "all seven overlays must use the guard"
 
 
 def test_the_drag_waits_for_the_threshold_before_capturing(client: TestClient) -> None:
@@ -1248,3 +1250,109 @@ def test_a_validation_error_names_the_field_it_is_about(client: TestClient) -> N
     assert '(field ? field + ": " : "") + (first.msg || "")' in fn, "field, then why"
     assert 'typeof detail === "string"' in fn, "a plain string detail still reads"
     assert "!Array.isArray(detail)" not in fn, "the object branch no longer skips lists"
+
+
+def test_the_whats_new_sheet_is_three_screens_with_a_dot_and_a_way_out(client: TestClient) -> None:
+    """The sheet has three screens, a dot for each, and Skip and Next (then Got it) to leave it.
+
+    The dots are painted from the same list the screens come from, so the count can never drift: the
+    pin reads the list out of the page and asks for exactly as many dots as it holds screens.
+    """
+    page = client.get("/").text
+    assert '<div class="overlay" id="whatsNewOverlay" aria-hidden="true">' in page
+    assert '<div class="sheet whats-new-sheet" id="whatsNewSheet">' in page
+    assert 'id="whatsNewSkipBtn"' in page and 'id="whatsNewNextBtn"' in page
+    assert 'id="whatsNewDots"' in page and 'id="whatsNewBody"' in page
+    # The screens live in one list, so the dots and the screens cannot disagree.
+    block = page[page.index("var WHATS_NEW_SCREENS = ["):page.index("var whatsNewIndex = 0;")]
+    assert block.count("title:") == 3, "three screens"
+    assert 'class="whats-new-dot' in page
+    assert '$("whatsNewNextBtn").textContent = last ? "Got it" : "Next";' in page
+    # Every way out writes the version, so a user who dismisses it is never asked again.
+    assert "function closeWhatsNew(fromOffset) {" in page
+    assert "rememberWhatsNew();" in page
+    assert '$("whatsNewSkipBtn").addEventListener("click", closeWhatsNew);' in page
+    assert '$("whatsNewNextBtn").addEventListener("click", nextWhatsNew);' in page
+    assert 'if (isOutsideTap(event, $("whatsNewOverlay"))) closeWhatsNew();' in page
+    assert 'attachSheetDrag("whatsNewSheet", "whatsNewOverlay", closeWhatsNew, false);' in page
+
+
+def test_the_whats_new_sheet_shows_once_per_version_and_never_on_a_sign_in_screen(
+    client: TestClient,
+) -> None:
+    """The version is compared with localStorage, and the sheet waits for the user to be in.
+
+    Storage can fail (private mode), so the read and the write are both wrapped: a failed read means
+    "not seen yet" — the sheet shows — and a failed write must not throw. The sheet is never opened on
+    the sign-in, set-password or reset screens, and never before the splash has faded.
+    """
+    page = client.get("/").text
+    assert 'var WHATS_NEW_VERSION = "2026-10";' in page
+    assert 'var WHATS_NEW_SLOT = "duits.whatsnew";' in page
+    seen = page[page.index("function whatsNewSeen() {"):page.index("function rememberWhatsNew() {")]
+    assert "try {" in seen and "catch (error)" in seen, "the read is wrapped"
+    assert "window.localStorage.getItem(WHATS_NEW_SLOT) === WHATS_NEW_VERSION" in seen
+    remember = page[page.index("function rememberWhatsNew() {"):page.index("function paintWhatsNew() {")]
+    assert "try {" in remember and "catch (error)" in remember, "the write is wrapped"
+    assert "window.localStorage.setItem(WHATS_NEW_SLOT, WHATS_NEW_VERSION)" in remember
+    show = page[page.index("function maybeShowWhatsNew() {"):page.index("// One row shape, shared by Home")]
+    assert "if (!splashHidden)" in show, "the splash covers the app until it has faded"
+    assert "if (!readSession()) return;" in show, "never on a sign-in screen"
+    assert 'if ($("authScreen") && !$("authScreen").hidden) return;' in show
+    assert 'if (state.screen !== "home") return;' in show
+    # It is opened from the two places the user arrives at Home — a fresh sign-in and a restored
+    # session — and from nowhere else.
+    assert page.count("maybeShowWhatsNew();") == 2, "the two callers, and no third"
+    assert "await Promise.all([loadHome(), loadTransactions(), loadInsights()]);" in page
+
+
+def test_the_whats_new_copy_is_the_apps_own_rules(client: TestClient) -> None:
+    """The copy states the rules the code computes, in words, and invents no figures.
+
+    Every sentence below is checked against app/finance.py and the UI: the balance counts all months
+    and both modes, safe to spend is the balance less the bills still due, a paid bill leaves the
+    budget bar and an unpaid one never entered it, and a paid mark cannot be undone from the app.
+    There are no example amounts, because a number that is not the user's own would be a lie.
+    """
+    page = client.get("/").text
+    block = page[page.index("var WHATS_NEW_SCREENS = ["):page.index("var whatsNewIndex = 0;")]
+    # No digits in the copy: no example amounts, and no number that could drift from the user's own.
+    # The \\uXXXX escapes are the source's way of writing a punctuation mark, so they are read as the
+    # character they stand for before the count — otherwise "u2019" would count as a number.
+    copy = block[block.index("lines: ["):]
+    copy = re.sub(r"\\u[0-9a-fA-F]{4}", " ", copy)
+    assert not re.search(r"\d", copy), "the copy has no numbers in it"
+    # The rules, as app/finance.py computes them.
+    assert "Your balance is the money you have, after everything you have spent" in block
+    assert "over every month and in both Personal and Business" in block
+    assert "Safe to spend is that balance minus the bills you have not paid yet this month." in block
+    assert "A bill you have already paid is not counted against the budget" in block
+    assert "neither is one you have not paid yet" in block
+    # The Pay flow, as saveAdd and markCommitmentPaid do it: the expense first, then the mark.
+    assert "Tap Pay on a bill to open Add with it filled in." in block
+    assert "Saving records the expense, then marks the bill paid for this month." in block
+    assert "Paid can\\u2019t be undone from the app." in block
+    # The budget bar's own colours: yellow from half used, red from four fifths (app/finance.py and
+    # budgetTone in the page).
+    assert "The bar is yellow once half of the budget is used, and red when only a fifth of it is left." in block
+    assert "if (left < 0 || pct >= 80) return \"danger\";" in page
+    assert 'return pct >= 50 ? "caution" : "";' in page
+
+
+def test_the_safe_to_spend_info_mark_asks_the_card_it_sits_on(client: TestClient) -> None:
+    """The (i) beside "Safe to spend" is decoration inside the card's own button.
+
+    The whole balance card is one button that opens the "How this is calculated" sheet, so the mark
+    carries no name of its own and has no handler: a button inside a button is invalid, and a second
+    control for the same sheet would be a target the app does not otherwise have.
+    """
+    page = client.get("/").text
+    assert '<span class="safe-pill-info" aria-hidden="true">i</span>' in page
+    assert 'id="balanceTap"' in page
+    # It sits inside the button, between the label and the figure.
+    pill = page[page.index('<span class="safe-pill" id="safePill">'):page.index('</span>', page.index('id="safeAmount"'))]
+    assert "safe-pill-label" in pill and "safe-pill-info" in pill
+    assert pill.index("safe-pill-label") < pill.index("safe-pill-info") < pill.index("safe-pill-amount")
+    # No handler of its own, and no second way into the sheet.
+    assert "safe-pill-info" not in page[page.index("function wire() {"):]
+    assert '$("balanceTap").addEventListener("click", openBalanceSheet);' in page

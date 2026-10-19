@@ -468,6 +468,40 @@
   .sheet .money-field-input { font-size: 16px; }
   .money-field-note { margin: 10px 0 0; font-size: 13px; line-height: 1.45; color: var(--text-2); }
 
+  /* ---------- what's new ---------- */
+  /* Three screens, one at a time. The sheet is a sheet like any other: it is as tall as its content and
+     never taller than the safe areas allow, so the copy is written to fit one screen on a 390x844 phone. */
+  .whats-new-sheet { display: flex; flex-direction: column; }
+  .whats-new-body { margin: 4px 0 0; }
+  .whats-new-screen h3 { margin: 0 0 10px; font-size: 21px; font-weight: 700; letter-spacing: -.02em; }
+  .whats-new-screen p { margin: 0 0 12px; font-size: 15px; line-height: 1.5; color: var(--text-2); }
+  .whats-new-screen p:last-child { margin-bottom: 0; }
+  /* The formula, in the same words the app uses elsewhere: a figure the eye can read at a glance. */
+  .whats-new-formula {
+    display: block; margin: 0 0 14px; padding: 12px 14px; border-radius: var(--r-sm);
+    background: var(--card-2); color: var(--text); font-size: 15px; font-weight: 600; line-height: 1.4;
+  }
+  .whats-new-formula em { font-style: normal; color: var(--text-2); font-weight: 500; }
+  /* The foot: the dots above the one button that moves the story on. The inactive dot is --muted, not
+     --hairline: the dots say which screen you are on, and a hairline on a white card is too faint to
+     read. */
+  .whats-new-foot { margin-top: 18px; }
+  .whats-new-dots { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 16px; }
+  .whats-new-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+  .whats-new-dot.is-on { background: var(--accent); }
+  .whats-new-next { width: 100%; }
+
+  /* The (i) beside "Safe to spend": it says the card opens the sheet that spells the figure out. It is
+     decoration inside the card's own button, so it carries no name of its own — the button's label
+     already says "How this is calculated". The circle is filled with the text colour and the letter
+     is the card's, so it reads in both themes: a pale letter on a faint circle would vanish. */
+  .safe-pill-info {
+    display: inline-flex; align-items: center; justify-content: center; flex: none;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--text-2); color: var(--card);
+    font-size: 11px; font-weight: 700; line-height: 1;
+  }
+
   /* ---------- category list (Insights; Home's ring used to sit on these too) ---------- */
   .cat-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
   .cat-icon {
@@ -1430,6 +1464,7 @@
         <span class="hero-amount hero-balance" id="balanceAmount">RM 0.00</span>
         <span class="safe-pill" id="safePill">
           <span class="safe-pill-label">Safe to spend</span>
+          <span class="safe-pill-info" aria-hidden="true">i</span>
           <span class="safe-pill-amount" id="safeAmount">RM 0.00</span>
           <svg class="safe-pill-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
         </span>
@@ -1721,6 +1756,27 @@
                stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 20h4L19 9l-4-4L4 16v4Z"/><path d="M13.5 6.5l4 4"/></svg>
         </button>
         <button class="btn-link" id="balanceMoneyBtn" type="button">Settings &middot; Money</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- What's New: three short screens about the money features, shown once per version. The copy is
+       written from the code that computes the figures (app/finance.py), not from a wish list, so a
+       change to a formula means a change to this sheet. It is a sheet like any other, so it is
+       dismissed the same way — the scrim, the drag, or the button in its foot. -->
+  <div class="overlay" id="whatsNewOverlay" aria-hidden="true">
+    <div class="scrim" aria-hidden="true"></div>
+    <div class="sheet whats-new-sheet" id="whatsNewSheet">
+      <div class="sheet-grab" id="whatsNewGrab" aria-hidden="true"><span></span></div>
+      <div class="sheet-head has-done">
+        <button class="btn-ghost sheet-cancel" id="whatsNewSkipBtn" type="button">Skip</button>
+        <h2 class="sheet-title">What&rsquo;s new</h2>
+        <span></span>
+      </div>
+      <div class="whats-new-body" id="whatsNewBody" aria-live="polite"></div>
+      <div class="whats-new-foot">
+        <div class="whats-new-dots" id="whatsNewDots" aria-hidden="true"></div>
+        <button class="btn-primary whats-new-next" id="whatsNewNextBtn" type="button">Next</button>
       </div>
     </div>
   </div>
@@ -2712,6 +2768,8 @@
     // loaded, so a stale list would keep showing the previous user's rows on a tab nobody revisited.
     await Promise.all([loadHome(), loadTransactions(), loadInsights()]);
     renderAccount();
+    // The user is in and on Home now, so the What's New sheet may be shown (once per version).
+    maybeShowWhatsNew();
   }
 
   async function submitAuth() {
@@ -3173,6 +3231,115 @@
       button.disabled = false;
       button.setAttribute("aria-busy", "false");
     }
+  }
+
+  /* ---------- what's new ---------- */
+
+  // The version of the notes below. Bump it when the copy changes or a feature is added, and every
+  // user is shown the sheet once again. It is compared with what is in localStorage, so a user who
+  // has read this version is never asked again.
+  var WHATS_NEW_VERSION = "2026-10";
+  var WHATS_NEW_SLOT = "duits.whatsnew";
+
+  // The three screens. Every sentence is taken from the code that computes the figures
+  // (app/finance.py) or from what the UI actually does, so a formula that changes means this copy
+  // changes with it. There are no example amounts: a number that is not the user's own would be a
+  // lie, so the rules are written out in words instead.
+  var WHATS_NEW_SCREENS = [
+    {
+      title: "Balance and safe to spend",
+      formula: "Balance: your starting balance, plus income, minus expenses.",
+      lines: [
+        "Your balance is the money you have, after everything you have spent, over every month and in both Personal and Business.",
+        "Safe to spend is that balance minus the bills you have not paid yet this month.",
+        "Tap the balance card to open the sheet that shows every line of the working."
+      ]
+    },
+    {
+      title: "Commitments",
+      formula: null,
+      lines: [
+        "Commitments are your fixed monthly bills. Add them in Settings, and they appear under Bills due this month.",
+        "Tap Pay on a bill to open Add with it filled in. Saving records the expense, then marks the bill paid for this month.",
+        "Paid can\u2019t be undone from the app."
+      ]
+    },
+    {
+      title: "Monthly budget",
+      formula: "Budget left: your budget, minus this month\u2019s spending, plus the bills you have already paid.",
+      lines: [
+        "Set a monthly budget in Settings, and Home shows a bar of what is left for the month.",
+        "A bill you have already paid is not counted against the budget, and neither is one you have not paid yet \u2014 those are what safe to spend is for.",
+        "The bar is yellow once half of the budget is used, and red when only a fifth of it is left."
+      ]
+    }
+  ];
+
+  var whatsNewIndex = 0;
+
+  // Storage can fail: private mode, a full quota, a browser that says no. The sheet must still open
+  // and must never throw, so both the read and the write are wrapped. A failed read means "not seen
+  // yet" (the sheet shows), and a failed write means the sheet shows again next time.
+  function whatsNewSeen() {
+    try {
+      return window.localStorage.getItem(WHATS_NEW_SLOT) === WHATS_NEW_VERSION;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function rememberWhatsNew() {
+    try {
+      window.localStorage.setItem(WHATS_NEW_SLOT, WHATS_NEW_VERSION);
+    } catch (error) { /* the sheet shows again next time; nothing else breaks */ }
+  }
+
+  function paintWhatsNew() {
+    var screen = WHATS_NEW_SCREENS[whatsNewIndex];
+    var last = whatsNewIndex === WHATS_NEW_SCREENS.length - 1;
+    $("whatsNewBody").innerHTML =
+      '<div class="whats-new-screen">' +
+      "<h3>" + escapeHtml(screen.title) + "</h3>" +
+      (screen.formula
+        ? '<span class="whats-new-formula">' + escapeHtml(screen.formula) + "</span>"
+        : "") +
+      screen.lines.map(function (line) { return "<p>" + escapeHtml(line) + "</p>"; }).join("") +
+      "</div>";
+    $("whatsNewDots").innerHTML = WHATS_NEW_SCREENS.map(function (unused, index) {
+      return '<span class="whats-new-dot' + (index === whatsNewIndex ? " is-on" : "") + '"></span>';
+    }).join("");
+    $("whatsNewNextBtn").textContent = last ? "Got it" : "Next";
+  }
+
+  function openWhatsNew() {
+    whatsNewIndex = 0;
+    paintWhatsNew();
+    $("whatsNewSheet").scrollTop = 0;
+    openOverlay($("whatsNewOverlay"));
+  }
+
+  // Every way out of the sheet counts as "seen" \u2014 the button, the scrim and the drag alike \u2014 so the
+  // version is written either way and a user who dismisses it is never asked again.
+  function closeWhatsNew(fromOffset) {
+    rememberWhatsNew();
+    closeOverlay($("whatsNewOverlay"), null, fromOffset);
+  }
+
+  function nextWhatsNew() {
+    if (whatsNewIndex >= WHATS_NEW_SCREENS.length - 1) { closeWhatsNew(); return; }
+    whatsNewIndex += 1;
+    paintWhatsNew();
+  }
+
+  // Shown once per version, and only after the user is actually in: the sign-in, set-password and
+  // reset screens must never carry it, and the splash is over the app until it has faded.
+  function maybeShowWhatsNew() {
+    if (!splashHidden) { setTimeout(maybeShowWhatsNew, 200); return; }   // the splash is still up
+    if (whatsNewSeen()) return;
+    if (!readSession()) return;                        // not signed in: this is a sign-in screen
+    if ($("authScreen") && !$("authScreen").hidden) return;
+    if (state.screen !== "home") return;
+    openWhatsNew();
   }
 
   // One row shape, shared by Home and the Transactions page so they cannot drift apart.
@@ -5155,6 +5322,14 @@
       if (isOutsideTap(event, $("commitOverlay"))) closeCommitSheet();
     });
     attachSheetDrag("commitSheet", "commitOverlay", closeCommitSheet, false);
+    // What's New: Skip in the head, Next (then Got it) at the foot, and the scrim and the drag close
+    // it too — all three ways out write the version, so the sheet never comes back for this version.
+    $("whatsNewSkipBtn").addEventListener("click", closeWhatsNew);
+    $("whatsNewNextBtn").addEventListener("click", nextWhatsNew);
+    $("whatsNewOverlay").addEventListener("click", function (event) {
+      if (isOutsideTap(event, $("whatsNewOverlay"))) closeWhatsNew();
+    });
+    attachSheetDrag("whatsNewSheet", "whatsNewOverlay", closeWhatsNew, false);
     $("addBtn").addEventListener("click", function () { openAddSheet(); });   // the raised "+" in the tab bar
     $("chooseManualBtn").addEventListener("click", function () { showAddView("manual"); });
     $("chooseAiBtn").addEventListener("click", function () { showAddView("ai"); });
@@ -5409,6 +5584,9 @@
     }
     hideAuth();
     await reloadScreen();
+    // A returning user is on Home now, so the What's New sheet may be shown (once per version). It
+    // waits for the splash to fade, which is what still covers the app at this point.
+    maybeShowWhatsNew();
   }
 
   start().then(splashSettled, splashSettled);   // a boot that throws still shows the app
