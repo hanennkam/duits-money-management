@@ -92,9 +92,12 @@ Icons → `public, max-age=600` (deliberately not `immutable`). Every response: 
   browser from `GET /transactions` rows; Week = stitched from whole months, filtered client-side.
 - Sheets: Add, detail/edit, month wheel, key dialog. Mounted permanently, each with a `.scrim` child layer.
   `openOverlay`/`closeOverlay` use WAAPI, a close token and a 500ms fallback. `attachSheetDrag` does swipe-to-dismiss.
-- Add sheet: header → Smart Entry card (`POST /transactions/text`) → Expense/Income → amount → pills → chips →
-  Scan Receipt → keypad. Fixed bottom sheet, never resizes for the keyboard, never scrolls. Shrink order via
-  container queries: amount font, key height, gaps.
+- Add sheet opens on a chooser (Manual / AI). Manual is one screen, in the Stitch order: Back + Expense/Income,
+  the amount (`RM` + caret) and the Malaysian Ringgit pill, CATEGORY with View All and the chip row, a four-row card
+  (Merchant, Date, Mode, Note), and the keypad as the footer (44px keys, hidden while Merchant or Note holds the caret).
+  The middle of Manual (`.manual-body`) is the only thing that scrolls, and only on a short phone. AI is Smart Entry
+  (`POST /transactions/text`) and Scan Receipt, with no keypad. Note is `raw_extraction.note`. View All opens a plain
+  category sheet. The AI view's shrink order is container queries: amount font, key height, gaps.
 - Save: `afterAdd()` waits for the sheet's close and both lists, then `flashRow(id)` highlights the row.
 - Scan Receipt: the browser downscales to 1600px, re-encodes JPEG q0.85 (strips EXIF/GPS, HEIC → JPEG), then uploads.
 - Settings → About → **Build** row: the git short hash stamped by `GET /` (`dev` locally), plus status-bar

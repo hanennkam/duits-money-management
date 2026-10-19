@@ -243,8 +243,8 @@ Settings keeps the large title alone.
   the choice is made. A bottom sheet — `position: fixed; left: 0; right: 0; bottom: var(--kb)` with
   `overflow: hidden` — and a flex column whose only flexible slot is the amount itself, so the slack on
   a tall phone collects around the number. Its height is per view: the chooser hugs its two cards,
-  **Manual is `65dvh`**, and AI keeps the rest of the screen. `max-height` is clamped by `--kb` (the
-  keyboard), so a lifted sheet's top still clears `--sheet-top-gap`.
+  Manual and AI take the full sheet, and `max-height` is clamped by `--kb` (the keyboard), so a lifted
+  sheet's top still clears `--sheet-top-gap`.
   - Header: `Cancel` / `New Transaction` / **Save** (blue, bold, right). Save stays disabled until the
     amount is greater than zero, and while a request is in flight it is disabled and reads `Saving…`, so
     a double tap cannot post twice.
@@ -259,36 +259,32 @@ Settings keeps the large title alone.
     thing that reveals the privacy hint, which appears under the row once tapped: the photo is
     downscaled to 1600 px on the long edge and re-encoded as JPEG at quality 0.85 in the browser before
     upload, which keeps uploads small, strips EXIF/GPS and turns HEIC into JPEG.
-  - **Manual is two steps.** Step 1 is *Expense / Income*, the amount and the three pills, with the
-    keypad as the sheet's last row. **Details** switches to step 2 — *Merchant*, *Note* and the category
-    chips — which rises in place (step 1 is hidden, not overlaid) and has no keypad, so the real
-    keyboard gets the room. Each step carries its own **Back**: step 2's returns to step 1, step 1's
-    returns to the chooser, and every visit starts on step 1.
-  - On step 1 the amount owns the whole flexible band — `flex: 1`, text centred — so the spare height
-    becomes breathing room around the number instead of an empty hole above the keys. It is the only
-    flexible row: everything else is `flex: none`, which is what keeps the order fixed.
-  - When the sheet's own box runs short the layout gives way in a fixed order, never by scrolling: the
-    amount font, then the key height (56/48px → 44px, the tap floor), then the vertical gaps. Manual is
-    `65dvh`, so its box is under the 640px container-query threshold at both target sizes — 433.55px at
-    375×667 (44px keys, a 44px amount) and 548.59px at 390×844 (the amount takes up the slack) — and
-    step 1 fits with nothing clipped at either.
-  - One row of three small pills, under the amount: the **date** (`Today` / `Yesterday` / `12 Oct`, an
-    invisible native `<input type="date">` over the pill opens the real picker, and nothing past today is
-    accepted), **Personal/Business** (tap to toggle) and **Details**.
-  - Step 2 is *Merchant* and *Note* (both 44px with 16px text) over the category chips, in one
-    sideways-scrolling row, in their own colours. Nothing is selected by default and tapping the
-    selected chip again clears it. **Personal/Business** starts on the mode of the tab behind the sheet.
-  - The **keypad** is pinned to the bottom of step 1 only: 24px-radius container, 3 columns, 44px keys
-    (the container query wins over the taller-screen rule, because the sheet is `65dvh`). It is not on
-    screen in step 2, and it stays hidden while *Merchant* or *Note* holds the caret — derived from
-    state, never remembered.
+  - **Manual is one screen**, top to bottom, in the Stitch reference order. A **Back** chevron (44px,
+    beside the type control) returns to the chooser, and **Expense / Income** is the segmented control.
+    The amount is one large number with a blinking caret and a small `RM` on its baseline, under a
+    *Malaysian Ringgit* pill (informational only). A **CATEGORY** row has a **View All** link, and below
+    it one horizontal row of the nine categories, each with its icon and colour; the chosen one fills
+    with the accent, and the last chip is cut at the edge as the scroll hint. The four-row card is
+    **Merchant**, **Date** (`Today, 19 Oct 2026`, with the native picker invisibly over the row), **Mode**
+    (Personal | Business, a 44px two-option control in the row) and **Note**. Each row is a label, so a
+    tap anywhere on it opens its input. The keypad is the sheet's footer.
+  - The **keypad** is pinned to the bottom: 3 columns and 4 rows of 44px keys (the tap floor on every
+    phone). It hides while *Merchant* or *Note* holds the caret, derived from state and never remembered.
+  - Only the middle of Manual scrolls, and only on a short phone. At 390×844 the whole screen fits; at
+    375×667 the lower rows of the card sit below the fold and scroll inside the sheet. The keypad never
+    moves.
+  - **View All** opens a plain sheet over the Add sheet, one row per category. A tap picks the category
+    and closes the list; a second tap on the chosen one clears it, as a chip does.
+  - **Note** is the `raw_extraction.note` of the row: the API has no column for it, and the payload's keys
+    are the same whether or not a note is typed (`note` is `null` when blank). A row opened from Pay
+    carries the commitment's name as the merchant, the amount, the bills category and an expense.
   - **Keyboard.** The sheet lifts for the real keyboard. iOS shrinks only the visual viewport when the
     keyboard opens, so its height — `innerHeight - visualViewport.height - visualViewport.offsetTop` —
     goes into one variable and one CSS variable, `--kb`, which sets each sheet's `bottom` (and every
     overlay's bottom padding) and clamps `max-height`, so the sheet sits just above the keys with its top
     still clear of `--sheet-top-gap`. Focusing a sheet field centres it about 300ms later, once the
-    keyboard has settled, by scrolling the sheet's own `scrollTop` — never the window, which stays
-    locked. The inset resets when the keyboard closes and when a sheet closes.
+    keyboard has settled, by scrolling the sheet's own scroller (Manual's body, or the sheet) — never the
+    window, which stays locked. The inset resets when the keyboard closes and when a sheet closes.
 
   **Save** posts the typed row to `POST /transactions`, so no Claude call is involved. The sheet
   closes on success with a toast, and the new row appears without a manual reload: Home (summary +
@@ -375,7 +371,8 @@ The standalone app is edge to edge, in both themes:
   gap are real space (a 375×667 screen has a 592px box), so container queries on
   the sheet's own box step in: the amount font (56 → 44px), then the keys (56 → 44px), then the gaps,
   in that order. A tall phone trips none of them (844 and 932 give boxes of 760 and 830) and keeps
-  every size it was tuned with. The sheet never scrolls at any size.
+  every size it was tuned with. (That was the old 65% Manual; the Stitch layout is the full sheet, and
+  only its middle scrolls on a 375×667 screen. See the Add section.)
 - **The status bar style is theme-aware, and that is the honest answer.** `black-translucent` is what
   the page ships (it is what lets the page paint under the bar), but iOS gives it **white** glyphs,
   and the light theme's bar is `rgba(249, 249, 249, .85)` — white on near-white is unreadable. So the
@@ -453,10 +450,9 @@ The Add sheet and the edit sheet are native-style bottom sheets, not full-screen
   open, driven by the Web Animations API in `openOverlay`/`closeOverlay` (`PAGE_BEHIND`), transform
   only. The overlays are siblings of `.app`, so a transform there cannot disturb their fixed
   positioning — the sheet itself never scales with the page. Reduce Motion skips it entirely.
-- **Nothing scrolls**: the old sub-660px media escape hatch and the tiny-box container net are gone.
-  The sheet's own box (its height minus its padding, with the top gap and both insets already taken
-  out) drives the shrink order — amount font, then keypad keys, then the gaps — and 375×667 fits
-  exactly with all three steps applied.
+- **The AI view does not scroll**: its box drives the shrink order — amount font, then keypad keys,
+  then the gaps. Manual is a different case: its middle (`.manual-body`) scrolls on a short phone, and
+  the keypad is pinned.
 - Everything else is unchanged: open/close on the Web Animations API, swipe-down-to-close (still
   measured from the finger, so it behaves the same from the lifted position), the scrim tap, and the
   page behind staying locked while a sheet is open.
@@ -522,7 +518,7 @@ grabber with a thumb is the one gesture a phone should not require. One implemen
   amount, the edit sheet's title and amounts, and the sheet's own empty space. A second check then
   removes anything interactive sitting on one of those (the header's buttons, above all) via
   `DRAG_BLOCKERS`: buttons, links, labels, inputs, selects, textareas, `.key`, `.keypad`,
-  `.chip-scroll`, `.cat-chip`, `.add-rows`, `.smart-card`, `.add-pills`, `.add-details`,
+  `.chip-scroll`, `.cat-chip`, `.add-rows`, `.smart-card`, `.add-card`, `.add-type-row`,
   `.sheet-actions`, `.kv`, `.item-row`, `.form-row`, `.receipt-img`, the wheel, and anything marked
   `.no-drag`. An element added later is therefore *not* draggable by default.
 - **It is claimed only once it is a downward drag**: more than 8px of movement
@@ -607,12 +603,12 @@ palette: `--ease-ios: cubic-bezier(0.32, 0.72, 0, 1)`, with `--dur-sheet: 350ms`
   keyframe, or the ease would compress the hold and start fading at once. A class would be wiped by
   the next render; all three save paths (keypad Save, Smart Entry, Scan Receipt) funnel through
   `afterAdd`, so all three flash.
-- **The Add sheet only changes layout for the keyboard.** Each of its three views sets its own height —
-  the chooser hugs its cards, Manual is `65dvh`, AI takes the rest of the screen — and the page behind is
+- **The Add sheet only changes layout for the keyboard.** Its views set their own height — the chooser
+  hugs its cards, Manual and AI take the full sheet — and the page behind is
   locked while it is open (`html`/`body` `overflow: hidden`, restored on close, `unlockPageScroll()`
   released before anything can throw). The keyboard is the one thing that moves it: `--kb` lifts the
   sheet and clamps its height (see *iOS touch behaviour* above). Everything else is derived from state —
-  the keypad is hidden whenever it is not step 1 of Manual, `focusWithoutScroll()` calls
+  the keypad is hidden whenever a Manual text field holds the caret, `focusWithoutScroll()` calls
   `focus({ preventScroll: true })`, and no element's position is pinned in pixels at open time.
 - **Reduced motion**: `prefers-reduced-motion: reduce` zeroes the `--move-*` distances (fades stay, at
   150ms) and sets `--press-scale: 1`, and the three "movement with no fade-only equivalent" pieces —
@@ -645,7 +641,7 @@ Two details that are easy to get wrong, so they are pinned:
   the date picker follow) in step with the palette.
 
 Checked in a real browser at 375×667, 375×812 and 390×844 across 17 states in each theme — Home,
-Transactions, Insights (week + month), Settings, the Add sheet (keypad, chips, Details, Smart Entry,
+Transactions, Insights (week + month), Settings, the Add sheet (keypad, chips, Smart Entry,
 warn/error toast, error card), the edit sheet, the month wheel, empty states and the key dialog: no
 light boxes survive in dark and no text falls below 3.6:1 against its real background. The checker is
 calibrated — two deliberately invisible samples are flagged every run — so a clean pass means
@@ -908,9 +904,9 @@ Safari. Both write the same rows.
   staying in step are not.
 - **No `Year` segment in Insights** — the API has no range query (see the Insights bullet above); it
   needs a `?from=&to=` endpoint before a year can be honest.
-- **The Add sheet is measured at two sizes only, and not on an SE-class screen.** It does not scroll at
-  375×667 (a 433.55px sheet) or 390×844 (548.59px), where step 1 fits with no overflow, but a
-  320×568-class screen was not measured, so there it may clip rather than scroll. See `NEXT_STEPS.md`.
+- **The Add sheet is measured at two sizes only, and not on an SE-class screen.** At 390×844 (a 759.59px
+  sheet) the whole Manual screen fits with no body scroll; at 375×667 (600.3px) its middle scrolls by about
+  133px and the keypad stays pinned. A 320×568-class screen was not measured. See `NEXT_STEPS.md`.
 - **Home's ring has three cosmetic ceilings**: a slice under ~2% draws as the minimum round dot; the
   legend folds the tail into a grey `Others`, so a month holding both a real `other` category and a
   grouped tail shows `Other` *and* `Others`; and a 6-figure month total fills the hole.

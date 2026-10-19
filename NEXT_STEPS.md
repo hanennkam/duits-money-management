@@ -1498,3 +1498,53 @@ touch** — the step switch, the keypad hiding on focus and the drag-to-dismiss 
 safe-area insets** (`--sat`/`--sab` were 0, as on a desktop). (4) No staging, no live, no write anywhere. (5)
 `pytest` is the only automated check; the UI numbers come from a scratch harness that is not in the repo.
 
+
+## 2026-10-19 — Manual as one Stitch-style screen, and the category sheet (UI only)
+
+**Branch `feat/budget-balance-commitments`; UI only.** Files: `app/static/index.html` (the change), `tests/test_static.py`
+and `tests/test_page_auth.py` (the pins), and these docs. No `app/*.py`, no `schema.sql`, no migration, no API or SQL
+change; nothing pushed, nothing touched on staging or live.
+
+- **Manual is one screen.** The two steps and the Details pill are gone: every field Details held sits on the screen
+  (Merchant, Date, Mode, Note as the four rows of the card, the categories as the chip row). Order: Back and
+  Expense/Income, the amount (`RM`, caret) and the *Malaysian Ringgit* pill, CATEGORY with **View All**, the chips,
+  the card, the keypad.
+- **The 65% decision is superseded.** The reference stack does not fit in 65dvh. Manual is the full sheet now.
+- **Only Manual's middle scrolls, and only on a short phone.** The keypad is pinned and its keys are 44px everywhere
+  (the 56px keys of a tall screen are overridden for Manual). The card is one `.add-card` of four 48px label rows.
+- **Back** moved to a 44px chevron beside the type control. **Cancel** is unchanged.
+- **View All** opens a plain category sheet (`#catOverlay`) over the Add sheet. A tap picks and closes the list only.
+- **Note** is still `raw_extraction.note`. The payload keys did not change: the same seven keys with or without a note
+  (`note` is `null` when blank). The Add sheet is never used for editing, and the edit sheet does not show the note,
+  so there is no read path to reuse. Adding one is a separate decision.
+
+**Measured in desktop Chromium** — the app's own page in a `srcdoc` iframe at the real layout size (375×667 and
+390×844), both themes, `fetch` stubbed with a fake session, DOM clicks. Keypad pinned at the bottom in every case.
+
+| size | theme | sheet | body (visible / needed) | keypad | keys |
+| --- | --- | --- | --- | --- | --- |
+| 375×667 | light, dark | 600.3px | 317 / 450 — scrolls 133px | 456.5–667 (210.5px) | 44px |
+| 390×844 | light, dark | 759.59px | 468 / 468 — no scroll | 625.5–844 (218.5px) | 44px |
+
+Both sizes: no horizontal page overflow, nothing off-screen outside the chip row, Save disabled until an amount, the
+chip row overflows (9 chips, 1097px) with the last chip cut at the edge, inputs 16px, Back / segmented / View All 44px.
+
+Payloads, from the stub: with a note `{amount, category, merchant, mode, note, txn_date, type}`; without one the same
+keys with `null`s. Pay posts `POST /transactions` (1200, bills, "Sewa rumah"), then `POST /commitments/c1/paid` with
+`{month}`, in that order.
+
+**Simulated, not real.** The harness window had no focus, so native focus never fired; the merchant/note keypad rule
+was exercised with dispatched `focus`/`blur` events on the fields. The keyboard lift is not part of this run.
+
+**NOT verified — `belum disahkan pada peranti`.**
+1. No iPhone. No real iOS keyboard: the keypad hiding on a real focus, the lift, the centring, and whether the body
+   stays put with the keyboard up.
+2. No real touch: Manual's body scroll against the sheet's swipe-to-dismiss (the `scrolledInside` gate) is untested.
+3. Safe-area insets were 0 (a desktop); the keypad's bottom padding under the home indicator is unmeasured.
+4. The caret blink, the native date picker over the row, and the input's ellipsis for a long merchant or note
+   on iOS Safari.
+5. The View All list at 375×667 (587px, fits) was measured only in the desktop harness.
+
+**Open, for the owner's call.** At 375×667 the card's lower rows (Date, Mode, Note) sit below the fold and scroll
+inside the sheet. The reference stack needs about 140px more than that screen has while the keys stay at 44px. Options
+are a smaller amount on short screens, dropping the currency pill below a height, or 40px keys. None is made here.
