@@ -1707,3 +1707,88 @@ in Node against the page's own functions.
 **pytest:** `352 passed, 21 skipped, 4 warnings` (the run in this session). **Not measured on a real
 iPhone:** the sheet at 375px was measured in desktop Chromium with the app's markup injected (no signed-in
 data), so tap targets, the drag, and the iOS keyboard were not exercised.
+
+
+## 2026-10-20 — Batch 2: the one-field ask is a centred popup, and it no longer stacks
+
+**Commits on `feat/budget-balance-commitments`: `821ccca` "Make the one-field ask a centred popup, and
+stop it stacking" (UI + tests) and "Record Batch 2 in the docs" (this entry). Not pushed.** UI only:
+`app/static/index.html` and `tests/test_static.py`; no `app/*.py`, `schema.sql`, migration, route, payload
+or status code changed. **pytest: `355 passed, 21 skipped, 4 warnings`** — the Batch 1 baseline of 352
+plus the three new tests (`test_the_pencil_closes_the_breakdown_before_the_popup_opens`,
+`test_the_one_field_popup_is_centred_and_lifts_its_field_above_the_keys`,
+`test_the_anchor_asks_one_question_with_one_preview_and_one_help_line`), with
+`test_the_breakdown_sheet_and_the_one_field_sheet_are_registered` renamed to
+`…_popup_are_registered` and three pins rewritten.
+
+- **The two sheets were stacked: the pencil called `openMoneyField` with the breakdown still open**, so
+  two overlays were on screen at once — the popup over the sheet it had just replaced. The pencil now
+  goes through `closeOverlay($("balanceOverlay"), function () { openMoneyField("balance"); })`, the same
+  handover the bills row already used for the commitments sheet. Reproduced and fixed in the page's own
+  code, not by assumption: `openBillsFromBalance()` was the only caller that closed first.
+- **Set your balance / Set a monthly budget are now one centred popup**, not bottom sheets. New
+  `.overlay.is-centre` class (`align-items: center`) plus a 420px cap on the panel; the overlay keeps the
+  scrim, the close token, the 500ms fallback timer and the target-based `isOutsideTap` guard, and the
+  panel keeps the shared `--kb`/safe-area clamp. There is **no grab and no `attachSheetDrag`** for this
+  overlay: the scrim, Cancel and Save are its three ways out.
+- **The field takes focus on open** (`focusWithoutScroll` + `centreFocusedFieldSoon`), so the keyboard
+  lifts the panel (`--kb`) and the field is centred inside the panel's own box, never the window.
+- **The anchor's copy is one question, one field, one preview, one help sentence.** The fallback line
+  ("Type what you have now, and Duits keeps track from there.") is gone — the preview slot now shows the
+  figure that will be saved or nothing (`:empty { display: none }`), so there is no blank gap. The
+  budget's *separate from your balance* line moved from the painted note to the static help sentence.
+  PUT `{ opening_balance }` / `{ monthly_budget }` and post-save behaviour are unchanged.
+- **Cancel after the pencil now lands on Home, and that is the new, deliberate behaviour — not a
+  regression.** The breakdown has already closed by the time the popup opens, so Cancel cannot return to
+  it. Measured: after Cancel, `document.querySelectorAll(".overlay.open").length === 0` and Home shows the
+  "Set your balance" card again.
+- **The Pay flow still stacks on purpose and was not touched.** Measured: Commitments → Pay leaves
+  `#commitOverlay` and `#addOverlay` both open (2 overlays), with the Add sheet over the sheet it came
+  from and the merchant "Phone bill" filled in.
+
+**Measured in desktop Chromium (the page's own bytes plus a stubbed API, in 375×667 and 390×844 iframes)
+— no phone, no real touch, no real keyboard.** The harness served the real `index.html` with a fake
+session and stubbed `/summary`, `/transactions`, `/finance/summary`, `/finance/settings` and
+`/commitments`, so the real handlers ran.
+
+- **No overlap.** Pencil, 375×667: breakdown `open` at t=462, breakdown closed at t=821, popup `open` at
+  t=821 (same tick, from the close callback) — `balanceOverlay && moneyFieldOverlay` was never true.
+  390×844: 1964 → 2320 → 2320, same result. One frame after the tap the breakdown is still up and the
+  popup is not: the handover is a sequence, not a swap.
+- **Centred.** 375×667: panel 351×193 at (12…363)×(237…430), centre (188, 334) against a viewport centre
+  of (188, 334). 390×844: panel 366×193, centre (195, 422) against (195, 422).
+- **Preview, in integer cents** (with the month's totals 1200 in / 800 out): `1,250` → *Starting balance
+  will be RM 850.00*; `-80` → *−RM 480.00*; `abc` and empty → no line, `display: none`.
+- **Save.** PUT `/finance/settings` body `{"opening_balance": 850}` — integers, in cents — popup closed,
+  toast "Saved.", and the card back to RM 1,250.00 with safe to spend RM 950.00.
+- **x = 0.** Typed `400` (400 − 1200 + 800) previewed *RM 0.00*, saved `{"opening_balance": 0}`
+  unmodified, and the card returned to "Set your balance". Confirmed, not changed.
+- **Budget.** Title/question/help correct; the preview line stays absent (a budget never shows one).
+  `-5` and `0` → toast "Enter an amount above zero." and **no request**; `abc` → "Enter an amount like
+  1250.00." and no request; `500` → `{"monthly_budget": 500}`, popup closed, budget card up (60% of
+  RM 500.00, RM 200.00 left to spend).
+- **Keyboard and insets.** With `--kb: 300px` on `:root` (what `paintKeyboard` writes) the panel's bottom
+  is 280 at 375×667 — 87px above the keyboard's top edge — and 369 at 390×844; `max-height` clamps to
+  343px / 520px and the panel never scrolls internally. With `--kb: 0` and `--sab: 34px` the overlay's
+  bottom padding is 46px and the panel's bottom is 220px (375) / 308px (390) above the home-indicator
+  band, with no clipping. `--kb 260 + --sab 34` at once: bottom 283, top 90, still inside both clamps.
+- **Both themes.** Panel `#fff`/`#1c1c1e`, help line `rgb(142,142,147)` (the `--muted` token, in both
+  palettes), preview `--text-2`, field 16px and 44px min-height, question 16px, scrim
+  `rgba(0,0,0,.28)`/`.55`.
+- **The real server** (`http://127.0.0.1:8000/`, the served bytes with the CSP and the nonce) also
+  reports `overlay is-centre`, `align-items: center`, a 420px panel centred on the viewport, no grab
+  element and no inline handlers.
+- **The Pay stack, measured**: Commitments → Pay → 2 overlays open, Add sheet (67…667) over the
+  commitments sheet (417…655), merchant "Phone bill".
+
+**Not verified at all:** a real iPhone (no Safari, no real keyboard `--kb`, no real touch, no real safe
+areas — `--sab` was simulated with a CSS variable, and `--kb` with the same variable `paintKeyboard`
+writes), the centred popup's scroll-back of the focused field on a real keyboard, Reduce Motion, and the
+scrim tap with a real finger. The harness ran in iframes on desktop Chromium with a stubbed API, so no
+Supabase read or write happened.
+
+**README is stale in two places and was deliberately not edited** (the edit goes in the docs commit after
+Batch 3): the What's New bullet still calls them the "one-field balance sheet" and "one-field budget
+sheet" (line ~500), and the "No focus zoom" bullet's 16px inventory omits the money field while saying
+`.field` is `font: inherit` from the 17px body (line ~534) — `.field` is that input too, and
+`.sheet .money-field-input` pins it to 16px.
