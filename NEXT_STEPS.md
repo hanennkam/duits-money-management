@@ -1645,6 +1645,41 @@ txn_date))` where `commitment_id is not null` — and the 0004 rollback would ha
 the second insert with a 23505, which the API does not translate into the 409 the UI expects.
 
 **To show the What's New sheet again:** change `WHATS_NEW_VERSION` in `app/static/index.html`. It
-is the only switch — the constant is compared with `localStorage["duits.whatsnew"]`, and a different
-value means the sheet opens for every user once more. Nothing else has to be touched, and there is
-no dev-only override to remember.
+is the only switch — the constant is compared with `localStorage["whatsNew:<user id>:lastSeenVersion"]`,
+and a different value means the sheet opens for every user once more. Nothing else has to be touched,
+and there is no dev-only override to remember.
+
+## 2026-10-19 — the What's New card, reworked (three commits, not pushed)
+
+- **`730916f` — the version is remembered per account.** The key was one for the whole device
+  (`duits.whatsnew`), so the first account to read the card hid it from the second one signed in on
+  the same phone. It is now `whatsNew:<user id>:lastSeenVersion`, where the id is the access token's
+  `sub` claim — the same id the API scopes by. No database, no migration.
+- **`27632b7` — a button per screen, and a way back in.** Balance opens the one-field balance sheet
+  (or *How this is calculated* when a balance is already set), Commitments opens the commitments
+  sheet with the add form ready, Monthly budget opens the one-field budget sheet. Settings > About
+  gained a "What's new" row that opens the card whenever the user wants it, even if the stored
+  version says they have read it.
+- **`b995280` — the screens are cards, and the copy is two sentences each.** The sheet is white in
+  the light theme, so bare text on it read as floating text. The separate formula box is gone: one
+  card, one set of sentences. Screen 1 keeps one worked example of the arithmetic, and says it is an
+  example.
+
+**The copy, in full** (what the user sees):
+
+1. **Balance and safe to spend** — "Balance is your starting balance plus income, minus expenses. If
+   you had RM1,700, spent RM900 and had no unpaid bills, safe to spend would be RM800." / "Safe to
+   spend drops the bills you have not paid yet, so it is what you can really spend." — button:
+   *Set my balance* (or *How this is calculated* when a balance is set).
+2. **Commitments** — "Commitments are your fixed monthly bills. Pay one to record the expense and mark
+   the bill paid for the month." / "Once a bill is paid it stays paid — the app has no way to undo
+   it." — button: *Add a bill*.
+3. **Monthly budget** — "Set a limit for daily spending like food and fuel. Bills you pay through
+   Duits don't count against it." / "The bar turns yellow at half used, and red when 20% is left." —
+   button: *Set a budget*.
+
+**Not measured on a real iPhone:** the three cards at 390x844 in both themes, the action buttons
+opening the right sheets, the Settings row, the drag-to-dismiss, and the per-account key with two
+real accounts on one device. Everything above was measured in desktop Chromium (a 390x844 frame) and
+in Node against the page's own functions.
+

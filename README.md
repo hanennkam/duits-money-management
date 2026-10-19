@@ -476,10 +476,15 @@ The Add sheet and the edit sheet are native-style bottom sheets, not full-screen
 
 One bottom sheet, shown once per version, for a user who has just met a big change:
 
-- **A version, not a date.** `WHATS_NEW_VERSION` in `app/static/index.html` is compared with
-  `localStorage["duits.whatsnew"]`. Equal means the user has read this version and is never asked
-  again; different means the sheet opens. **To show it again, change the constant** — that is the only
-  switch, and it is what a copy change or a new feature uses.
+- **A version, not a date.** `WHATS_NEW_VERSION` in `app/static/index.html` is compared with what is
+  stored under `localStorage["whatsNew:<user id>:lastSeenVersion"]`. Equal means the user has read
+  this version and is never asked again; different means the sheet opens. **To show it again, change
+  the constant** — that is the only switch, and it is what a copy change or a new feature uses.
+- **The key is per account.** The id in the key is the access token's `sub` claim — the same id the
+  API scopes by (`auth.users.id`) — so two accounts on one device have two keys and the first one to
+  read the card cannot hide it from the second. A token that cannot be read falls back to a shared
+  `anonymous` key: the one case where a second account could still miss the card, and better than
+  storing under nobody's id, which would hide it from everyone. No database and no migration.
 - **Storage can fail.** Private mode, a full quota, a browser that says no. Both the read and the
   write are wrapped in `try`/`catch`: a failed read means "not seen yet" (the sheet shows), and a
   failed write means it shows again next time. Nothing throws either way.
@@ -491,10 +496,19 @@ One bottom sheet, shown once per version, for a user who has just met a big chan
   the dots are painted from that same list and the count can never drift. *Skip* is in the header,
   *Next* is the button at the foot, and it reads *Got it* on the last screen. Every way out — the
   button, the scrim and the drag — writes the version, so a user who dismisses it is never asked again.
-- **The copy is the app's own rules, in words.** Every sentence comes from the code that computes the
-  figures (`app/finance.py`) or from what the UI does, and **there are no example amounts**: a number
-  that is not the user's own would be a lie. The budget screen says a bill already paid is not counted
-  against the budget and one not yet paid is not counted either, because that is exactly what
+- **Each screen has a button that opens the thing it describes.** No new screen is built for the card:
+  Balance opens the one-field balance sheet, or the card's own *How this is calculated* breakdown when
+  a balance is already set; Commitments opens the commitments sheet with the add form ready; Monthly
+  budget opens the one-field budget sheet. The card closes before the next sheet opens, the way the app
+  stacks one sheet on another.
+- **Settings > About has a "What's new" row** that opens the card whenever the user wants it, even
+  when the stored version says they have read it. That is the difference between the one-shot nudge
+  that appears by itself and a deliberate request; it does not write the version on the way in.
+- **The screens are cards, and the copy is two short sentences each.** The sheet is white in the
+  light theme, so bare text on it read as floating text; each screen is now the app's own `.card`.
+  Every sentence comes from the code that computes the figures (`app/finance.py`) or from what the UI
+  does. Screen 1 carries one worked example of the arithmetic and says it is an example; the budget
+  screen says what the limit is for and when the bar changes colour, because that is exactly what
   `remaining_budget = budget − (month_expense − month_commitment_expense)` does. A test in
   `tests/test_static.py` holds the copy to the code, so a formula that changes means the copy changes
   with it.
