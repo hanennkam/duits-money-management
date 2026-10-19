@@ -74,6 +74,7 @@
     --green: #006e28;
     --green-soft: rgba(83, 225, 111, .26);
     --amber: #8a5300;
+    --caution: #9a6700;                     /* budget 50–79%: yellow that still reads as text on --card */
     --amber-soft: rgba(255, 149, 0, .18);
     --danger: #ba1a1a;
     --danger-soft: #ffdad6;
@@ -128,6 +129,7 @@
     --green: #30d158;
     --green-soft: rgba(48, 209, 88, .18);
     --amber: #ff9f0a;
+    --caution: #ffd60a;
     --amber-soft: rgba(255, 159, 10, .18);
     --danger: #ff453a;
     --danger-soft: rgba(255, 69, 58, .18);
@@ -416,8 +418,6 @@
   }
   .budget-days { flex: none; white-space: nowrap; }
   .budget-left.over { color: var(--danger); font-weight: 600; }
-  /* The one line that says what the figure above is not: a limit on the month, not part of the balance. */
-  .budget-note { margin: 10px 0 0; font-size: 13px; color: var(--text-2); }
   /* No budget set: the same slot offers one instead of leaving nothing where the card would be, and the
      dashed outline is the whole signal that this is an invitation rather than a figure. */
   .budget-prompt { border-style: dashed; border-color: var(--hairline); background: none; box-shadow: none; }
@@ -478,6 +478,12 @@
   .bar { height: 8px; border-radius: 9999px; background: var(--card-2); overflow: hidden; }
   .bar-fill { height: 100%; border-radius: 9999px; background: var(--accent); }
   .bar-fill.over { background: var(--danger); }
+  /* The budget's colour steps with how much of it is used: blue under half, --caution from half to
+     four-fifths, --danger from 80% up. The percentage text takes the same colour as its bar. */
+  .bar-fill.caution { background: var(--caution); }
+  .bar-fill.danger { background: var(--danger); }
+  .budget-pct.caution { color: var(--caution); }
+  .budget-pct.danger { color: var(--danger); }
 
   /* ---------- home: recent list ---------- */
   .section-head {
@@ -968,8 +974,11 @@
   }
   .commit-meta { display: block; font-size: 13px; color: var(--muted); }
   .commit-actions { display: flex; gap: 6px; flex: none; }
+  /* The Paid label is a span, not a button, so it centres its own text: one box height, text on its
+     midline, the same as Pay. */
   .commit-paid, .commit-pay {
-    min-height: 36px; padding: 0 12px; border: 0; border-radius: 9999px;
+    display: inline-flex; align-items: center; justify-content: center;
+    height: 36px; min-height: 36px; padding: 0 12px; border: 0; border-radius: 9999px;
     font: inherit; font-size: 14px; font-weight: 600;
   }
   .commit-paid { background: var(--card-2); color: var(--text-2); }
@@ -978,8 +987,11 @@
   .commit-paid[aria-busy="true"], .commit-pay[aria-busy="true"] { opacity: .5; }
   /* The inline add form: the name gets a line of its own, amount + day + Add share the next. */
   .commit-form { display: grid; gap: 8px; margin-top: 8px; }
-  .commit-form-row { display: grid; grid-template-columns: 1fr 76px auto; gap: 8px; }
+  /* The day column is wide enough for its placeholder "Day 1-31" (63px at 16px) plus the 12px padding on
+     each side; at 76px the text was cut to 51px. The amount takes what is left. */
+  .commit-form-row { display: grid; grid-template-columns: 1fr 96px auto; gap: 8px; }
   .commit-form .btn-primary { width: auto; min-height: 42px; padding: 0 16px; font-size: 15px; }
+  .commit-new { display: block; min-height: 44px; margin-top: 10px; text-align: left; }
 
   /* ---------- toast ---------- */
   .toast {
@@ -1361,14 +1373,12 @@
         <span class="budget-left" id="budgetLeft">RM 0.00 left to spend</span>
         <span class="budget-days" id="budgetDays"></span>
       </div>
-      <p class="budget-note">Monthly limit, separate from your balance.</p>
     </div>
 
     <div class="card budget-card budget-prompt" id="budgetPromptCard" hidden>
       <span class="card-title">Set a monthly budget (optional)</span>
       <p class="budget-prompt-line">A limit for the month, so Duits can tell you what is left to spend.</p>
       <button class="btn-primary" id="setBudgetBtn" type="button">Set a monthly budget</button>
-      <p class="budget-note">Monthly limit, separate from your balance.</p>
     </div>
 
     <div class="section-head">
@@ -1577,8 +1587,9 @@
       </div>
       <div class="commit-sub" id="commitSub"></div>
       <div id="commitList"></div>
-      <div class="card-title" style="margin-top:14px">Add a commitment</div>
-      <div class="commit-form">
+      <button class="btn-link commit-new" id="commitNewBtn" type="button" aria-expanded="false"
+              aria-controls="commitForm">+ Add commitment</button>
+      <div class="commit-form" id="commitForm" hidden>
         <input class="add-field" id="commitName" type="text" placeholder="Name" maxlength="80"
                autocomplete="off" autocapitalize="words">
         <div class="commit-form-row">
@@ -2810,6 +2821,9 @@
     $("budgetBar").setAttribute("aria-valuenow", String(pct));
     $("budgetFill").style.width = pct + "%";
     $("budgetFill").classList.toggle("over", left < 0);
+    var tone = budgetTone(pct, left);
+    paintBudgetTone("budgetFill", tone);
+    paintBudgetTone("budgetPct", tone);
     $("budgetLeft").textContent = left < 0
       ? money(Math.abs(left)) + " over budget"
       : money(left) + " left to spend";
@@ -2833,11 +2847,25 @@
 
   // Hidden and reset together: a hidden card must not hold the last month's bar, nor let a screen reader
   // hear the last month's percentage the next time it is shown.
+  // Blue under half of the budget used, yellow from half to four-fifths, red from 80% and whenever the
+  // month is over. The bar and the percentage share one answer, so they can never disagree.
+  function budgetTone(pct, left) {
+    if (left < 0 || pct >= 80) return "danger";
+    return pct >= 50 ? "caution" : "";
+  }
+
+  function paintBudgetTone(id, tone) {
+    $(id).classList.toggle("caution", tone === "caution");
+    $(id).classList.toggle("danger", tone === "danger");
+  }
+
   function hideBudget() {
     $("budgetCard").hidden = true;
     $("budgetPromptCard").hidden = true;
     $("budgetFill").style.width = "0%";
     $("budgetFill").classList.remove("over");
+    paintBudgetTone("budgetFill", "");
+    paintBudgetTone("budgetPct", "");
     $("budgetBar").setAttribute("aria-valuenow", "0");
   }
 
@@ -2949,7 +2977,10 @@
   // The preview runs the same integer-cent conversion the save does, so the two cannot disagree.
   function paintMoneyFieldNote() {
     var note = $("moneyFieldNote");
-    if (moneyFieldTarget !== "balance") { note.textContent = ""; return; }
+    if (moneyFieldTarget === "budget") {
+      note.textContent = "Monthly limit, separate from your balance.";
+      return;
+    }
     var typed = parseMoneyInput($("moneyFieldInput").value);
     if (typed === null || !isFinite(typed)) {
       note.textContent = "Type what you have now, and Duits keeps track from there.";
@@ -4487,10 +4518,19 @@
 
   // One delegated handler: the row buttons are replaced by every re-render, so binding them individually
   // would bind the last paint's nodes and nothing after it.
+  // The inline form is closed until asked for. A second tap on the same button closes it again.
+  function toggleCommitForm(button) {
+    var opening = $("commitForm").hidden;
+    $("commitForm").hidden = !opening;
+    button.setAttribute("aria-expanded", opening ? "true" : "false");
+    if (opening) focusWithoutScroll($("commitName"));
+  }
+
   function handleCommitClick(event) {
     var hit = event.target.closest
-      ? event.target.closest("[data-commit-pay], #commitAddBtn") : null;
+      ? event.target.closest("[data-commit-pay], #commitAddBtn, #commitNewBtn") : null;
     if (!hit) return;
+    if (hit.id === "commitNewBtn") { toggleCommitForm(hit); return; }
     if (hit.id === "commitAddBtn") { addCommitment(hit); return; }
     var row = commitRowById(hit.dataset.commitPay);
     if (!row) return;

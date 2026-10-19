@@ -566,9 +566,45 @@ def test_the_budget_card_only_appears_with_a_budget_in_the_current_month(client:
     assert "function daysLeftLabel()" in page
     assert "daysInMonth(state.month) - Number(localIso(new Date()).slice(8, 10))" in page
     assert '" day remaining" : " days remaining"' in page
-    # the one line that says what the figure above it is not, in the secondary text token — on both cards
-    assert page.count('<p class="budget-note">Monthly limit, separate from your balance.</p>') == 2
-    assert ".budget-note { margin: 10px 0 0; font-size: 13px; color: var(--text-2); }" in page
+    # The budget cards no longer carry the "separate from your balance" line: it moved into the budget
+    # sheet, the one place a limit is typed, as the small note under its question.
+    budget_cards = page[page.index('id="budgetCard"'):page.index('<div class="section-head">')]
+    assert "Monthly limit, separate from your balance." not in budget_cards
+    assert page.count("Monthly limit, separate from your balance.") == 1
+    assert 'budgetNote' not in page and ".budget-note" not in page
+    sheet_note = page[page.index("function paintMoneyFieldNote()"):page.index("function paintMoneyFieldNote()") + 400]
+    assert 'if (moneyFieldTarget === "budget") {' in sheet_note
+    assert 'note.textContent = "Monthly limit, separate from your balance.";' in sheet_note
+
+
+def test_the_budget_bar_steps_its_colour_at_half_and_at_four_fifths(client: TestClient) -> None:
+    """Blue under half of the budget used, yellow (--caution) from 50% to 79%, red (--danger) from 80%.
+
+    The percentage is the one the card shows, and the bar and the text take the same tone, so the
+    colour can never say something the number does not. Both palettes define the yellow token.
+    """
+    page = client.get("/").text
+    # the tokens: one new yellow, in both palettes, next to --amber
+    light = page[page.index("  :root {"):page.index('[data-theme="dark"] {')]
+    dark = page[page.index('[data-theme="dark"] {'):page.index("}", page.index('[data-theme="dark"] {'))]
+    assert "--caution: #9a6700;" in light
+    assert "--caution: #ffd60a;" in dark
+    # the thresholds, read from the same pct that is drawn
+    tone = page[page.index("function budgetTone(pct, left)"):page.index("function paintBudgetTone(")]
+    assert 'if (left < 0 || pct >= 80) return "danger";' in tone
+    assert 'return pct >= 50 ? "caution" : "";' in tone
+    paint = page[page.index("var tone = budgetTone(pct, left);"):page.index("$(\"budgetLeft\").textContent")]
+    assert 'paintBudgetTone("budgetFill", tone);' in paint and 'paintBudgetTone("budgetPct", tone);' in paint
+    assert '$(id).classList.toggle("caution", tone === "caution");' in page
+    assert '$(id).classList.toggle("danger", tone === "danger");' in page
+    # the reset clears both, so a hidden card never keeps last month's colour
+    hide = page[page.index("function hideBudget()"):page.index("function hideBudget()") + 500]
+    assert 'paintBudgetTone("budgetFill", "");' in hide and 'paintBudgetTone("budgetPct", "");' in hide
+    # the CSS: the bar and the text use the same tokens
+    assert ".bar-fill.caution { background: var(--caution); }" in page
+    assert ".bar-fill.danger { background: var(--danger); }" in page
+    assert ".budget-pct.caution { color: var(--caution); }" in page
+    assert ".budget-pct.danger { color: var(--danger); }" in page
 
 
 def test_the_category_ring_is_gone_from_home_and_insights_keeps_it(client: TestClient) -> None:
@@ -761,10 +797,47 @@ def test_an_unreadable_month_is_never_painted_as_owing_nothing(client: TestClien
 def test_the_commitment_form_keeps_the_16px_floor(client: TestClient) -> None:
     """Its three fields reuse .add-field (16px) and both numbers ask for the right phone keyboard."""
     page = client.get("/").text
-    form = page[page.index('<div class="commit-form">'):page.index('<div class="overlay" id="addOverlay"')]
+    form = page[page.index('<div class="commit-form" id="commitForm" hidden>'):page.index('<div class="overlay" id="addOverlay"')]
     assert form.count('class="add-field"') == 3
     assert 'id="commitAmount" type="text" inputmode="decimal"' in form
     assert 'id="commitDay" type="text" inputmode="numeric"' in form
+
+
+def test_add_commitment_is_a_button_and_the_form_opens_on_it(client: TestClient) -> None:
+    """The form is closed until "+ Add commitment" is tapped; a second tap closes it again."""
+    page = client.get("/").text
+    assert 'id="commitNewBtn" type="button" aria-expanded="false"' in page
+    assert 'aria-controls="commitForm">+ Add commitment</button>' in page
+    assert '<div class="commit-form" id="commitForm" hidden>' in page
+    assert ">Add a commitment<" not in page, "the old title is replaced by the button"
+    # the button is delegated like the rest of the sheet, and toggles the hidden form
+    assert "#commitNewBtn" in page[page.index("function handleCommitClick("):page.index("function handleCommitClick(") + 400]
+    toggle = page[page.index("function toggleCommitForm(button)"):page.index("function handleCommitClick(")]
+    assert '$("commitForm").hidden = !opening;' in toggle
+    assert 'button.setAttribute("aria-expanded", opening ? "true" : "false");' in toggle
+    # a 44px target, and its own rule so it is not a stretched add button
+    assert ".commit-new { display: block; min-height: 44px;" in page
+
+
+def test_the_day_column_fits_its_placeholder(client: TestClient) -> None:
+    """"Day 1-31" is 63.25px at 16px; the 12px padding either side leaves 51px at 76px wide, so it was cut.
+
+    The column is 96px: 71px of text room, enough for the placeholder with a margin.
+    """
+    page = client.get("/").text
+    assert ".commit-form-row { display: grid; grid-template-columns: 1fr 96px auto; gap: 8px; }" in page
+    assert 'placeholder="Day 1-31"' in page
+
+
+def test_the_paid_label_centres_its_text_like_pay(client: TestClient) -> None:
+    """The Paid label is a span: it must be a flex box, or its text sits 8.75px high at 375px.
+
+    Measured in the harness (desktop DOM, row of 58px): text midline 1035.87 against box midline 1044.62.
+    """
+    page = client.get("/").text
+    rule = page[page.index(".commit-paid, .commit-pay {"):page.index("}", page.index(".commit-paid, .commit-pay {"))]
+    assert "display: inline-flex; align-items: center; justify-content: center;" in rule
+    assert "height: 36px;" in rule
 
 
 def test_the_new_controls_have_no_inline_handlers(client: TestClient) -> None:
