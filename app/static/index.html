@@ -667,7 +667,7 @@
      pill, the category row, the four-row card and the keypad as the sheet's own footer. Only the middle,
      .manual-body, can scroll, and only when the phone is too short for all of it; the keypad never moves. */
   .manual-body {
-    flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column;
+    flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; justify-content: space-between;
     margin: 0 -16px; padding: 0 16px 0;
     overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
     touch-action: pan-y; scrollbar-width: none;
@@ -683,13 +683,13 @@
   .add-back-icon svg { width: 18px; height: 18px; }
   .add-type { flex: 1; min-width: 0; margin: 0; }
   .add-type .seg-btn { min-height: 44px; }
-  /* The amount block is the row that takes the sheet's spare height and centres the figure in it. The
-     keypad below is capped (see #addKeypad), so on a tall phone the extra height lands here as air around
-     the figure. 14px of padding keeps a floor of air on a short sheet, where the container rule below
-     pins the block to the figure's own line box. The caret blinks with a plain CSS loop: it repeats in
-     place, it does not animate a display change. */
+  /* The amount block: the figure centred with 14px of air above and below, capped at 16px a side (96px
+     at the 64px figure). It no longer drinks the sheet's spare height — the figure's size never changes
+     with the phone. Whatever the capped keypad leaves over is spread between the blocks in .manual-body
+     (justify-content below). The caret blinks with a plain CSS loop: it repeats in place, it does not
+     animate a display change. */
   .add-amount-block {
-    flex: 1 1 auto; min-height: 56px; display: flex; flex-direction: column;
+    flex: 0 1 auto; min-height: 56px; max-height: 96px; display: flex; flex-direction: column;
     align-items: center; justify-content: center; padding: 14px 0;
   }
   /* 56px on a 667px screen, 64px on a tall one. fitAddAmount() steps it down for a long value, so a
@@ -760,16 +760,17 @@
   }
   .add-mode .seg-btn.is-active { background: none; box-shadow: none; }
   .add-mode .seg-btn.is-active::after { background: var(--seg-selected); box-shadow: var(--seg-shadow); }
-  /* The keypad is content-sized and capped: its four rows flex only between 48px (the tap target) and
-     52px, and 10px gaps keep the keys breathing. Its height stops at four 52px rows plus those gaps, so
-     the sheet's leftover height goes to the amount block above instead of stretching the keys. Digits
-     are 26px. The short-sheet step below pins 48px rows. */
-  #addKeypad { flex: none; display: flex; flex-direction: column; padding-top: 2px;
-    padding-bottom: calc(2px + var(--sab)); max-height: calc(244px + var(--sab)); }
+  /* The keypad sizes to its content and nothing else: four rows of exactly 58px with 8px gaps, so the
+     panel is 4x58 + 3x8 = 256px of grid plus its own 1px frame. There is no flex-grow, no min/max on the
+     rows and no max-height to stretch into, so the panel wraps the keys and never fills the sheet. The
+     panel keeps the card's 16px side inset, so keys 1 and 3 line up with the rows above rather than
+     hugging the screen edge. Digits are 28px medium. The short-sheet step below pins 48px rows, still
+     above the 44px tap floor. */
+  #addKeypad { flex: none; display: flex; flex-direction: column; padding: 2px 16px calc(2px + var(--sab)); }
   #addKeypad .keypad-grid {
-    flex: 1 1 auto; gap: 10px; padding: 1px; grid-template-rows: repeat(4, minmax(48px, 52px));
+    flex: none; gap: 8px; padding: 1px; grid-template-rows: repeat(4, 58px); grid-auto-rows: 58px;
   }
-  #addKeypad .key { height: auto; font-size: 26px; }
+  #addKeypad .key { height: 58px; font-size: 28px; font-weight: 500; }
   /* The real picker sits invisibly over the pill, so a tap opens the native date sheet. 16px because
      iOS zooms the whole page in when a focused control is smaller, and this one is focusable. */
   .add-date-input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; border: 0; font-size: 16px; }
@@ -930,8 +931,9 @@
      so the AI view's rules below still apply. */
   @container (max-height: 640px) {
     /* 1. the keys: 48px is the tap target, so the rows stop there and only the padding goes; the gaps stay */
-    #addKeypad { max-height: none; padding-top: 0; padding-bottom: 0; }
-    #addKeypad .keypad-grid { flex: none; gap: 10px; padding: 0; grid-template-rows: repeat(4, 48px); }
+    #addKeypad { padding-top: 0; padding-bottom: 0; }
+    #addKeypad .keypad-grid { flex: none; gap: 8px; padding: 0; grid-template-rows: repeat(4, 48px); grid-auto-rows: 48px; }
+    #addKeypad .key { height: 48px; }
     /* 2. the amount: exactly its own line box. A 375x667 sheet has nothing left over once four 48px key
        rows are paid for, so the 56px figure keeps its size and gives up the 14px of air instead — the
        figure must not be clipped to less than its line box or RM runs into the CATEGORY label. */

@@ -273,11 +273,11 @@ Settings keeps the large title alone.
     **Merchant**, **Date** (`Today, 19 Oct 2026`, with the native picker invisibly over the row), **Mode**
     (Personal | Business, the rounded toggle described below) and **Note**. Each row is a label, so a
     tap anywhere on it opens its input. The keypad is the sheet's footer.
-  - The **keypad** is pinned to the bottom: 3 columns and 4 rows of 58px keys (48px on a short sheet,
-    never under the 44px tap floor) with 8px gaps, 28px medium digits, and the panel keeps the card's
-    16px side inset so the outer keys line up with the rows above. Its height is capped at four 58px
-    rows, so it never stretches on a tall phone; the height it leaves over is shared between the blocks
-    above instead of pooling in one band, and the amount keeps its 56-64px figure at every size.
+  - The **keypad** is pinned to the bottom: 3 columns and 4 rows of fixed 58px keys (48px on a short
+    sheet, never under the 44px tap floor) with 8px gaps and 28px medium digits. It sizes to its content
+    — 4x58 + 3x8 = 256px — and nothing stretches it, so the panel wraps the keys on a tall phone and the
+    height it leaves over is shared between the blocks above; the amount keeps its 56-64px figure at
+    every size. The panel keeps the card's 16px side inset, so the outer keys line up with the rows above.
     It hides while *Merchant* or *Note* holds the caret, derived from state and never remembered.
   - The whole screen fits at 390×844 and 430×932 (the card sits 20px under the chip row on 844 and 39px
     on 932); nothing in Manual scrolls. A 375×667 box is tight enough to scroll a little. The chosen chip scrolls into

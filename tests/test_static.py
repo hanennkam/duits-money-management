@@ -1158,17 +1158,20 @@ def test_the_keyboard_lifts_the_sheet_and_centres_the_focused_field(client: Test
     assert "field.focus({ preventScroll: true })" in page
 
 
-def test_the_manual_amount_block_takes_the_spare_height(client: TestClient) -> None:
-    """The amount block takes the sheet's spare height and centres the figure in it.
+def test_the_manual_amount_block_keeps_its_air(client: TestClient) -> None:
+    """The amount block keeps 12-16px of air a side and the figure's size never follows the phone.
 
-    What a test can pin: the block flexes with a 56px floor and no cap, so the height the capped keypad
-    leaves over lands here as air around the centred figure; the figure is clamped 56-64px, the RM is a
-    share of the figure (em), and the figure is shrunk by fitAddAmount() for a long value, which runs
-    wherever the figure is painted and when Manual is shown (it measures 0 while hidden). The keypad is
-    capped instead (see the keypad test).
+    What a test can pin: the block grows only up to 16px of air a side (96px at the 64px figure) with a
+    56px floor, the figure is clamped 56-64px, the RM is a share of the figure (em), and the figure is
+    shrunk by fitAddAmount() for a long value, which runs wherever the figure is painted and when Manual
+    is shown (it measures 0 while hidden). The height the capped keypad leaves over is shared out between
+    the blocks in .manual-body rather than pooled in one band, so the rows breathe.
     """
     page = client.get("/").text
-    assert ".add-amount-block {\n    flex: 1 1 auto; min-height: 56px;" in page
+    assert ".add-amount-block {\n    flex: 0 1 auto; min-height: 56px; max-height: 96px;" in page
+    assert "justify-content: space-between;" in page[page.index("  .manual-body {"):page.index("  .manual-body::-webkit-scrollbar")], (
+        "the spare height is spread between the blocks, not pooled in one band"
+    )
     assert "justify-content: center; padding: 14px 0;" in page, "12-16px of air above and below the figure"
     amount = page[page.index(".add-amount {\n"):page.index(".add-amount-cur {")]
     assert "font-size: clamp(56px, 8dvh, 64px)" in amount, "the figure is 56-64px"
@@ -1200,21 +1203,27 @@ def test_the_ai_option_boxes_are_tall_touch_targets(client: TestClient) -> None:
     assert '$("addSheet").classList.toggle("is-compact", view !== "manual");' in page
 
 
-def test_the_keypad_rows_flex_between_48px_and_52px(client: TestClient) -> None:
-    """The Manual keypad is capped: four rows of minmax(48px, 52px), never taller.
+def test_the_keypad_keys_are_a_fixed_58px(client: TestClient) -> None:
+    """The Manual keypad sizes to its content: four rows of exactly 58px, nothing stretches.
 
-    The keys are the rows' full height, the digits are 26px, the gaps are 10px, and the keypad's own
-    height is capped at four 52px rows so the spare height goes to the amount block above instead. On a
-    short sheet the rows pin to 48px, the tap target. The keypad still hides while Merchant or Note holds
-    the caret.
+    The height lives on the grid's row template and on the key itself, both a flat 58px — no minmax, no
+    min-height, no flex-grow — so 4x58 + 3x8 = 256px of grid whatever the sheet's height is, and the
+    panel has no max-height to fill. The digits are 28px medium, the gaps are 8px, and the panel keeps
+    the card's 16px side inset so the outer keys line up with the rows above. On a short sheet the rows
+    pin to 48px, still above the 44px tap floor. The keypad still hides while Merchant or Note holds the
+    caret.
     """
     page = client.get("/").text
-    grid = page[page.index("  #addKeypad .keypad-grid {\n"):page.index("  #addKeypad .key { height: auto;")]
-    assert "grid-template-rows: repeat(4, minmax(48px, 52px))" in grid, "flexible rows, 48px floor"
-    assert "gap: 10px" in grid, "10px between keys, both axes"
-    assert "flex: 1 1 auto" in grid, "the grid takes the keypad's height"
-    assert "#addKeypad .key { height: auto; font-size: 26px; }" in page
-    assert "max-height: calc(244px + var(--sab))" in page, "the keypad stops at four 52px rows"
+    grid = page[page.index("  #addKeypad .keypad-grid {\n"):page.index("  #addKeypad .key { height: 58px;")]
+    assert "grid-template-rows: repeat(4, 58px)" in grid, "four fixed 58px rows"
+    assert "grid-auto-rows: 58px" in grid, "any extra row is 58px too, never stretched"
+    assert "gap: 8px" in grid, "8px between keys, both axes"
+    assert "flex: none" in grid, "the grid never grows past its rows"
+    assert "minmax" not in grid and "min-height" not in grid, "no flexible row sizing left"
+    assert "#addKeypad .key { height: 58px; font-size: 28px; font-weight: 500; }" in page
+    panel = page[page.index("  #addKeypad {"):page.index("  #addKeypad .keypad-grid {")]
+    assert "padding: 2px 16px calc(2px + var(--sab))" in panel, "the keys share the card's 16px inset"
+    assert "max-height" not in panel, "the panel has no cap to fill or stretch into"
     assert 'grid-template-rows: repeat(4, 48px)' in page, "a short sheet pins 48px rows"
     assert '$("addKeypad").hidden = !(addView === "manual" && !manualFieldFocused);' in page
 

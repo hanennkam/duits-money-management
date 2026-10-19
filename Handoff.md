@@ -93,11 +93,12 @@ Icons → `public, max-age=600` (deliberately not `immutable`). Every response: 
 - Sheets: Add, detail/edit, month wheel, key dialog. Mounted permanently, each with a `.scrim` child layer.
   `openOverlay`/`closeOverlay` use WAAPI, a close token and a 500ms fallback. `attachSheetDrag` does swipe-to-dismiss.
 - Add sheet opens on a chooser (Manual / AI). Manual is one screen, in the Stitch order: Back + Expense/Income,
-  the amount (`RM` + caret; the number is 56-64px in a block that takes the sheet's spare height, shrunk by `fitAddAmount()` for a long value), CATEGORY and
+  the amount (`RM` + caret; the number is 56-64px in a block capped at 16px of air a side, shrunk by `fitAddAmount()` for a long value), CATEGORY and
   the chip row (no View All sheet; the chosen chip scrolls into view with
   the previous chip peeking), a four-row card (Merchant, Date, Mode — the Mode toggle is a 32px rounded `--control`
-  track with a white selected pill, 44px tap boxes —, Note), and the keypad as the footer (48-52px keys,
-  hidden while Merchant or Note holds the caret). The whole screen fits 375x667 and 390x844; nothing scrolls. AI is
+  track with a white selected pill, 44px tap boxes —, Note), and the keypad as the footer (fixed 58px keys, 8px gaps,
+  28px digits, 16px side inset, content-sized at 256px, 48px rows on a short sheet; hidden while Merchant or Note holds the caret).
+  The whole screen fits 390x844 and 430x932 without scrolling; 375x667 scrolls ~25px. AI is
   Smart Entry (`POST /transactions/text`) and Scan Receipt, with no keypad. Note is `raw_extraction.note`. The
   short-phone shrink order is container queries: the amount's air, then the keypad's chrome, then the gaps.
 - Save: `afterAdd()` waits for the sheet's close and both lists, then `flashRow(id)` highlights the row.
