@@ -354,7 +354,7 @@ def test_the_manual_sheet_and_its_note_ship_in_the_page_behind_the_gate(client: 
     Note is a plain text input under the 16px floor, and it goes out under the note key the API reads.
     """
     page = client.get("/").text
-    for element in ('id="authScreen"', 'id="addOverlay"', 'id="catOverlay"', 'id="addNote"'):
+    for element in ('id="authScreen"', 'id="addOverlay"', 'id="addNote"'):
         assert element in page, element
     field = page[page.index('id="addNote"') - 120:page.index('id="addNote"') + 160]
     assert 'type="text"' in field and 'maxlength="500"' in field

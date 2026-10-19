@@ -639,7 +639,7 @@
        sees the phone. A 375x667 screen with a 47px status bar has ~586px to spend here. */
     container-type: size;
   }
-  #addSheet .sheet-grab { margin: 0; padding: 4px 0 8px; }   /* handle, 8px, then the header */
+  #addSheet .sheet-grab { margin: 0; padding: 2px 0 4px; }   /* handle, then the header */
   /* Swipe-to-dismiss. A pointer may claim the gesture anywhere on the sheet except over something that
      has its own: the chips row pans sideways, the expanded Details row can scroll, and everywhere else
      in this sheet has nothing to pan (it is overflow: hidden and the page behind it is locked), so the
@@ -665,12 +665,12 @@
      .manual-body, can scroll, and only when the phone is too short for all of it; the keypad never moves. */
   .manual-body {
     flex: 1; min-height: 0; display: flex; flex-direction: column;
-    margin: 0 -16px; padding: 0 16px 8px;
+    margin: 0 -16px; padding: 0 16px 0;
     overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
     touch-action: pan-y; scrollbar-width: none;
   }
   .manual-body::-webkit-scrollbar { display: none; }
-  .add-type-row { flex: none; display: flex; align-items: center; gap: 8px; margin: 4px 0 0; }
+  .add-type-row { flex: none; display: flex; align-items: center; gap: 8px; margin: 0; }
   .add-back-icon {
     flex: none; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 9999px;
     background: var(--card-2); color: var(--accent);
@@ -679,13 +679,15 @@
   .add-back-icon:active { background: var(--pressed); }
   .add-back-icon svg { width: 18px; height: 18px; }
   .add-type { flex: 1; min-width: 0; margin: 0; }
-  .add-type .seg-btn, .add-mode .seg-btn { min-height: 44px; }
+  .add-type .seg-btn { min-height: 44px; }
   /* The amount takes the spare height and centres its number, the currency on the same baseline. The
      caret blinks with a plain CSS loop: it repeats in place, it does not animate a display change. */
   .add-amount-block {
-    flex: 1 0 auto; min-height: 0; display: flex; flex-direction: column; align-items: center;
-    justify-content: center; padding: 2px 0;
+    flex: 1 1 auto; min-height: 2.75em; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; padding: 0;
   }
+  /* A short sheet spends less on the number: the block's floor follows the smaller clamp. */
+  @container (max-height: 640px) { .add-amount-block { min-height: 2.5em; } }
   .add-amount {
     display: flex; align-items: baseline; justify-content: center; max-width: 100%;
     font-size: clamp(40px, 8.8dvh, 56px); font-weight: 700; letter-spacing: -.03em; line-height: 1.1;
@@ -701,23 +703,13 @@
   @media (prefers-reduced-motion: reduce) { .add-caret { animation: none; } }
   /* At 56px a 375px screen fits ~10 characters ("RM 9,999.99"); a 320px screen needs a lower ceiling. */
   @media (max-width: 360px) { .add-amount { font-size: clamp(40px, 8.8dvh, 48px); } }
-  .add-currency {
-    flex: none; display: inline-flex; align-items: center; gap: 6px; margin: 6px 0 0;
-    min-height: 28px; padding: 0 12px; border-radius: 9999px; background: var(--card-2);
-    color: var(--text-2); font-size: 13px; font-weight: 500;
-  }
-  .add-currency svg { flex: none; width: 15px; height: 15px; }
-  .add-cat-head { flex: none; display: flex; align-items: center; justify-content: space-between; margin: 8px 0 0; }
+  .add-cat-head { flex: none; display: flex; align-items: center; margin: 2px 0 0; }
   .add-label { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-  .add-link {
-    min-height: 44px; padding: 0 0 0 12px; border: 0; background: none;
-    color: var(--accent); font: inherit; font-size: 15px; font-weight: 600;
-  }
   /* The four-row card: Merchant, Date, Mode and Note, on --card-2 (the sheet itself is --card). Each row is
      a label, so a tap anywhere on it opens its input. The hairline starts at the icon, not the card edge. */
-  .add-card { flex: none; margin: 10px 0 0; border-radius: 20px; background: var(--card-2); }
+  .add-card { flex: none; margin: 2px 0 0; border-radius: 20px; background: var(--card-2); }
   .add-row-field {
-    position: relative; display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 14px 0 10px;
+    position: relative; display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 14px 0 10px;
   }
   .add-row-field + .add-row-field::before {
     content: ""; position: absolute; top: 0; left: 54px; right: 0; height: .5px; background: var(--hairline);
@@ -739,11 +731,24 @@
   .add-row-input:focus { outline: none; }
   .add-row-input::placeholder { color: var(--placeholder); }
   .add-row-field > .add-row-chev { flex: none; }
-  .add-mode { flex: 1; min-width: 0; margin: 0; }
+  /* The Mode row's compact toggle, right-aligned. Each segment's box stays 44px (the tap floor) while
+     background-clip paints only its content box, 32px tall, so it reads compact and the hit target does
+     not shrink; there is no track behind the two segments. */
+  .add-mode {
+    flex: none; min-width: 0; margin: 0 0 0 auto; padding: 0; gap: 0;
+    background: none; border-radius: 0;
+  }
+  .add-mode .seg-btn {
+    min-height: 44px; padding: 6px 14px; font-size: 14px; border-radius: 8px;
+    background-clip: content-box;
+  }
+  .add-mode .seg-btn.is-active { box-shadow: none; }
   /* Manual's keys stay at the 44px tap floor on every phone. The 56px keys of a tall screen would push the
-     card out of the middle of the sheet, where it has to fit above the keypad. */
+     card out of the middle of the sheet, where it has to fit above the keypad — so the keypad's own chrome
+     is tightened too: less padding in the grid and around it, the same 44px keys. */
   #addKeypad .key { height: 44px; }
-  #addKeypad .keypad-grid { gap: 6px; }
+  #addKeypad .keypad-grid { gap: 5px; padding: 2px; }
+  #addKeypad { margin-top: 2px; padding-top: 2px; padding-bottom: calc(2px + var(--sab)); }
   /* The real picker sits invisibly over the pill, so a tap opens the native date sheet. 16px because
      iOS zooms the whole page in when a focused control is smaller, and this one is focusable. */
   .add-date-input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; border: 0; font-size: 16px; }
@@ -756,7 +761,7 @@
   .add-field:focus { outline: none; border-color: var(--accent); }
   /* The chips bleed to the sheet edges so the row reads as scrolling, not cut off. */
   .chip-scroll {
-    flex: none; display: flex; gap: 8px; margin: 8px -16px 0; padding: 0 16px;
+    flex: none; display: flex; gap: 8px; margin: 2px -16px 0; padding: 0 16px;
     overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
   }
   .chip-scroll::-webkit-scrollbar { display: none; }
@@ -771,19 +776,6 @@
   /* A chosen chip fills with the accent, and its icon goes white with the label. */
   .cat-chip.is-on { background: var(--accent); color: var(--on-accent); }
   .cat-chip.is-on .cat-ico { color: var(--on-accent); }
-  /* The category list (View All): a plain sheet over the Add sheet, one row per category. */
-  .cat-list { display: flex; flex-direction: column; margin: 8px 0 0; border-radius: 20px; background: var(--card-2); overflow: hidden; }
-  .cat-row {
-    position: relative; display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 14px 0 10px;
-    border: 0; background: none; color: var(--text); font: inherit; font-size: 16px; font-weight: 500; text-align: left;
-  }
-  .cat-row + .cat-row::before {
-    content: ""; position: absolute; top: 0; left: 54px; right: 0; height: .5px; background: var(--hairline);
-  }
-  .cat-row:active { background: var(--pressed); }
-  .cat-row .cat-ico { width: 32px; height: 32px; border-radius: 9999px; background: var(--card); }
-  .cat-row-check { flex: none; margin-left: auto; width: 18px; height: 18px; color: var(--accent); visibility: hidden; }
-  .cat-row-check.is-on { visibility: visible; }
   .cat-dot { background: var(--cat); }
   .cat-fill { background: var(--cat); }
   .txn-icon, .cat-icon, .highlight-icon { color: var(--cat); }
@@ -901,7 +893,8 @@
      land under 640 on a short phone and over it on a tall one, so the AI view's rules below still apply. */
   @container (max-height: 640px) {
     /* 1. the amount: the only flexible block, so its own floor decides whether the column fits */
-    .add-amount { font-size: clamp(34px, 7.2dvh, 44px); min-height: .85em; padding: 0; }
+    .add-amount { font-size: clamp(34px, 7.2dvh, 40px); min-height: .85em; padding: 0; line-height: 1.05; }
+    .add-amount-cur { font-size: 17px; }
     /* 2. the keys: 44px is the floor, because that is the tap target */
     .key { height: 44px; }
     .keypad-grid { gap: 6px; }
@@ -1761,15 +1754,10 @@
 
           <div class="add-amount-block">
             <div class="add-amount" id="addAmount"><span class="add-amount-cur">RM</span><span class="add-amount-num" id="addAmountNum">0.00</span><span class="add-caret" aria-hidden="true"></span></div>
-            <p class="add-currency">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6.5" width="18" height="11" rx="2.5"/><circle cx="12" cy="12" r="2.2"/><path d="M6.5 10v.01M17.5 14v.01"/></svg>
-              Malaysian Ringgit
-            </p>
           </div>
 
           <div class="add-cat-head">
             <span class="add-label">Category</span>
-            <button class="add-link" id="addCatViewAll" type="button">View All</button>
           </div>
           <div class="chip-scroll" id="addChips" role="group" aria-label="Category"></div>
 
@@ -1778,7 +1766,8 @@
               <span class="add-row-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5L5.5 5h13L20 9.5a2.5 2.5 0 0 1-5 0 2.5 2.5 0 0 1-5 0 2.5 2.5 0 0 1-5 0Z"/><path d="M5.5 11.5V19h13v-7.5"/></svg></span>
               <span class="add-row-name">Merchant</span>
               <input class="add-row-input" id="addMerchant" type="text" placeholder="Add merchant"
-                     autocomplete="off" autocapitalize="words" enterkeyhint="done">
+                     autocomplete="off" autocorrect="off" autocapitalize="words" spellcheck="false"
+                     enterkeyhint="done">
               <svg class="add-row-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
             </label>
             <label class="add-row-field" for="addDate">
@@ -1852,21 +1841,6 @@
         <div class="add-notice" id="addNotice" hidden></div>
         <div class="keypad-grid" id="keypadGrid"></div>
       </div>
-    </div>
-  </div>
-
-  <!-- The full category list, opened from the Manual sheet's View All. A plain sheet over the Add sheet:
-       one row per category, and a tap picks it and closes. -->
-  <div class="overlay" id="catOverlay" aria-hidden="true">
-    <div class="scrim" aria-hidden="true"></div>
-    <div class="sheet" id="catSheet">
-      <div class="sheet-grab" aria-hidden="true"><span></span></div>
-      <div class="sheet-head has-done">
-        <span></span>
-        <h2 class="sheet-title">Category</h2>
-        <button class="btn-ghost sheet-done" id="catDoneBtn" type="button">Done</button>
-      </div>
-      <div class="cat-list" id="catList" role="group" aria-label="Category"></div>
     </div>
   </div>
 
@@ -3684,7 +3658,10 @@
     $("addSheet").classList.toggle("is-compact", view === "chooser");
     $("addSheetTitle").textContent = ADD_VIEW_TITLES[view];
     manualFieldFocused = false;
-    if (view === "manual") $("manualBody").scrollTop = 0;   // every visit to Manual starts at the top
+    if (view === "manual") {
+      $("manualBody").scrollTop = 0;   // every visit to Manual starts at the top
+      revealAddChip();                 // a prefill paints the chips while Manual is still hidden, so the
+    }                                  // chosen chip's reveal waits for the view it belongs to
     updateKeypadVisibility();
   }
 
@@ -3741,6 +3718,20 @@
         '<span class="cat-ico">' + categoryIcon(category) + "</span>" +
         escapeHtml(capitalise(category)) + "</button>";
     }).join("");
+    revealAddChip();
+  }
+
+  // The chosen chip scrolls into view with part of the one before it showing, so the row reads as a strip
+  // rather than jumping; a chip already on the first screen leaves the row at 0.
+  function revealAddChip() {
+    var row = $("addChips");
+    var chip = row.querySelector(".cat-chip.is-on");
+    if (!chip) { row.scrollLeft = 0; return; }
+    var pane = row.getBoundingClientRect(), box = chip.getBoundingClientRect();
+    if (box.right <= pane.right - 16) { row.scrollLeft = 0; return; }   // already fully on the first screen
+    var prev = chip.previousElementSibling;
+    var peek = prev ? prev.getBoundingClientRect().width / 2 + 8 : 0;  // part of the previous chip
+    row.scrollLeft += (box.left - peek) - (pane.left + 16);
   }
 
   function paintAddToggle(toggleId, attribute, value) {
@@ -3753,35 +3744,6 @@
   function toggleAddCategory(category) {
     addCategory = addCategory === category ? null : category;
     paintAddChips();
-  }
-
-  // View All: every category as a row, the chosen one ticked. A tap picks it (a second tap on the chosen
-  // one clears it, as a chip does) and closes the list; the Add sheet underneath keeps its state.
-  function paintCatList() {
-    $("catList").innerHTML = CATEGORIES.map(function (category) {
-      var on = category === addCategory;
-      return '<button class="cat-row" type="button" data-cat-row="' + category + '" aria-pressed="' +
-        (on ? "true" : "false") + '" style="--cat:' + categoryColour(category) + '">' +
-        '<span class="cat-ico">' + categoryIcon(category) + "</span>" +
-        "<span>" + escapeHtml(capitalise(category)) + "</span>" +
-        '<svg class="cat-row-check' + (on ? " is-on" : "") + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
-        'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>' +
-        "</button>";
-    }).join("");
-  }
-
-  function openCatSheet() {
-    paintCatList();
-    openOverlay($("catOverlay"));
-  }
-
-  function closeCatSheet(fromOffset) {
-    closeOverlay($("catOverlay"), null, fromOffset);
-  }
-
-  function pickCategory(category) {
-    toggleAddCategory(category);
-    closeCatSheet();
   }
 
   function setAddType(value) {
@@ -5198,16 +5160,6 @@
       var hit = event.target.closest ? event.target.closest("[data-add-mode]") : null;
       if (hit) setAddMode(hit.dataset.addMode);
     });
-    $("addCatViewAll").addEventListener("click", openCatSheet);
-    $("catList").addEventListener("click", function (event) {
-      var row = event.target.closest ? event.target.closest("[data-cat-row]") : null;
-      if (row) pickCategory(row.dataset.catRow);
-    });
-    $("catDoneBtn").addEventListener("click", closeCatSheet);
-    $("catOverlay").addEventListener("click", function (event) {
-      if (isOutsideTap(event, $("catOverlay"))) closeCatSheet();
-    });
-    attachSheetDrag("catSheet", "catOverlay", closeCatSheet, false);
     // The keys are for the amount: while Merchant or Note holds the caret the real keyboard is up, so the
     // keypad hides. It is derived from these two flags, never remembered.
     ["addMerchant", "addNote"].forEach(function (id) {

@@ -96,7 +96,8 @@ def test_the_add_sheet_opens_on_a_two_option_chooser(client: TestClient) -> None
     opened = page[page.index("function openAddSheet("):page.index("function closeAddSheet(")]
     assert 'showAddView("chooser")' in opened, "a fresh sheet must start on the chooser"
     assert "function showAddView(view)" in page
-    assert 'if (view === "manual") $("manualBody").scrollTop = 0;' in page, "Manual opens at its top"
+    assert '$("manualBody").scrollTop = 0;' in page, "Manual opens at its top"
+    assert "revealAddChip();                 // a prefill paints" in page, "the chosen chip reveals with its view"
     assert '$("saveAddBtn").hidden = view !== "manual";' in page
 
 
@@ -140,9 +141,9 @@ def test_each_flow_returns_to_the_chooser_and_cancel_leaves_the_sheet(client: Te
     assert 'addEventListener("click", function () { showAddView("ai"); })' in page
     assert 'id="closeAddBtn"' in page
     assert '$("closeAddBtn").addEventListener("click", closeAddSheet);' in page
-    # Two sheets were added with the balance breakdown (the breakdown itself and the one-field anchor), and
-    # the category list joins them, so the guard now appears on seven overlays; each still closes its own.
-    assert page.count('isOutsideTap(event, $("') == 7, "the scrim still closes the sheet"
+    # Two sheets were added with the balance breakdown (the breakdown itself and the one-field anchor),
+    # so the guard now appears on six overlays; each still closes its own sheet.
+    assert page.count('isOutsideTap(event, $("') == 6, "the scrim still closes the sheet"
     # Back takes the keyboard with it, or the chooser returns under a keyboard with nothing to type into
     back = page[page.index("function reverseAddView("):page.index("function reverseAddView(") + 400]
     assert "active.blur()" in back
@@ -258,8 +259,7 @@ def test_the_sheet_tap_guards_are_target_based(client: TestClient) -> None:
     # the breakdown's own content is replaced on every render, so a detached-node guard would fail there.
     assert 'if (isOutsideTap(event, $("balanceOverlay"))) closeBalanceSheet();' in page
     assert 'if (isOutsideTap(event, $("moneyFieldOverlay"))) closeMoneyField();' in page
-    assert page.count("isOutsideTap(event, $(") == 7, "all seven overlays must use the guard"
-    assert 'if (isOutsideTap(event, $("catOverlay"))) closeCatSheet();' in page
+    assert page.count("isOutsideTap(event, $(") == 6, "all six overlays must use the guard"
 
 
 def test_the_drag_waits_for_the_threshold_before_capturing(client: TestClient) -> None:
@@ -999,12 +999,12 @@ def test_the_manual_sheet_is_one_screen_with_a_four_row_card(client: TestClient)
     assert "addDetailsPill" not in page and "addBackDetails" not in page
     manual = page[page.index('<section id="screen-add" hidden>'):page.index("<!-- 3. AI")]
     order = [manual.index(marker) for marker in (
-        'id="addBackManual"', 'id="addTypeToggle"', 'id="addAmount"', 'id="addCatViewAll"',
-        'id="addChips"', 'class="add-card"')]
+        'id="addBackManual"', 'id="addTypeToggle"', 'id="addAmount"',
+        'class="add-cat-head"', 'id="addChips"', 'class="add-card"')]
     assert order == sorted(order), "the rows must read top to bottom in the reference order"
     assert 'class="manual-body sheet-scroll" id="manualBody"' in manual
-    assert 'class="add-caret"' in manual and "Malaysian Ringgit" in manual
-    assert ">View All<" in manual and ">Category<" in manual
+    assert 'class="add-caret"' in manual and ">Category<" in manual
+    assert "Malaysian Ringgit" not in page and "add-currency" not in page, "the currency pill is gone"
     card = manual[manual.index('class="add-card"'):]
     for label in (">Merchant<", ">Date<", ">Mode<", ">Note<"):
         assert label in card, label
@@ -1012,14 +1012,32 @@ def test_the_manual_sheet_is_one_screen_with_a_four_row_card(client: TestClient)
         assert element in card, element
     assert "Scan Receipt" not in manual, "Scan Receipt stays in the AI view"
     assert 'data-add-mode="personal"' in manual and 'data-add-mode="business"' in manual
-    # touch targets: the new controls are 44px, and the inputs keep the 16px floor
-    assert ".add-type .seg-btn, .add-mode .seg-btn { min-height: 44px; }" in page
+    # touch targets: the controls are 44px, and the inputs keep the 16px floor
+    assert ".add-type .seg-btn { min-height: 44px; }" in page
     assert ".add-back-icon {\n    flex: none; width: 44px; height: 44px;" in page
     assert "min-height: 44px; padding: 0 16px 0 12px;" in page, "the category chips are 44px"
     assert "font: inherit; font-size: 16px; color: var(--text-2);" in page
     # Back sits beside the type control; the Details pill and its step are not in the markup any more
     back = manual[manual.index('class="add-back-icon"'):manual.index('id="addTypeToggle"')]
     assert "add-back-icon" in back and 'aria-label="Back to the chooser"' in back
+    # the chip row is a momentum scroller with a hidden scrollbar, and the chosen chip is scrolled into
+    # view with part of the previous chip showing (0 when it already fits the first screen)
+    chips = page[page.index("  .chip-scroll {"):page.index("  .chip-scroll {") + 260]
+    assert "overflow-x: auto" in chips and "-webkit-overflow-scrolling: touch" in chips
+    assert "scrollbar-width: none" in chips
+    assert "function revealAddChip() {" in page
+    assert "revealAddChip();" in page[page.index("function paintAddChips()"):page.index("function revealAddChip()")]
+    reveal = page[page.index("function revealAddChip()"):page.index("function paintAddToggle(")]
+    assert 'row.scrollLeft = 0;' in reveal and "row.scrollLeft +=" in reveal
+    # the Mode row keeps its height and its toggle paints compact but is tappable across its full 44px box
+    row_rule = page[page.index("  .add-row-field {"):page.index("  .add-row-field {") + 160]
+    assert "min-height: 44px" in row_rule, "the Mode row is at least 44px tall"
+    assert "background-clip: content-box" in page, "the segment paints 32px inside its 44px box"
+    assert ".add-mode .seg-btn.is-active { box-shadow: none; }" in page
+    # Merchant asks iOS for no underline suggestions, and stays a 16px text field
+    merchant = manual[manual.index('id="addMerchant"') - 40:manual.index('id="addMerchant"') + 220]
+    assert 'spellcheck="false"' in merchant and 'autocorrect="off"' in merchant
+    assert 'autocapitalize="words"' in merchant and 'type="text"' in merchant
     # the keypad hides while Merchant or Note holds the caret, and only then
     keys = page[page.index("function updateKeypadVisibility()"):page.index("function keypadHtml()")]
     assert "$(\"addKeypad\").hidden = !(addView === \"manual\" && !manualFieldFocused);" in keys
@@ -1048,24 +1066,19 @@ def test_the_manual_save_sends_one_payload_whether_or_not_there_is_a_note(client
     assert keys == ["amount", "txn_date", "merchant", "category", "type", "mode", "note"]
     assert 'note: $("addNote").value.trim() || null' in save
     assert 'api("/transactions", {' in save and 'method: "POST"' in save
+    # currency is not one of them and never was: the browser sends no currency key, the API stamps MYR
+    # (models.TransactionCreate.to_row), so removing the sheet's currency pill changed no payload key.
+    assert "currency" not in save
 
 
-def test_view_all_opens_the_full_category_list_over_the_add_sheet(client: TestClient) -> None:
-    """View All opens a plain sheet with every category; a tap picks it and closes the list only."""
+def test_view_all_and_the_category_sheet_are_gone(client: TestClient) -> None:
+    """The CATEGORY row is a label alone: View All and the sheet it opened are removed, code and all."""
     page = client.get("/").text
-    assert 'id="catOverlay"' in page and 'id="catSheet"' in page
-    assert page.index('id="addOverlay"') < page.index('id="catOverlay"') < page.index('id="txnOverlay"'), (
-        "the list sits above the Add sheet and stacks by DOM order, like the other overlays"
-    )
-    assert '$("addCatViewAll").addEventListener("click", openCatSheet);' in page
-    assert 'attachSheetDrag("catSheet", "catOverlay", closeCatSheet, false);' in page
-    assert '$("catDoneBtn").addEventListener("click", closeCatSheet);' in page
-    assert "pickCategory(row.dataset.catRow);" in page
-    pick = page[page.index("function pickCategory("):page.index("function pickCategory(") + 160]
-    assert "toggleAddCategory(category);" in pick and "closeCatSheet();" in pick
-    opened = page[page.index("function openCatSheet()"):page.index("function closeCatSheet(")]
-    assert "paintCatList();" in opened and 'openOverlay($("catOverlay"));' in opened
-    assert "pageBehind" not in opened
+    for gone in ("View All", "addCatViewAll", "catOverlay", "catSheet", "catList", "catDoneBtn",
+                 "openCatSheet", "closeCatSheet", "paintCatList", "pickCategory", "cat-row-check"):
+        assert gone not in page, gone + " is still in the page"
+    head = page[page.index('class="add-cat-head"'):page.index('id="addChips"')]
+    assert 'class="add-label">Category</span>' in head and "<button" not in head, "a label, not a link"
 
 
 def test_the_chips_show_every_category_in_one_scrolling_row(client: TestClient) -> None:

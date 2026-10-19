@@ -1548,3 +1548,10 @@ was exercised with dispatched `focus`/`blur` events on the fields. The keyboard 
 **Open, for the owner's call.** At 375×667 the card's lower rows (Date, Mode, Note) sit below the fold and scroll
 inside the sheet. The reference stack needs about 140px more than that screen has while the keys stay at 44px. Options
 are a smaller amount on short screens, dropping the currency pill below a height, or 40px keys. None is made here.
+
+**Same-day follow-up — the cramped screen, resolved.** View All (and its category sheet) and the Malaysian Ringgit
+pill came out; the card rows are 44px; the Mode toggle paints 32px inside its 44px box; the keypad's chrome tightened
+around the same 44px keys; the chosen chip now scrolls into view with the previous chip peeking. The whole form fits
+375×667 (card bottom 466.4px against a keypad top of 467.5px) and 390×844 with nothing scrolling. Currency still
+stamps `MYR` server-side; the client payload keys are unchanged. Merchant carries `spellcheck="false"
+autocorrect="off"`.

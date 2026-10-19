@@ -261,20 +261,20 @@ Settings keeps the large title alone.
     upload, which keeps uploads small, strips EXIF/GPS and turns HEIC into JPEG.
   - **Manual is one screen**, top to bottom, in the Stitch reference order. A **Back** chevron (44px,
     beside the type control) returns to the chooser, and **Expense / Income** is the segmented control.
-    The amount is one large number with a blinking caret and a small `RM` on its baseline, under a
-    *Malaysian Ringgit* pill (informational only). A **CATEGORY** row has a **View All** link, and below
-    it one horizontal row of the nine categories, each with its icon and colour; the chosen one fills
-    with the accent, and the last chip is cut at the edge as the scroll hint. The four-row card is
+    The amount is one large number with a blinking caret and a small `RM` on its baseline. A
+    **CATEGORY** label sits above one horizontal row of the nine categories, each with its icon and
+    colour; the chosen one fills with the accent, and the last chip is cut at the edge as the scroll
+    hint. The four-row card is
     **Merchant**, **Date** (`Today, 19 Oct 2026`, with the native picker invisibly over the row), **Mode**
     (Personal | Business, a 44px two-option control in the row) and **Note**. Each row is a label, so a
     tap anywhere on it opens its input. The keypad is the sheet's footer.
   - The **keypad** is pinned to the bottom: 3 columns and 4 rows of 44px keys (the tap floor on every
     phone). It hides while *Merchant* or *Note* holds the caret, derived from state and never remembered.
-  - Only the middle of Manual scrolls, and only on a short phone. At 390×844 the whole screen fits; at
-    375×667 the lower rows of the card sit below the fold and scroll inside the sheet. The keypad never
-    moves.
-  - **View All** opens a plain sheet over the Add sheet, one row per category. A tap picks the category
-    and closes the list; a second tap on the chosen one clears it, as a chip does.
+  - The whole screen fits at 375×667 and 390×844 (the card clears the keypad at both); nothing in
+    Manual scrolls. The chosen chip scrolls into view with part of the previous chip showing when the
+    sheet opens or a chip is picked; with nothing chosen the row starts at 0.
+  - **Mode** is the row's compact toggle, right-aligned: each segment's box is 44px (the tap floor),
+    while `background-clip` paints only its 32px middle, at 14px text. It starts on the Home tab's mode.
   - **Note** is the `raw_extraction.note` of the row: the API has no column for it, and the payload's keys
     are the same whether or not a note is typed (`note` is `null` when blank). A row opened from Pay
     carries the commitment's name as the merchant, the amount, the bills category and an expense.
@@ -371,8 +371,8 @@ The standalone app is edge to edge, in both themes:
   gap are real space (a 375×667 screen has a 592px box), so container queries on
   the sheet's own box step in: the amount font (56 → 44px), then the keys (56 → 44px), then the gaps,
   in that order. A tall phone trips none of them (844 and 932 give boxes of 760 and 830) and keeps
-  every size it was tuned with. (That was the old 65% Manual; the Stitch layout is the full sheet, and
-  only its middle scrolls on a 375×667 screen. See the Add section.)
+  every size it was tuned with. (That was the old 65% Manual; the Stitch layout is the full sheet. See
+  the Add section.)
 - **The status bar style is theme-aware, and that is the honest answer.** `black-translucent` is what
   the page ships (it is what lets the page paint under the bar), but iOS gives it **white** glyphs,
   and the light theme's bar is `rgba(249, 249, 249, .85)` — white on near-white is unreadable. So the
@@ -451,8 +451,7 @@ The Add sheet and the edit sheet are native-style bottom sheets, not full-screen
   only. The overlays are siblings of `.app`, so a transform there cannot disturb their fixed
   positioning — the sheet itself never scales with the page. Reduce Motion skips it entirely.
 - **The AI view does not scroll**: its box drives the shrink order — amount font, then keypad keys,
-  then the gaps. Manual is a different case: its middle (`.manual-body`) scrolls on a short phone, and
-  the keypad is pinned.
+  then the gaps. Manual's keypad is pinned; its content fits both target phones without scrolling.
 - Everything else is unchanged: open/close on the Web Animations API, swipe-down-to-close (still
   measured from the finger, so it behaves the same from the lifted position), the scrim tap, and the
   page behind staying locked while a sheet is open.

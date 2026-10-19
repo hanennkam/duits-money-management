@@ -93,11 +93,11 @@ Icons → `public, max-age=600` (deliberately not `immutable`). Every response: 
 - Sheets: Add, detail/edit, month wheel, key dialog. Mounted permanently, each with a `.scrim` child layer.
   `openOverlay`/`closeOverlay` use WAAPI, a close token and a 500ms fallback. `attachSheetDrag` does swipe-to-dismiss.
 - Add sheet opens on a chooser (Manual / AI). Manual is one screen, in the Stitch order: Back + Expense/Income,
-  the amount (`RM` + caret) and the Malaysian Ringgit pill, CATEGORY with View All and the chip row, a four-row card
-  (Merchant, Date, Mode, Note), and the keypad as the footer (44px keys, hidden while Merchant or Note holds the caret).
-  The middle of Manual (`.manual-body`) is the only thing that scrolls, and only on a short phone. AI is Smart Entry
-  (`POST /transactions/text`) and Scan Receipt, with no keypad. Note is `raw_extraction.note`. View All opens a plain
-  category sheet. The AI view's shrink order is container queries: amount font, key height, gaps.
+  the amount (`RM` + caret), CATEGORY and the chip row (no View All sheet; the chosen chip scrolls into view with
+  the previous chip peeking), a four-row card (Merchant, Date, Mode, Note), and the keypad as the footer (44px keys,
+  hidden while Merchant or Note holds the caret). The whole screen fits 375x667 and 390x844; nothing scrolls. AI is
+  Smart Entry (`POST /transactions/text`) and Scan Receipt, with no keypad. Note is `raw_extraction.note`. The AI
+  view's shrink order is container queries: amount font, key height, gaps.
 - Save: `afterAdd()` waits for the sheet's close and both lists, then `flashRow(id)` highlights the row.
 - Scan Receipt: the browser downscales to 1600px, re-encodes JPEG q0.85 (strips EXIF/GPS, HEIC → JPEG), then uploads.
 - Settings → About → **Build** row: the git short hash stamped by `GET /` (`dev` locally), plus status-bar
