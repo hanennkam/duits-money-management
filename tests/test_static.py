@@ -1318,9 +1318,9 @@ def test_the_whats_new_version_is_remembered_per_account(client: TestClient) -> 
     assert "readSession()" in slot, "the key is built from the signed-in account"
     assert "userIdFromToken(session.access_token)" in slot
     # The id is the token's own `sub` claim, decoded the way the address already is.
-    user = page[page.index("function userIdFromToken(token) {"):page.index("// The three screens.")]
+    user = page[page.index("function userIdFromToken(token) {"):page.index("function whatsNewActionLabel(")]
     assert "JSON.parse(window.atob(payload)).sub" in user
-    assert 'String(token).split(".")[1]' in user
+    assert "String(token).split(\".\")[1]" in user
     # Both the read and the write go through the per-account key, and both are wrapped: storage can
     # fail (private mode), and a failed read means "not seen yet" while a failed write must not throw.
     seen = page[page.index("function whatsNewSeen() {"):page.index("function rememberWhatsNew() {")]
@@ -1329,6 +1329,7 @@ def test_the_whats_new_version_is_remembered_per_account(client: TestClient) -> 
     remember = page[page.index("function rememberWhatsNew() {"):page.index("function paintWhatsNew() {")]
     assert "try {" in remember and "catch (error)" in remember, "the write is wrapped"
     assert "window.localStorage.setItem(whatsNewSlot(), WHATS_NEW_VERSION)" in remember
+    # The sheet still waits for the user to be in, and never opens on a sign-in screen.
     show = page[page.index("function maybeShowWhatsNew() {"):page.index("// One row shape, shared by Home")]
     assert "if (!splashHidden)" in show, "the splash covers the app until it has faded"
     assert "if (!readSession()) return;" in show, "never on a sign-in screen"
@@ -1338,58 +1339,6 @@ def test_the_whats_new_version_is_remembered_per_account(client: TestClient) -> 
     # session — and from nowhere else.
     assert page.count("maybeShowWhatsNew();") == 2, "the two callers, and no third"
     assert "await Promise.all([loadHome(), loadTransactions(), loadInsights()]);" in page
-
-
-def test_the_whats_new_copy_is_the_apps_own_rules(client: TestClient) -> None:
-    """The copy states the rules the code computes, in words, and invents no figures.
-
-    Every sentence below is checked against app/finance.py and the UI: the balance counts all months
-    and both modes, safe to spend is the balance less the bills still due, a paid bill leaves the
-    budget bar and an unpaid one never entered it, and a paid mark cannot be undone from the app.
-    There are no example amounts, because a number that is not the user's own would be a lie.
-    """
-    page = client.get("/").text
-    block = page[page.index("var WHATS_NEW_SCREENS = ["):page.index("var whatsNewIndex = 0;")]
-    # No digits in the copy: no example amounts, and no number that could drift from the user's own.
-    # The \\uXXXX escapes are the source's way of writing a punctuation mark, so they are read as the
-    # character they stand for before the count — otherwise "u2019" would count as a number.
-    copy = block[block.index("lines: ["):]
-    copy = re.sub(r"\\u[0-9a-fA-F]{4}", " ", copy)
-    assert not re.search(r"\d", copy), "the copy has no numbers in it"
-    # The rules, as app/finance.py computes them.
-    assert "Your balance is the money you have, after everything you have spent" in block
-    assert "over every month and in both Personal and Business" in block
-    assert "Safe to spend is that balance minus the bills you have not paid yet this month." in block
-    assert "A bill you have already paid is not counted against the budget" in block
-    assert "neither is one you have not paid yet" in block
-    # The Pay flow, as saveAdd and markCommitmentPaid do it: the expense first, then the mark.
-    assert "Tap Pay on a bill to open Add with it filled in." in block
-    assert "Saving records the expense, then marks the bill paid for this month." in block
-    assert "Paid can\\u2019t be undone from the app." in block
-    # The budget bar's own colours: yellow from half used, red from four fifths (app/finance.py and
-    # budgetTone in the page).
-    assert "The bar is yellow once half of the budget is used, and red when only a fifth of it is left." in block
-    assert "if (left < 0 || pct >= 80) return \"danger\";" in page
-    assert 'return pct >= 50 ? "caution" : "";' in page
-
-
-def test_the_safe_to_spend_info_mark_asks_the_card_it_sits_on(client: TestClient) -> None:
-    """The (i) beside "Safe to spend" is decoration inside the card's own button.
-
-    The whole balance card is one button that opens the "How this is calculated" sheet, so the mark
-    carries no name of its own and has no handler: a button inside a button is invalid, and a second
-    control for the same sheet would be a target the app does not otherwise have.
-    """
-    page = client.get("/").text
-    assert '<span class="safe-pill-info" aria-hidden="true">i</span>' in page
-    assert 'id="balanceTap"' in page
-    # It sits inside the button, between the label and the figure.
-    pill = page[page.index('<span class="safe-pill" id="safePill">'):page.index('</span>', page.index('id="safeAmount"'))]
-    assert "safe-pill-label" in pill and "safe-pill-info" in pill
-    assert pill.index("safe-pill-label") < pill.index("safe-pill-info") < pill.index("safe-pill-amount")
-    # No handler of its own, and no second way into the sheet.
-    assert "safe-pill-info" not in page[page.index("function wire() {"):]
-    assert '$("balanceTap").addEventListener("click", openBalanceSheet);' in page
 
 
 def test_each_whats_new_screen_has_an_action_that_opens_the_sheet_that_exists(
@@ -1416,14 +1365,14 @@ def test_each_whats_new_screen_has_an_action_that_opens_the_sheet_that_exists(
     assert 'return "Set a budget";' in label
     # The action opens the sheets that exist, through their own openers.
     run = page[page.index("function runWhatsNewAction() {"):page.index("// Shown once per version")]
-    assert 'openMoneyField("balance")' in run
+    assert "openMoneyField(\"balance\")" in run
     assert "openBalanceSheet()" in run
     assert "openCommitSheet()" in run
-    assert 'toggleCommitForm($("commitNewBtn"))' in run, "the add form is open when the sheet is"
-    assert 'openMoneyField("budget")' in run
+    assert "toggleCommitForm($(\"commitNewBtn\"))" in run, "the add form is open when the sheet is"
+    assert "openMoneyField(\"budget\")" in run
     # The card closes before the other sheet opens, so the two are never on screen together.
-    assert run.index("closeOverlay(") < run.index('openMoneyField("balance")')
-    assert 'closeOverlay($("whatsNewOverlay"), function () {' in run
+    assert run.index("closeOverlay(") < run.index("openMoneyField(\"balance\")")
+    assert "closeOverlay($(\"whatsNewOverlay\"), function () {" in run
     # The button lives in the body, which is re-rendered on every screen, so the body listens for it.
     assert '$("whatsNewBody").addEventListener("click", function (event) {' in page
     assert 'event.target.closest("#whatsNewActionBtn")' in page
@@ -1448,6 +1397,73 @@ def test_settings_has_a_row_that_opens_the_whats_new_card_again(client: TestClie
     assert "What&rsquo;s new" in about
     # It opens the card directly — not through the once-per-version path.
     assert '$("whatsNewBtn").addEventListener("click", function () { openWhatsNew(); });' in page
-    open_call = page[page.index("function openWhatsNew() {"):page.index("// Every way out of the sheet")]
-    assert 'openOverlay($("whatsNewOverlay"));' in open_call
+    open_call = page[page.index('function openWhatsNew() {'):page.index("// Every way out of the sheet")]
+    assert "openOverlay($(\"whatsNewOverlay\"));" in open_call
     assert "rememberWhatsNew" not in open_call, "opening it does not mark the version as read"
+
+
+def test_the_whats_new_copy_is_the_apps_own_rules(client: TestClient) -> None:
+    """The copy states the rules the code computes, in words, in two short sentences per screen.
+
+    Every sentence below is checked against app/finance.py and the UI: safe to spend is the balance
+    less the bills still due, a paid bill leaves the budget bar, a paid mark cannot be undone from
+    the app, and the bar's own colours are yellow from half used and red at a fifth left. The one
+    worked example on screen 1 is a made-up balance and says so.
+    """
+    page = client.get("/").text
+    block = page[page.index("var WHATS_NEW_SCREENS = ["):page.index("var whatsNewIndex = 0;")]
+    # Two short sentences per screen: the copy is read at a glance, not studied.
+    for screen in block.split("title:")[1:]:
+        lines = screen[screen.index("lines: ["):screen.index("action:")]
+        assert lines.count('",\n') + 1 == 2, "two sentences per screen"
+    # The rules, as app/finance.py computes them.
+    assert "Balance is your starting balance plus income, minus expenses." in block
+    assert "If you had RM1,700, spent RM900 and had no unpaid bills, safe to spend would be RM800." in block
+    assert "Safe to spend drops the bills you have not paid yet" in block
+    # The Pay flow: the expense first, then the mark, and the mark is for the month.
+    assert "Pay one to record the expense and mark the bill paid for the month." in block
+    assert "Once a bill is paid it stays paid" in block
+    # The budget screen, as the user asked for it.
+    assert "Set a limit for daily spending like food and fuel." in block
+    assert "Bills you pay through Duits don't count against it." in block
+    assert "The bar turns yellow at half used, and red when 20% is left." in block
+    # The bar's own colours, in the code the copy describes (budgetTone).
+    assert 'if (left < 0 || pct >= 80) return "danger";' in page
+    assert 'return pct >= 50 ? "caution" : "";' in page
+    # The separate formula box is gone: one card, one set of sentences.
+    assert "whats-new-formula" not in page
+    assert "formula:" not in block
+
+
+def test_the_whats_new_screens_are_cards_not_floating_text(client: TestClient) -> None:
+    """Each screen is a card, the same recipe the rest of the app is built from.
+
+    The sheet is white in the light theme, so bare text on it reads as floating text rather than as a
+    screen. The card's own hairline and shadow are what separate it, and they are the app's `.card`.
+    """
+    page = client.get("/").text
+    card = page[page.index("  .whats-new-screen {"):page.index("  .whats-new-screen h3 {")]
+    assert "background: var(--card-2);" in card
+    assert "border: .5px solid var(--line);" in card
+    assert "border-radius: var(--r-md);" in card
+    assert "box-shadow: var(--shadow);" in card
+    assert "padding: 16px;" in card
+
+
+def test_the_safe_to_spend_info_mark_asks_the_card_it_sits_on(client: TestClient) -> None:
+    """The (i) beside "Safe to spend" is decoration inside the card's own button.
+
+    The whole balance card is one button that opens the "How this is calculated" sheet, so the mark
+    carries no name of its own and has no handler: a button inside a button is invalid, and a second
+    control for the same sheet would be a target the app does not otherwise have.
+    """
+    page = client.get("/").text
+    assert '<span class="safe-pill-info" aria-hidden="true">i</span>' in page
+    assert 'id="balanceTap"' in page
+    # It sits inside the button, between the label and the figure.
+    pill = page[page.index('<span class="safe-pill" id="safePill">'):page.index('</span>', page.index('id="safeAmount"'))]
+    assert "safe-pill-label" in pill and "safe-pill-info" in pill
+    assert pill.index("safe-pill-label") < pill.index("safe-pill-info") < pill.index("safe-pill-amount")
+    # No handler of its own, and no second way into the sheet.
+    assert "safe-pill-info" not in page[page.index("function wire() {"):]
+    assert '$("balanceTap").addEventListener("click", openBalanceSheet);' in page

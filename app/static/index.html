@@ -473,15 +473,18 @@
      never taller than the safe areas allow, so the copy is written to fit one screen on a 390x844 phone. */
   .whats-new-sheet { display: flex; flex-direction: column; }
   .whats-new-body { margin: 4px 0 0; }
-  .whats-new-screen h3 { margin: 0 0 10px; font-size: 21px; font-weight: 700; letter-spacing: -.02em; }
-  .whats-new-screen p { margin: 0 0 12px; font-size: 15px; line-height: 1.5; color: var(--text-2); }
-  .whats-new-screen p:last-child { margin-bottom: 0; }
-  /* The formula, in the same words the app uses elsewhere: a figure the eye can read at a glance. */
-  .whats-new-formula {
-    display: block; margin: 0 0 14px; padding: 12px 14px; border-radius: var(--r-sm);
-    background: var(--card-2); color: var(--text); font-size: 15px; font-weight: 600; line-height: 1.4;
+  /* The screen is a card, the same one the rest of the app is built from (.card): the sheet is white
+     in the light theme, so without the card the copy is text floating on a white sheet. The hairline
+     and the shadow are what separate it, and they are the app's own recipe. */
+  .whats-new-screen {
+    padding: 16px; border: .5px solid var(--line); border-radius: var(--r-md);
+    background: var(--card-2); box-shadow: var(--shadow);
   }
-  .whats-new-formula em { font-style: normal; color: var(--text-2); font-weight: 500; }
+  .whats-new-screen h3 { margin: 0 0 10px; font-size: 19px; font-weight: 700; letter-spacing: -.02em; }
+  .whats-new-screen p { margin: 0 0 12px; font-size: 15px; line-height: 1.5; color: var(--text-2); }
+  .whats-new-screen p:last-of-type { margin-bottom: 16px; }
+  /* The action: a plain secondary button, the app's own, so it is a 44px target like every other. */
+  .whats-new-action { width: 100%; }
   /* The foot: the dots above the one button that moves the story on. The inactive dot is --muted, not
      --hairline: the dots say which screen you are on, and a hairline on a white card is too faint to
      read. */
@@ -490,8 +493,6 @@
   .whats-new-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
   .whats-new-dot.is-on { background: var(--accent); }
   .whats-new-next { width: 100%; }
-  /* The action: a plain secondary button, the app's own, so it is a 44px target like every other. */
-  .whats-new-action { width: 100%; }
 
   /* The (i) beside "Safe to spend": it says the card opens the sheet that spells the figure out. It is
      decoration inside the card's own button, so it carries no name of its own — the button's label
@@ -3278,38 +3279,31 @@
 
   // The three screens. Every sentence is taken from the code that computes the figures
   // (app/finance.py) or from what the UI actually does, so a formula that changes means this copy
-  // changes with it. There are no example amounts: a number that is not the user's own would be a
-  // lie, so the rules are written out in words instead.
+  // changes with it. The one worked example on screen 1 is a made-up balance, and it says so.
   var WHATS_NEW_SCREENS = [
     {
       title: "Balance and safe to spend",
-      action: "balance",
-      formula: "Balance: your starting balance, plus income, minus expenses.",
       lines: [
-        "Your balance is the money you have, after everything you have spent, over every month and in both Personal and Business.",
-        "Safe to spend is that balance minus the bills you have not paid yet this month.",
-        "Tap the balance card to open the sheet that shows every line of the working."
-      ]
+        "Balance is your starting balance plus income, minus expenses. If you had RM1,700, spent RM900 and had no unpaid bills, safe to spend would be RM800.",
+        "Safe to spend drops the bills you have not paid yet, so it is what you can really spend."
+      ],
+      action: "balance"
     },
     {
       title: "Commitments",
-      action: "commitment",
-      formula: null,
       lines: [
-        "Commitments are your fixed monthly bills. Add them in Settings, and they appear under Bills due this month.",
-        "Tap Pay on a bill to open Add with it filled in. Saving records the expense, then marks the bill paid for this month.",
-        "Paid can\u2019t be undone from the app."
-      ]
+        "Commitments are your fixed monthly bills. Pay one to record the expense and mark the bill paid for the month.",
+        "Once a bill is paid it stays paid \u2014 the app has no way to undo it."
+      ],
+      action: "commitment"
     },
     {
       title: "Monthly budget",
-      action: "budget",
-      formula: "Budget left: your budget, minus this month\u2019s spending, plus the bills you have already paid.",
       lines: [
-        "Set a monthly budget in Settings, and Home shows a bar of what is left for the month.",
-        "A bill you have already paid is not counted against the budget, and neither is one you have not paid yet \u2014 those are what safe to spend is for.",
-        "The bar is yellow once half of the budget is used, and red when only a fifth of it is left."
-      ]
+        "Set a limit for daily spending like food and fuel. Bills you pay through Duits don't count against it.",
+        "The bar turns yellow at half used, and red when 20% is left."
+      ],
+      action: "budget"
     }
   ];
 
@@ -3338,9 +3332,6 @@
     $("whatsNewBody").innerHTML =
       '<div class="whats-new-screen">' +
       "<h3>" + escapeHtml(screen.title) + "</h3>" +
-      (screen.formula
-        ? '<span class="whats-new-formula">' + escapeHtml(screen.formula) + "</span>"
-        : "") +
       screen.lines.map(function (line) { return "<p>" + escapeHtml(line) + "</p>"; }).join("") +
       '<button class="btn-secondary whats-new-action" id="whatsNewActionBtn" type="button">' +
       escapeHtml(whatsNewActionLabel(screen.action)) + "</button>" +
@@ -3358,7 +3349,7 @@
     openOverlay($("whatsNewOverlay"));
   }
 
-  // Every way out of the sheet counts as "seen" \u2014 the button, the scrim and the drag alike \u2014 so the
+  // Every way out of the sheet counts as "seen" — the button, the scrim and the drag alike — so the
   // version is written either way and a user who dismisses it is never asked again.
   function closeWhatsNew(fromOffset) {
     rememberWhatsNew();
