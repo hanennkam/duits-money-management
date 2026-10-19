@@ -1028,3 +1028,56 @@ def test_the_manual_sheet_is_two_steps_at_65_percent_height(client: TestClient) 
     prefill = page[page.index("function applyAddPrefill("):page.index("function closeAddSheet(")]
     assert '$("addMerchant").value = prefill.merchant || "";' in prefill
     assert "classList.add(\"is-open\")" not in prefill
+
+
+def test_the_keyboard_lifts_the_sheet_and_centres_the_focused_field(client: TestClient) -> None:
+    """The sheet measures the keyboard from visualViewport, lifts by it, and centres the field in itself.
+
+    iOS changes only the visual viewport when the keyboard opens, so the height is innerHeight minus the
+    visual viewport (and whatever it scrolled by). The value goes into --kb, which lifts every sheet's
+    bottom edge and clamps its max-height. The focused field is then centred by scrolling the sheet's own
+    box, never the window. No fixed pixels are pinned: the height is whatever the phone reports.
+    """
+    page = client.get("/").text
+    # the height is measured, kept in one place, and driven by two viewport events
+    assert "window.visualViewport" in page
+    assert "var lost = window.innerHeight - viewport.height - viewport.offsetTop;" in page
+    assert 'viewport.addEventListener("resize", function () {' in page
+    assert 'viewport.addEventListener("scroll", paintKeyboard);' in page
+    assert "function paintKeyboard() {" in page
+    assert 'document.documentElement.style.setProperty("--kb", keyboardInsetPx + "px");' in page
+    # it resets when the sheet closes, and the close is the one choke point every sheet goes through
+    assert "function resetKeyboard() {" in page
+    assert 'document.documentElement.style.setProperty("--kb", "0px");' in page
+    closing = page[page.index("function closeOverlay("):page.index("function closeOverlay(") + 300]
+    assert "resetKeyboard();" in closing
+    # --kb lifts the bottom edge and clamps the height, in dvh, for both fixed sheets
+    assert "--kb: 0px;" in page
+    assert "bottom: var(--kb);" in page
+    assert "max-height: calc(100dvh - var(--sheet-top-gap) - var(--kb));" in page
+    assert "padding: max(var(--sat), 12px) 12px calc(12px + var(--sab) + var(--kb));" in page
+    assert "max-height: min(88dvh, calc(100dvh - max(var(--sat), 12px) - 12px - var(--sab) - var(--kb)));" in page
+    # no static-viewport height is left in the sheet rules (the sign-in card's own 10vh shift is not one)
+    regions = [
+        page[page.index("/* ---------- add sheet: one screen"):page.index("/* ---------- results ----------")],
+        page[page.index("/* ---------- sheet ---------- */"):page.index("/* ---------- commitments sheet")],
+        page[page.index("/* ---------- sheets: how the balance"):page.index("/* ---------- category list")],
+    ]
+    for region in regions:
+        plain = re.sub(r"/\*.*?\*/", "", region, flags=re.S)
+        assert not re.search(r"\d+vh(?![\w-])", plain.replace("dvh", "D").replace("svh", "S").replace("lvh", "L")), (
+            "a sheet height still follows the static viewport"
+        )
+    # the centring scrolls the sheet's own box only, after the keyboard has had time to settle
+    centre = page[page.index("function centreFocusedField()"):page.index("function resetKeyboard()")]
+    assert 'var sheet = field.closest(".sheet");' in centre
+    assert "sheet.scrollTop +=" in centre
+    assert "window.scroll" not in centre and "documentElement.scrollTop" not in centre
+    assert "centreTimer = setTimeout(centreFocusedField, 300);" in page
+    # focus is the trigger, by delegation, and it still keeps the page from panning to "help"
+    assert 'document.addEventListener("focusin", function (event) {' in page
+    assert 'field.matches("input, textarea, select")' in page
+    assert 'field.closest(".sheet")' in page
+    assert 'field.classList.contains("add-date-input")' in page
+    assert "function watchKeyboard() {" in page
+    assert "field.focus({ preventScroll: true })" in page

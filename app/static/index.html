@@ -52,6 +52,10 @@
     /* How far below the top of the screen the Add / edit sheet starts: clear of the status bar, but
        never above 10dvh, so it always reads as a sheet rather than a page. Tune it here. */
     --sheet-top-gap: max(var(--sat) + 12px, 10dvh);
+    /* The keyboard's inset, measured from visualViewport (see paintKeyboard). It lifts every sheet's
+       bottom edge above the keys and clamps the sheet's max-height by the same amount; 0px whenever no
+       keyboard is up, so nothing moves on a phone or a desktop without one. */
+    --kb: 0px;
     --sab: env(safe-area-inset-bottom, 0px);
     --sal: env(safe-area-inset-left, 0px);
     --sar: env(safe-area-inset-right, 0px);
@@ -622,10 +626,11 @@
      of scrim under it. Nothing inside scrolls. */
   #addOverlay { padding: 0; background: var(--scrim-sheet); }
   #addSheet {
-    position: fixed; left: 0; right: 0; bottom: 0;
+    position: fixed; left: 0; right: 0; bottom: var(--kb);
     height: 100%;                              /* fallback: no dvh anywhere */
     height: calc(100dvh - var(--sheet-top-gap));
-    max-height: none; overflow: hidden;
+    max-height: calc(100dvh - var(--sheet-top-gap) - var(--kb));   /* lifted, the top still clears the gap */
+    overflow: hidden;
     padding: 8px 16px 0;                       /* the handle, 8px, then the header */
     display: flex; flex-direction: column;
     border-radius: 28px 28px 0 0;              /* top corners only: it is a sheet, not a page */
@@ -670,12 +675,12 @@
     flex: 1; min-height: 1.4em; overflow: hidden;
     display: flex; align-items: center; justify-content: center;
     margin: 0; padding: 2px 0; white-space: nowrap;
-    font-size: clamp(40px, 8.8vh, 56px);
+    font-size: clamp(40px, 8.8dvh, 56px);
     font-weight: 700; letter-spacing: -.03em; font-variant-numeric: tabular-nums;
   }
   /* At 56px a 375px screen fits ~10 characters ("RM 9,999.99"), which covers every real amount;
      a 320px screen needs a lower ceiling to keep 5-digit totals inside the sheet. */
-  @media (max-width: 360px) { .add-amount { font-size: clamp(40px, 8.8vh, 48px); } }
+  @media (max-width: 360px) { .add-amount { font-size: clamp(40px, 8.8dvh, 48px); } }
   /* Date / mode / details: three small pills on one row, under the amount. */
   .add-pills { flex: none; display: flex; gap: 8px; margin: 0 0 0; }
   .add-pill {
@@ -776,7 +781,7 @@
      container queries. The bottom padding is the safe area plus a little, so the cards clear the home
      indicator rather than sitting under it. */
   #addSheet.is-compact {
-    height: auto; max-height: calc(100dvh - var(--sheet-top-gap));
+    height: auto; max-height: calc(100dvh - var(--sheet-top-gap) - var(--kb));
     container-type: normal;
     padding-bottom: calc(16px + var(--sab));
   }
@@ -898,7 +903,7 @@
     position: fixed; inset: 0; z-index: 20; display: flex; align-items: flex-end; justify-content: center;
     /* Both ends: a tall edit sheet or the month wheel must not slide under the status bar or into the
        home indicator either. */
-    padding: max(var(--sat), 12px) 12px calc(12px + var(--sab));
+    padding: max(var(--sat), 12px) 12px calc(12px + var(--sab) + var(--kb));
     visibility: hidden; pointer-events: none;
   }
   .overlay.open { visibility: visible; pointer-events: auto; }
@@ -918,8 +923,9 @@
     width: 100%; max-width: 640px; padding: 20px;
     background: var(--card); border-radius: var(--r-lg); box-shadow: var(--shadow-up);
     /* 88dvh, but never taller than the safe areas leave: a sheet that fits between them cannot put its
-       own Cancel button under the clock or its last row under the home indicator. */
-    max-height: min(88dvh, calc(100dvh - max(var(--sat), 12px) - 12px - var(--sab)));
+       own Cancel button under the clock or its last row under the home indicator. --kb is taken off too,
+       so a sheet lifted above the keyboard still starts below the status bar. */
+    max-height: min(88dvh, calc(100dvh - max(var(--sat), 12px) - 12px - var(--sab) - var(--kb)));
     overflow-y: auto; -webkit-overflow-scrolling: touch;
   }
   /* The edit sheet wears the same clothes as the Add sheet: anchored to the bottom edge, its top never
@@ -928,8 +934,8 @@
      of a fixed height, and it may scroll internally — a list of corrections is not a keypad. */
   #txnOverlay { padding: 0; background: var(--scrim-sheet); }
   #txnSheet {
-    position: fixed; left: 0; right: 0; bottom: 0;
-    max-height: calc(100dvh - var(--sheet-top-gap));
+    position: fixed; left: 0; right: 0; bottom: var(--kb);
+    max-height: calc(100dvh - var(--sheet-top-gap) - var(--kb));
     border-radius: 28px 28px 0 0;
     padding-bottom: calc(20px + var(--sab));
   }
@@ -2142,6 +2148,7 @@
   // the sheet continues downwards instead of jumping back to 0 first. 0 (or nothing) is the plain close.
   function closeOverlay(element, after, fromOffset) {
     if (!element || !element.classList.contains("open")) { if (after) after(); return Promise.resolve(); }
+    resetKeyboard();                   // the sheet is leaving; drop the keyboard's inset with it
     cancelOverlayMotion(element);
     var parts = sheetParts(element);
     var options = { duration: motionMs("--dur-sheet"), easing: EASE_IOS, fill: "both" };
@@ -3688,12 +3695,68 @@
     $("addModePill").classList.toggle("is-on", addMode === "business");
   }
 
-  // Nothing about the Add sheet reacts to the keyboard any more: it is a fixed page, so the keys stay
-  // where they are and the keyboard simply covers the lower part of it. focus() is called with
-  // preventScroll so iOS never pans the page to "help".
+  // focus() always asks iOS not to pan the page to "help": the sheet lifts for the keyboard instead, and
+  // the field is centred inside the sheet's own box afterwards.
   function focusWithoutScroll(field) {
     if (!field || !field.focus) return;
     try { field.focus({ preventScroll: true }); } catch (error) { field.focus(); }
+  }
+
+  // ---------- the iOS keyboard ----------
+  // iOS shrinks the visual viewport when the keyboard opens and leaves the layout viewport (and so every
+  // dvh) alone. The keyboard's height is what the visual viewport lost, plus whatever it scrolled by;
+  // below the floor it is a toolbar, not a keyboard.
+  var KEYBOARD_MIN_PX = 80;
+  var keyboardInsetPx = 0;
+  var centreTimer = null;
+
+  function keyboardInset() {
+    var viewport = window.visualViewport;
+    if (!viewport) return 0;
+    var lost = window.innerHeight - viewport.height - viewport.offsetTop;
+    return lost > KEYBOARD_MIN_PX ? Math.round(lost) : 0;
+  }
+
+  // One variable carries the height: --kb lifts every sheet's bottom edge above the keys, and each
+  // sheet's max-height is clamped by the same amount so its top never climbs past --sheet-top-gap.
+  function paintKeyboard() {
+    keyboardInsetPx = keyboardInset();
+    document.documentElement.style.setProperty("--kb", keyboardInsetPx + "px");
+  }
+
+  // Centre the field in the sheet's own box, never the window: the page behind stays where it was locked.
+  function centreFocusedField() {
+    var field = document.activeElement;
+    if (!field || !field.getBoundingClientRect || !field.closest) return;
+    var sheet = field.closest(".sheet");
+    if (!sheet) return;
+    var box = field.getBoundingClientRect(), pane = sheet.getBoundingClientRect();
+    sheet.scrollTop += (box.top + box.height / 2) - (pane.top + pane.height / 2);
+  }
+
+  // The keyboard takes about 300ms to settle and moves the sheet while it does, so the centring waits it
+  // out rather than chasing every frame.
+  function centreFocusedFieldSoon() {
+    clearTimeout(centreTimer);
+    centreTimer = setTimeout(centreFocusedField, 300);
+  }
+
+  // A closing sheet takes the keyboard with it. The inset is derived from the visual viewport, so it is
+  // simply dropped here and measured again the next time a sheet field is focused.
+  function resetKeyboard() {
+    clearTimeout(centreTimer);
+    keyboardInsetPx = 0;
+    document.documentElement.style.setProperty("--kb", "0px");
+  }
+
+  function watchKeyboard() {
+    var viewport = window.visualViewport;
+    if (!viewport) return;
+    viewport.addEventListener("resize", function () {
+      paintKeyboard();
+      centreFocusedFieldSoon();       // the sheet has moved; re-centre once it has settled
+    });
+    viewport.addEventListener("scroll", paintKeyboard);
   }
 
   async function saveAdd() {
@@ -5057,6 +5120,17 @@
       if (hit) setAddType(hit.dataset.addType);
     });
     $("saveAddBtn").addEventListener("click", saveAdd);
+    // Every field a sheet can put under the keyboard, by delegation: focus is the trigger, so the edit
+    // form's own rows and anything added later are covered without a list to keep in step. The date input
+    // is the one exception — it opens the native picker, not a keyboard.
+    document.addEventListener("focusin", function (event) {
+      var field = event.target;
+      if (!field || !field.matches || !field.matches("input, textarea, select")) return;
+      if (!field.closest || !field.closest(".sheet")) return;
+      if (field.classList.contains("add-date-input")) return;
+      centreFocusedFieldSoon();
+    });
+    watchKeyboard();
     $("authSubmit").addEventListener("click", submitAuth);
     $("authForgot").addEventListener("click", function () { setAuthView("forgot"); });
     $("authBack").addEventListener("click", function () { setAuthView("signin"); });
