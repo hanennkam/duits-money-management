@@ -799,17 +799,15 @@
   }
   .add-back svg { width: 14px; height: 14px; color: var(--accent); }
   .add-back:active { background: var(--pressed); }
-  /* Smart Entry: one card at the top of the AI view — sparkle + label, then the field and a
-     fixed-width Add button. Nothing about it opens or closes, so nothing about the sheet moves
-     when the keyboard appears. */
-  .smart-card {
-    flex: none; padding: 14px; border-radius: 16px; background: var(--card-2); margin: 0 0 8px;
-  }
-  .smart-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  /* Smart Entry: one row like Scan Receipt (bolt, label, chevron). Opening it shows the field and a
+     fixed-width Add button in a card of its own, below the row. The field is hidden until asked for. */
+  .smart-card { flex: none; margin: 0 0 8px; }
+  .smart-card-body { margin-top: 8px; padding: 14px; border-radius: 16px; background: var(--card-2); }
   .smart-card-row { display: flex; gap: 10px; }
-  .smart-card-row .add-field { flex: 1; min-width: 0; }
+  /* Both are touch targets, so both are 44px; the field keeps its 16px so iOS does not zoom on focus. */
+  .smart-card-row .add-field { flex: 1; min-width: 0; min-height: 44px; }
   .smart-card-row .btn-primary {
-    flex: 0 0 auto; width: auto; min-width: 64px; min-height: 38px; padding: 0 18px; font-size: 16px;
+    flex: 0 0 auto; width: auto; min-width: 64px; min-height: 44px; padding: 0 18px; font-size: 16px;
   }
   .add-hint { flex: none; margin: 8px 2px 0; font-size: 12px; line-height: 1.35; color: var(--muted); }
   /* The keys are the sheet's own footer: no scroll, no sticky needed. The bottom inset keeps the last
@@ -851,8 +849,7 @@
     .key { height: 44px; }
     .keypad-grid { gap: 6px; }
     /* 3. the gaps — measured on 375x667, where 15px had to come out of them */
-    .smart-card { padding: 8px 12px; margin-bottom: 6px; }
-    .smart-card-head { margin-bottom: 6px; }
+    .smart-card { margin-bottom: 6px; }
     .add-pill { min-height: 30px; }
     .cat-chip { min-height: 30px; }
     .add-toggle .seg-btn { min-height: 34px; }
@@ -1360,11 +1357,11 @@
     <!-- The viewed month, split in two. Both figures are this month and this mode, unlike the balance. -->
     <div class="stat-row">
       <div class="card stat-card">
-        <span class="stat-label"><svg class="money-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 19V5"/><path d="M6 11l6-6 6 6"/></svg>Income &middot; this month</span>
+        <span class="stat-label"><svg class="money-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 19V5"/><path d="M6 11l6-6 6 6"/></svg>Income</span>
         <span class="stat-amount in" id="incomeTotal">+RM 0.00</span>
       </div>
       <div class="card stat-card">
-        <span class="stat-label"><svg class="money-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 5v14"/><path d="M6 13l6 6 6-6"/></svg>Expenses &middot; this month</span>
+        <span class="stat-label"><svg class="money-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 5v14"/><path d="M6 13l6 6 6-6"/></svg>Expenses</span>
         <span class="stat-amount" id="expenseTotal">RM 0.00</span>
       </div>
     </div>
@@ -1741,17 +1738,22 @@
           Back
         </button>
         <div class="add-notice-static" id="addNoticeAi" hidden></div>
+        <!-- One row until it is asked for: the field and Add only open with the row. -->
         <div class="smart-card" id="smartEntry">
-          <div class="smart-card-head">
+          <button class="add-row" id="smartEntryBtn" type="button" aria-expanded="false"
+                  aria-controls="smartEntryBody">
             <span class="add-row-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4.2l1.7 4.6 4.6 1.7-4.6 1.7L12 16.8l-1.7-4.6-4.6-1.7 4.6-1.7L12 4.2Z"/><path d="M18.4 15.6l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2Z"/></svg>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2.8 4.8 13.4h6.2L10.6 21.2l8.2-10.6h-6.2L13 2.8Z"/></svg>
             </span>
             <span class="add-row-label">Smart Entry</span>
-          </div>
-          <div class="smart-card-row">
-            <input class="add-field add-text" id="textInput" type="text" placeholder="makan tengah hari 12 ringgit"
-                   autocapitalize="sentences" enterkeyhint="done">
-            <button class="btn-primary" id="textBtn" type="button">Add</button>
+            <svg class="add-row-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
+          </button>
+          <div class="smart-card-body" id="smartEntryBody" hidden>
+            <div class="smart-card-row">
+              <input class="add-field add-text" id="textInput" type="text" placeholder="makan tengah hari 12 ringgit"
+                     autocapitalize="sentences" enterkeyhint="done">
+              <button class="btn-primary" id="textBtn" type="button">Add</button>
+            </div>
           </div>
         </div>
 
@@ -3918,6 +3920,16 @@
     }
   }
 
+  // Smart Entry is one row until it is opened. Opening shows the field and Add and puts the caret in the
+  // field without scrolling; closing hides them again.
+  function setSmartEntryOpen(open) {
+    var button = $("smartEntryBtn");
+    $("smartEntryBody").hidden = !open;
+    button.setAttribute("aria-expanded", open ? "true" : "false");
+    button.classList.toggle("is-open", open);
+    if (open) focusWithoutScroll($("textInput"));
+  }
+
   async function submitText() {
     var text = $("textInput").value.trim();
     if (!text) { toast("Type what you spent first.", "warn"); return; }
@@ -4657,6 +4669,7 @@
     $("addMerchant").value = "";
     $("addNote").value = "";
     $("textInput").value = "";
+    setSmartEntryOpen(false);         // Smart Entry starts as one row, every time the sheet opens
     $("addDetails").classList.remove("is-open");   // Merchant and Note start collapsed
     $("addDetailsPill").setAttribute("aria-expanded", "false");
     $("addDetailsPill").classList.remove("is-on");
@@ -4997,6 +5010,9 @@
       $("fileInput").click();
     });
     $("fileInput").addEventListener("change", function () { scanFile(this.files[0]); });
+    $("smartEntryBtn").addEventListener("click", function () {
+      setSmartEntryOpen($("smartEntryBody").hidden);
+    });
     $("textBtn").addEventListener("click", submitText);
     $("textInput").addEventListener("keydown", function (event) {
       if (event.key === "Enter") { event.preventDefault(); submitText(); }

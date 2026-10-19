@@ -517,8 +517,8 @@ def test_the_money_icons_are_named_by_their_labels_or_by_aria_label(client: Test
     """
     page = client.get("/").text
     # Income (up arrow) and Expenses (down arrow): each icon is inside its own stat label, before the text
-    for path, text in (("M12 19V5", "Income &middot; this month</span>"),
-                       ("M12 5v14", "Expenses &middot; this month</span>")):
+    for path, text in (("M12 19V5", "Income</span>"),
+                       ("M12 5v14", "Expenses</span>")):
         label = page.index('<span class="stat-label"><svg class="money-icon"')
         assert path in page[label:page.index(text)], text
     assert page.count('<span class="stat-label"><svg class="money-icon" viewBox="0 0 24 24"') == 2
@@ -549,10 +549,12 @@ def test_the_month_is_split_into_two_half_cards(client: TestClient) -> None:
     assert 'id="itemsPill"' not in page
     assert 'class="stat-row"' in page
     assert page.count('class="card stat-card"') == 2
-    # Both halves say which month they belong to: the balance above them is all-time and every mode.
+    # The labels are the two words. The month is named once, by the picker in the header, so a
+    # "this month" on each card is not needed, and it used to wrap one label and not the other.
     assert 'class="stat-label"><svg class="money-icon"' in page
-    assert 'Income &middot; this month</span>' in page
-    assert 'Expenses &middot; this month</span>' in page
+    assert 'Income</span>' in page and 'Expenses</span>' in page
+    assert "Income &middot; this month" not in page
+    assert "Expenses &middot; this month" not in page
     for element in ('id="incomeTotal"', 'id="expenseTotal"'):
         assert element in page, element
     # half width each, and the income figure carries the green token
@@ -924,3 +926,59 @@ def test_no_overlay_or_sheet_rule_carries_opacity(client: TestClient) -> None:
             checked += 1
             assert "opacity" not in body, f"{selector.strip()} carries opacity"
     assert checked >= 6, "the overlay and sheet rules were not found"
+
+
+def test_smart_entry_is_one_row_until_it_is_opened(client: TestClient) -> None:
+    """The AI view opens on a single Smart Entry row; the field and Add sit behind it, hidden until tapped.
+
+    The row is the same .add-row Scan Receipt uses, so the two read as one list. Opening it shows the
+    field and the existing Add button, and closing it hides them again. Every open of the sheet starts shut.
+    """
+    page = client.get("/").text
+    row = page[page.index('<div class="smart-card" id="smartEntry">'):page.index('<div class="add-rows">')]
+    assert '<button class="add-row" id="smartEntryBtn" type="button" aria-expanded="false"' in row
+    assert 'aria-controls="smartEntryBody">' in row
+    assert "Smart Entry</span>" in row
+    assert 'class="add-row-chev"' in row, "the chevron says there is more behind the row"
+    assert '<path d="M13 2.8 4.8 13.4h6.2L10.6 21.2l8.2-10.6h-6.2L13 2.8Z"/>' in row, "the bolt is the icon"
+    # the body is hidden on the markup, and holds the field and the existing Add button
+    body = row[row.index('<div class="smart-card-body" id="smartEntryBody" hidden>'):]
+    assert 'id="textInput"' in body and 'id="textBtn"' in body
+    assert "smart-card-head" not in page, "the old head row is gone"
+    # the one-row shape is the same .add-row Scan Receipt uses, with a 48px minimum, and the body is a card
+    assert ".smart-card-body { margin-top: 8px; padding: 14px; border-radius: 16px; background: var(--card-2); }" in page
+    assert ".add-row {\n    width: 100%; min-height: 48px;" in page
+    # the field and the Add button are touch targets: 44px, with the field still on 16px
+    assert ".smart-card-row .add-field { flex: 1; min-width: 0; min-height: 44px; }" in page
+    assert "min-width: 64px; min-height: 44px; padding: 0 18px; font-size: 16px;" in page
+    # open and close: one function sets the button, the body and the caret, and a tap on the row calls it
+    toggle = page[page.index("function setSmartEntryOpen(open)"):page.index("async function submitText()")]
+    assert '$("smartEntryBody").hidden = !open;' in toggle
+    assert 'button.setAttribute("aria-expanded", open ? "true" : "false");' in toggle
+    assert 'button.classList.toggle("is-open", open);' in toggle
+    assert 'if (open) focusWithoutScroll($("textInput"));' in toggle
+    assert '$("smartEntryBtn").addEventListener("click", function () {' in page
+    assert 'setSmartEntryOpen($("smartEntryBody").hidden);' in page
+    # every open of the sheet starts with the row shut
+    opened = page[page.index("function openAddSheet(prefill)"):page.index("// Pay hands the sheet")]
+    assert "setSmartEntryOpen(false);" in opened
+
+
+def test_the_income_and_expense_labels_are_the_two_words(client: TestClient) -> None:
+    """Income and Expenses are the labels, with their icons; the month is named by the header picker."""
+    page = client.get("/").text
+    assert 'stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 19V5"/><path d="M6 11l6-6 6 6"/></svg>Income</span>' in page
+    assert 'stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 5v14"/><path d="M6 13l6 6 6-6"/></svg>Expenses</span>' in page
+    assert "this month</span>" not in page[page.index('<div class="stat-row">'):page.index('<div class="card budget-card"')]
+
+
+def test_the_name_merchant_and_note_inputs_keep_autocomplete_off(client: TestClient) -> None:
+    """The commitment name, the Merchant and the Note never offer a browser's remembered entries.
+
+    The three already carried autocomplete="off" when this was checked, so this pins what is there and
+    stops it from being dropped. It says nothing about how iOS treats the attribute on a phone.
+    """
+    page = client.get("/").text
+    for element in ('id="commitName"', 'id="addMerchant"', 'id="addNote"'):
+        tag = page[page.index(element) - 60:page.index(">", page.index(element)) + 1]
+        assert 'autocomplete="off"' in tag, element
