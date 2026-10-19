@@ -461,20 +461,28 @@
   .balance-row.is-eq .v { font-weight: 700; }
   .balance-row.is-tap { cursor: pointer; }
   .balance-row.is-tap:active { background: var(--card-2); }
-  .balance-row.is-tap .v { display: flex; align-items: center; gap: 4px; }
-  /* The bills row leads somewhere, so it wears the accent and says where: a blue label, a blue
-     "View bills" and a blue chevron. */
-  .balance-row.is-tap .k { color: var(--accent); }
+  /* The bills row leads somewhere, so it wears the accent and says where one line under its label:
+     "View bills" and a chevron. The label stacks, so the figure on the right stays the first thing
+     the eye meets, on the row's own baseline. */
+  .balance-row.is-tap .k { flex-direction: column; align-items: flex-start; gap: 2px; color: var(--accent); }
+  .balance-row.is-tap .k-main { display: flex; align-items: center; gap: 6px; }
   .balance-row.is-tap .balance-chev { color: var(--accent); }
-  .balance-view { color: var(--accent); font-size: 13px; font-weight: 500; }
+  .balance-view {
+    display: inline-flex; align-items: center; gap: 2px;
+    color: var(--accent); font-size: 13px; font-weight: 500;
+  }
   .balance-chev { width: 14px; height: 14px; color: var(--chevron); flex: none; }
   .balance-note { margin: 14px 0 0; font-size: 13px; line-height: 1.45; color: var(--text-2); }
-  /* The pencil is the one icon-only control in the sheet: a 44px target, in the accent the links use. */
-  .balance-actions { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+  /* The pencil is the row's own control, and it says what it changes: the sheet's rows open with
+     "Starting balance" (the opening balance), so the button wears those words beside its icon
+     instead of being an icon-only target the eye has to guess at. */
+  .balance-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    flex-wrap: wrap; row-gap: 4px; margin-top: 8px; }
   .balance-actions .btn-link { min-height: 44px; }
   .balance-edit {
-    width: 44px; height: 44px; padding: 0; border: 0; border-radius: 9999px;
-    background: none; color: var(--accent); display: inline-flex; align-items: center; justify-content: center;
+    min-height: 44px; padding: 0 12px; border: 0; border-radius: 9999px;
+    background: none; color: var(--accent); display: inline-flex; align-items: center; gap: 6px;
+    font: inherit; font-size: 15px; font-weight: 500;
   }
   .balance-edit svg { width: 20px; height: 20px; }
   /* The one field the anchor asks for, and the preview line that answers it before anything is saved.
@@ -509,17 +517,6 @@
   .whats-new-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
   .whats-new-dot.is-on { background: var(--accent); }
   .whats-new-next { width: 100%; }
-
-  /* The (i) beside "Safe to spend": it says the card opens the sheet that spells the figure out. It is
-     decoration inside the card's own button, so it carries no name of its own — the button's label
-     already says "How this is calculated". The circle is filled with the text colour and the letter
-     is the card's, so it reads in both themes: a pale letter on a faint circle would vanish. */
-  .safe-pill-info {
-    display: inline-flex; align-items: center; justify-content: center; flex: none;
-    width: 16px; height: 16px; border-radius: 50%;
-    background: var(--text-2); color: var(--card);
-    font-size: 11px; font-weight: 700; line-height: 1;
-  }
 
   /* ---------- category list (Insights; Home's ring used to sit on these too) ---------- */
   .cat-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
@@ -1496,7 +1493,6 @@
         <span class="hero-amount hero-balance" id="balanceAmount">RM 0.00</span>
         <span class="safe-pill" id="safePill">
           <span class="safe-pill-label">Safe to spend</span>
-          <span class="safe-pill-info" aria-hidden="true">i</span>
           <span class="safe-pill-amount" id="safeAmount">RM 0.00</span>
           <svg class="safe-pill-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
         </span>
@@ -1812,7 +1808,7 @@
   </div>
 
   <!-- The balance breakdown: the only place the all-time arithmetic is spelled out. It is declared before
-       the one-field sheet so that "Edit my balance" stacks that sheet over this list and comes back. -->
+       the one-field sheet so that "Edit starting balance" stacks that sheet over this list and comes back. -->
   <div class="overlay" id="balanceOverlay" aria-hidden="true">
     <!-- The dim is its own layer so the only animated opacity in an overlay is this one; the
          sheet above it can never be tinted by it. -->
@@ -1826,9 +1822,10 @@
       </div>
       <div id="balanceRows"></div>
       <div class="balance-actions">
-        <button class="balance-edit" id="editBalanceBtn" type="button" aria-label="Edit my balance">
+        <button class="balance-edit" id="editBalanceBtn" type="button">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 20h4L19 9l-4-4L4 16v4Z"/><path d="M13.5 6.5l4 4"/></svg>
+          <span>Edit starting balance</span>
         </button>
         <button class="btn-link" id="balanceMoneyBtn" type="button">Settings &middot; Money</button>
       </div>
@@ -3183,19 +3180,20 @@
         '<span class="v">' + escapeHtml(figure) + "</span></div>";
     }
     // The bills row is the one row that leads somewhere: it is the commitments sheet's way in now that
-    // the card itself opens this breakdown. It says so in colour and in words — a blue label and a
-    // "View bills" — so it does not read as another figure.
+    // the card itself opens this breakdown. It says so in colour and in words — the label and the
+    // "View bills" under it are blue — so it does not read as another figure. The words sit on their
+    // own line under the label, so the figure keeps the right edge to itself.
     var bills = '<button class="balance-row is-tap" id="balanceBillsBtn" type="button" data-bills="1">' +
-      '<span class="k">' + BILLS_ICON + '<span>Bills due this month</span></span>' +
-      '<span class="v">' + escapeHtml(signedMoney(-unpaid)) +
-      '<span class="balance-view">View bills</span>' +
+      '<span class="k"><span class="k-main">' + BILLS_ICON + '<span>Bills due this month</span></span>' +
+      '<span class="balance-view">View bills' +
       '<svg class="balance-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" ' +
-      'stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></span></button>';
+      'stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></span></span>' +
+      '<span class="v">' + escapeHtml(signedMoney(-unpaid)) + '</span></button>';
 
     $("balanceRows").innerHTML =
       row("Starting balance", signedMoney(opening)) +
-      row("+ Income", signedMoney(income)) +
-      row("\u2212 Expenses", signedMoney(-expense)) +
+      row("+ Income (all time)", signedMoney(income)) +
+      row("\u2212 Expenses (all time)", signedMoney(-expense)) +
       row("= Balance", signedMoney(balance), " is-eq") +
       bills +
       row("= Safe to spend", signedMoney(safe), " is-eq") +

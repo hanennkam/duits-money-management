@@ -482,7 +482,7 @@ def test_the_breakdown_sheet_and_the_one_field_sheet_are_registered(client: Test
     assert "function renderBalanceRows()" in page
     # the bills row is built first, as a variable; the order that matters is the one that is painted
     painted = page[page.index('$("balanceRows").innerHTML ='):page.index("function openBalanceSheet()")]
-    labels = ["Starting balance", "+ Income", "\\u2212 Expenses", "= Balance",
+    labels = ["Starting balance", "+ Income (all time)", "\\u2212 Expenses (all time)", "= Balance",
               "bills", "= Safe to spend", "balance-note"]
     positions = [painted.index(label) for label in labels]
     assert positions == sorted(positions), "the rows keep the order of the calculation"
@@ -490,7 +490,7 @@ def test_the_breakdown_sheet_and_the_one_field_sheet_are_registered(client: Test
 
 
 def test_the_calculation_sheet_is_the_short_list_and_a_pencil(client: TestClient) -> None:
-    """Six rows, one line about safe to spend, and a pencil for the anchor; the long note is gone.
+    """Six rows, one line about safe to spend, and a named edit control; the long note is gone.
 
     The sheet says what the balance is made of. The all-months and all-modes arithmetic is still true,
     but it now lives in the balance card's own label, not in a paragraph under the rows.
@@ -507,13 +507,15 @@ def test_the_calculation_sheet_is_the_short_list_and_a_pencil(client: TestClient
     assert ("'<p class=\"balance-note\">Safe to spend = your balance minus bills you haven\\'t paid yet. ' +\n"
             '      "Your monthly budget is separate.</p>"') in page
     assert "guna perbelanjaan" not in page, "the stale note is gone"
-    # the pencil is the anchor's control: an icon-only button with a name and a 44px target
-    assert ('<button class="balance-edit" id="editBalanceBtn" type="button" aria-label="Edit my balance">'
-            in page)
-    assert ">Edit my balance<" not in page, "the text link is replaced by the pencil"
-    assert "Edit my balance" not in sheet.replace('aria-label="Edit my balance"', ""), "no visible text left"
+    # The pencil is the anchor's control, and it names the figure it changes: the sheet's own first
+    # row is "Starting balance". The visible label is the button's name, so there is no aria-label.
+    assert ('<button class="balance-edit" id="editBalanceBtn" type="button">\n'
+            '          <svg viewBox="0 0 24 24"' in page)
+    assert "<span>Edit starting balance</span>" in sheet
+    assert "Edit my balance" not in page, "the old icon-only name is gone"
     edit_css = page[page.index(".balance-edit {"):page.index("}", page.index(".balance-edit {"))]
-    assert "width: 44px; height: 44px;" in edit_css
+    assert "min-height: 44px;" in edit_css, "44px is the iOS target floor"
+    assert "gap: 6px;" in edit_css
     assert 'data-bills="1"' in page and 'id="balanceBillsBtn"' in page
     # the pencil opens the one-field sheet, and Settings · Money is still the text link
     assert 'event.target.closest("[data-bills], #editBalanceBtn, #balanceMoneyBtn")' in page
@@ -521,17 +523,27 @@ def test_the_calculation_sheet_is_the_short_list_and_a_pencil(client: TestClient
 
 
 def test_the_bills_row_says_it_leads_somewhere(client: TestClient) -> None:
-    """The one row of the breakdown that opens another sheet wears the accent and says "View bills".
+    """The one row of the breakdown that opens another sheet is blue, and says so under its label.
 
     Every other row is a figure. This one is a door, and a door that looks like a figure is a row the
-    user reads past — so the label, the "View bills" and the chevron all wear the accent.
+    user reads past — so the label and the "View bills" line under it (with the chevron) wear the
+    accent, while the amount keeps the right edge on the label's own line.
     """
     page = client.get("/").text
-    assert '<span class="balance-view">View bills</span>' in page
-    # The label and the chevron are accent, and only the bills row is.
-    assert ".balance-row.is-tap .k { color: var(--accent); }" in page
+    assert '<span class="balance-view">View bills' in page
+    # The label is a stack: the icon and the words on the first line, "View bills" and the chevron on
+    # the second, and both lines are accent.
+    assert ".balance-row.is-tap .k { flex-direction: column; align-items: flex-start; gap: 2px; color: var(--accent); }" in page
+    assert ".balance-row.is-tap .k-main { display: flex; align-items: center; gap: 6px; }" in page
     assert ".balance-row.is-tap .balance-chev { color: var(--accent); }" in page
-    assert ".balance-view { color: var(--accent); font-size: 13px; font-weight: 500; }" in page
+    assert (".balance-view {\n"
+            "    display: inline-flex; align-items: center; gap: 2px;\n") in page
+    assert "color: var(--accent); font-size: 13px; font-weight: 500;" in page
+    # The chevron is inside the "View bills" line, not beside the figure.
+    painted = page[page.index("var bills = "):page.index('$("balanceRows").innerHTML =')]
+    assert 'class="balance-view">View bills' in painted
+    assert "'<span class=\"k\"><span class=\"k-main\">' + BILLS_ICON" in painted
+    assert painted.index("balance-view") < painted.index("balance-chev") < painted.index('class="v"')
     # The plain rows keep the body colour, so only the door is blue.
     assert ".balance-row .k { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; color: var(--text-2); }" in page
     # The row is still the one that opens the commitments sheet.
@@ -589,8 +601,9 @@ def test_the_expenses_figure_wears_the_full_red(client: TestClient) -> None:
 def test_the_money_icons_are_named_by_their_labels_or_by_aria_label(client: TestClient) -> None:
     """Each money icon sits beside its visible text, so it is decorative and says nothing twice.
 
-    The one icon with no text beside it is the pencil, and it is the one that carries an aria-label.
-    Every icon is stroked in currentColor, so none adds a colour of its own.
+    Every icon is stroked in currentColor and none adds a colour of its own. The sheet's edit control
+    carries visible words ("Edit starting balance"), so no control is icon-only any more, and there is
+    no aria-label on an icon to keep in step with them.
     """
     page = client.get("/").text
     # Income (up arrow) and Expenses (down arrow): each icon is inside its own stat label, before the text
@@ -608,9 +621,10 @@ def test_the_money_icons_are_named_by_their_labels_or_by_aria_label(client: Test
     assert "Commitments</span>" in settings_row
     assert "Bills due this month" in page and "BILLS_ICON" in page
     # Every paired icon is hidden from assistive tech, because its label is the name.
-    # The pencil is the one icon with no text beside it, so it is the one control that carries a name.
+    # The pencil is no longer icon-only: it wears its own words, so nothing here needs an aria-label.
     assert page.count('aria-hidden="true" focusable="false"') >= 6
-    assert page.count('aria-label="Edit my balance"') == 1
+    assert 'aria-label="Edit my balance"' not in page
+    assert "<span>Edit starting balance</span>" in page
     assert "BILLS_ICON = '<svg class=\"money-icon\"" in page
 
 
@@ -1520,22 +1534,23 @@ def test_the_whats_new_screens_are_cards_not_floating_text(client: TestClient) -
     assert "padding: 16px;" in card
 
 
-def test_the_safe_to_spend_info_mark_asks_the_card_it_sits_on(client: TestClient) -> None:
-    """The (i) beside "Safe to spend" is decoration inside the card's own button.
+def test_the_safe_to_spend_pill_is_decoration_inside_the_card_button(client: TestClient) -> None:
+    """The pill is decoration inside the card's own button, and it carries no mark of its own.
 
-    The whole balance card is one button that opens the "How this is calculated" sheet, so the mark
-    carries no name of its own and has no handler: a button inside a button is invalid, and a second
-    control for the same sheet would be a target the app does not otherwise have.
+    The whole balance card is one button that opens the "How this is calculated" sheet, so a control
+    inside it would be a button inside a button (invalid HTML) and a second target for the same sheet.
+    The card says what a tap does at its foot instead, in words; the pill keeps its chevron.
     """
     page = client.get("/").text
-    assert '<span class="safe-pill-info" aria-hidden="true">i</span>' in page
+    # The (i) is gone: the foot line "How this is calculated" is the card's one visible affordance.
+    assert "safe-pill-info" not in page
     assert 'id="balanceTap"' in page
-    # It sits inside the button, between the label and the figure.
-    pill = page[page.index('<span class="safe-pill" id="safePill">'):page.index('</span>', page.index('id="safeAmount"'))]
-    assert "safe-pill-label" in pill and "safe-pill-info" in pill
-    assert pill.index("safe-pill-label") < pill.index("safe-pill-info") < pill.index("safe-pill-amount")
+    # The pill still reads label then figure, and keeps the chevron at its end.
+    pill = page[page.index('<span class="safe-pill" id="safePill">'):page.index("</button>", page.index('id="safePill"'))]
+    assert "safe-pill-label" in pill and "safe-pill-chev" in pill
+    assert pill.index("safe-pill-label") < pill.index("safe-pill-amount") < pill.index("safe-pill-chev")
     # No handler of its own, and no second way into the sheet.
-    assert "safe-pill-info" not in page[page.index("function wire() {"):]
+    assert '<span class="hero-how">How this is calculated' in page
     assert '$("balanceTap").addEventListener("click", openBalanceSheet);' in page
 
 

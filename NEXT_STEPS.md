@@ -1683,3 +1683,27 @@ opening the right sheets, the Settings row, the drag-to-dismiss, and the per-acc
 real accounts on one device. Everything above was measured in desktop Chromium (a 390x844 frame) and
 in Node against the page's own functions.
 
+
+## 2026-10-20 — the balance card and the sheet, in the app's own words
+
+**Commit `polish: balance sheet clarity` on `feat/budget-balance-commitments`; pushed, not merged to
+`main`.** UI and tests only; no `app/*.py`, `schema.sql` or migration change.
+
+- **The (i) beside "Safe to spend" is gone.** The card's foot already says *How this is calculated* in
+  words, with a chevron in the accent, so the mark said the same thing in a convention the user had to
+  know. The pill keeps its own chevron; the card is still one button. The 2026-10-19 entry above is a
+  log of that day and still describes the (i).
+- **The bills row in the breakdown is a stack.** The label (with its calendar icon) is the first line
+  and *View bills ›* is the second, both in the accent; the amount keeps the right edge on the label's
+  line. Measured in desktop Chromium at 375px: the row is 62px, no horizontal overflow; the sheet's
+  action row is 44px and still one line.
+- **The pencil has a name.** It opens the one-field sheet for the opening balance — the breakdown's own
+  first row is "Starting balance" — so it reads *Edit starting balance* with the icon, a 44px target,
+  and no `aria-label` (the visible words are the name). The actions row wraps at 320px (two lines,
+  measured) rather than overflowing.
+- **"Income (all time)" and "Expenses (all time)"** in the breakdown, so the two all-time rows cannot be
+  read as this month's cards on Home.
+
+**pytest:** `352 passed, 21 skipped, 4 warnings` (the run in this session). **Not measured on a real
+iPhone:** the sheet at 375px was measured in desktop Chromium with the app's markup injected (no signed-in
+data), so tap targets, the drag, and the iOS keyboard were not exercised.

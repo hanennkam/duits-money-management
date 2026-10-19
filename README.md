@@ -513,24 +513,27 @@ One bottom sheet, shown once per version, for a user who has just met a big chan
   `tests/test_static.py` holds the copy to the code, so a formula that changes means the copy changes
   with it.
 
-### The (i) and the foot line on the balance card
+### "How this is calculated" on the balance card
 
-A small **i** mark sits beside the *Safe to spend* label on the balance card, and the card's foot
-carries the visible line *How this is calculated* with a chevron. Both say the card opens the sheet
-that spells the figure out.
+The card's foot carries the visible line *How this is calculated* with a chevron in the accent. It is
+the card's one visible affordance: the whole figure area is a single `<button>` that opens the
+breakdown.
 
-- They are **decoration inside the card's own button** (the foot line is a plain `<span>`), so they
-  carry no name of their own and have no handler: the whole balance card is one `<button>` that opens
-  that sheet, and a button inside a button is invalid HTML. A second control for the same sheet would
-  also be a tap target the app does not otherwise have.
-- The **i** circle is filled with `--text-2` and the letter with `--card`, so it reads in both themes;
-  a pale letter on a faint circle would vanish on the light card.
-- The foot line wears the accent, the same colour the sheet's own *View bills* row uses, and it is the
-  visible half of what the button's accessible name already says ("How this is calculated"); a reader
-  who does not know the **i** convention still sees what a tap does.
+- It is **decoration inside the card's own button** (a plain `<span>`), so it carries no name of its
+  own and has no handler: a button inside a button is invalid HTML, and a second control for the same
+  sheet would be a tap target the app does not otherwise have.
+- The line wears the accent, the same colour the breakdown's own *View bills* row uses, and it is the
+  visible half of what the button's accessible name says ("How this is calculated").
 - The accessible name is repainted with the figure it shows — *Balance, Personal and Business, RM …, How
   this is calculated* — so a screen reader is told the scope of the number, the number, and what the
   card does.
+- **There is no (i) mark.** It sat beside *Safe to spend* and said the same thing in a convention a
+  reader had to know; the words at the foot say it to everyone, so the pill keeps only its chevron.
+
+The breakdown sheet itself: the bills row is the only row that leads somewhere, so its label and a
+*View bills* line under it wear the accent, while the figure stays on the label's line at the right.
+The pencil in its foot is named for the figure it changes — *Edit starting balance*, the sheet's own
+first row — and *Settings · Money* stays the text link beside it.
 
 ### iOS touch behaviour
 Safari's own gestures are kept out of the way, because each one breaks the sheet:
