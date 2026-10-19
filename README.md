@@ -253,17 +253,20 @@ Settings keeps the large title alone.
     with 14px of padding — with *Scan Receipt* under it. The card is a 44px control, not an expandable
     row: nothing about the sheet opens, closes or reflows when it gets focus, and the keypad is not on
     screen in this view. It posts to `POST /transactions/text`, letting Claude fill whatever it can.
-    *Scan Receipt* (camera) is the other row in the AI view (48px tall, 16px radius, the theme's light
-    grey, icon left, grey chevron right), and it opens the camera roll/camera
+    *Scan Receipt* (camera) is the other row in the AI view: an 80px box with a 20px radius, a 52px tinted
+    tile holding a 28px icon, the title at 18px semibold, one muted line under it (`Receipt or bank
+    screenshot`) and a grey chevron on the right. The AI sheet is titled `Add with AI`, hugs its content
+    rather than filling the screen, and it opens the camera roll/camera
     (`<input type="file" capture>`, no `getUserMedia`, so it works over plain HTTP) and is the only
     thing that reveals the privacy hint, which appears under the row once tapped: the photo is
     downscaled to 1600 px on the long edge and re-encoded as JPEG at quality 0.85 in the browser before
     upload, which keeps uploads small, strips EXIF/GPS and turns HEIC into JPEG.
   - **Manual is one screen**, top to bottom, in the Stitch reference order. A **Back** chevron (44px,
     beside the type control) returns to the chooser, and **Expense / Income** is the segmented control.
-    The amount is a bold 40-44px number with a blinking caret and a small `RM` (18-19px) on its
-    baseline; the block is content-sized — at most 10px of air above and below it — so the figure no
-    longer floats in a stretched band. A
+    The amount is a bold 56-64px number with a blinking caret and a small `RM` (about 0.38 of the figure)
+    on its baseline. Its block takes the sheet's spare height and centres the figure in it, with a 48px
+    floor; a long value shrinks to fit its one line (`fitAddAmount()`, so `123456.78` stays on one line
+    at 375px). A
     **CATEGORY** label sits above one horizontal row of the nine categories, each with its icon and
     colour; the chosen one fills with the accent, and the last chip is cut at the edge as the scroll
     hint. The four-row card is
@@ -272,8 +275,8 @@ Settings keeps the large title alone.
     tap anywhere on it opens its input. The keypad is the sheet's footer.
   - The **keypad** is pinned to the bottom: 3 columns and 4 rows of 44px keys (the tap floor on every
     phone). It hides while *Merchant* or *Note* holds the caret, derived from state and never remembered.
-  - The whole screen fits at 375×667 and 390×844 (the card clears the chip row by 12-14px and the
-    keypad by 12px at 667 and 128px at 844); nothing in Manual scrolls. The chosen chip scrolls into
+  - The whole screen fits at 375×667 and 390×844 (the card sits 12-14px under the chip row and 12-16px
+    above the keypad at both sizes); nothing in Manual scrolls. The chosen chip scrolls into
     view with part of the previous chip showing when the
     sheet opens or a chip is picked; with nothing chosen the row starts at 0.
   - **Mode** is the row's compact toggle, right-aligned, in the Expense | Income control's style: a
@@ -375,9 +378,9 @@ The standalone app is edge to edge, in both themes:
   status bar.
 - **When the box is short, the sheet gives height back instead of scrolling.** The insets and the top
   gap are real space (a 375×667 screen has a 592px box), so container queries on
-  the sheet's own box step in: the amount's own air (10px → 4px, then 2px in the deeper step; the
-  number itself stays at the clamp's 40-44px), then the keypad's chrome (grid gap and padding — the
-  keys never drop below their 44px tap floor), then the gaps. A tall phone trips none of them (844 and
+  the sheet's own box step in: the Manual amount block takes whatever is left (its floor is 48px), the
+  keypad's chrome gives next (grid gap and padding — the keys never drop below their 44px tap floor),
+  then the gaps. A tall phone trips none of them (844 and
   932 give boxes of 760 and 830) and keeps every size it was tuned with. (That was the old 65% Manual;
   the Stitch layout is the full sheet. See the Add section.)
 - **The status bar style is theme-aware, and that is the honest answer.** `black-translucent` is what
@@ -457,8 +460,8 @@ The Add sheet and the edit sheet are native-style bottom sheets, not full-screen
   open, driven by the Web Animations API in `openOverlay`/`closeOverlay` (`PAGE_BEHIND`), transform
   only. The overlays are siblings of `.app`, so a transform there cannot disturb their fixed
   positioning — the sheet itself never scales with the page. Reduce Motion skips it entirely.
-- **The AI view does not scroll**: its box drives the shrink order — the amount's air, then the keypad's
-  chrome, then the gaps. Manual's keypad is pinned; its content fits both target phones without scrolling.
+- **The AI view is content height**: it hugs its two boxes and never scrolls, so the shrink order applies
+  to Manual only, where the keypad is pinned and the content fits both target phones without scrolling.
 - Everything else is unchanged: open/close on the Web Animations API, swipe-down-to-close (still
   measured from the finger, so it behaves the same from the lifted position), the scrim tap, and the
   page behind staying locked while a sheet is open.

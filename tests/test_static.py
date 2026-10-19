@@ -108,8 +108,8 @@ def test_the_chooser_is_a_compact_two_card_grid(client: TestClient) -> None:
     of the sheet blank. What markup and CSS can pin down here: the grid is two columns with a 12px gap,
     each card is one button carrying a badge, a bold label and a wrapping sub-label and no chevron
     (there is nowhere to go sideways), the rows that do open something keep theirs, and the sheet is
-    compact only while the chooser is up — never a size container in that state, because `contain: size`
-    would collapse an auto-height box.
+    compact while the chooser or the AI view is up — never a size container in that state, because
+    `contain: size` would collapse an auto-height box.
     """
     page = client.get("/").text
     assert ".chooser-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px;" in page
@@ -129,7 +129,7 @@ def test_the_chooser_is_a_compact_two_card_grid(client: TestClient) -> None:
     compact = page[page.index("#addSheet.is-compact {"):page.index("#addSheet.is-compact #screen-chooser")]
     assert "height: auto" in compact and "container-type: normal" in compact
     assert "padding-bottom: calc(16px + var(--sab))" in compact, "the cards clear the home indicator"
-    assert '$("addSheet").classList.toggle("is-compact", view === "chooser");' in page
+    assert '$("addSheet").classList.toggle("is-compact", view !== "manual");' in page
 
 
 def test_each_flow_returns_to_the_chooser_and_cancel_leaves_the_sheet(client: TestClient) -> None:
@@ -947,9 +947,9 @@ def test_smart_entry_is_one_row_until_it_is_opened(client: TestClient) -> None:
     body = row[row.index('<div class="smart-card-body" id="smartEntryBody" hidden>'):]
     assert 'id="textInput"' in body and 'id="textBtn"' in body
     assert "smart-card-head" not in page, "the old head row is gone"
-    # the one-row shape is the same .add-row Scan Receipt uses, with a 48px minimum, and the body is a card
+    # the one-row shape is the same .add-row Scan Receipt uses, with an 80px minimum, and the body is a card
     assert ".smart-card-body { margin-top: 8px; padding: 14px; border-radius: 16px; background: var(--card-2); }" in page
-    assert ".add-row {\n    width: 100%; min-height: 48px;" in page
+    assert ".add-row {\n    width: 100%; min-height: 80px;" in page
     # the field and the Add button are touch targets: 44px, with the field still on 16px
     assert ".smart-card-row .add-field { flex: 1; min-width: 0; min-height: 44px; }" in page
     assert "min-width: 64px; min-height: 44px; padding: 0 18px; font-size: 16px;" in page
@@ -1152,3 +1152,42 @@ def test_the_keyboard_lifts_the_sheet_and_centres_the_focused_field(client: Test
     assert 'field.classList.contains("add-date-input")' in page
     assert "function watchKeyboard() {" in page
     assert "field.focus({ preventScroll: true })" in page
+
+
+def test_the_manual_amount_block_takes_the_leftover_height(client: TestClient) -> None:
+    """The amount block is the flexible row of Manual: it takes the spare height and centres the figure.
+
+    What a test can pin: the block grows (flex: 1 1 auto) with a 48px floor, the figure is clamped 56-64px,
+    the RM is a share of the figure (em), and the figure is shrunk by fitAddAmount() for a long value,
+    which runs wherever the figure is painted and when Manual is shown (it measures 0 while hidden).
+    """
+    page = client.get("/").text
+    assert ".add-amount-block {\n    flex: 1 1 auto; min-height: 48px;" in page
+    amount = page[page.index(".add-amount {\n"):page.index(".add-amount-cur {")]
+    assert "font-size: clamp(56px, 8dvh, 64px)" in amount, "the figure is 56-64px"
+    assert "font-size: .38em" in page[page.index(".add-amount-cur {"):page.index(".add-amount-cur {") + 120]
+    assert "function fitAddAmount()" in page
+    paint = page[page.index("function paintAddAmount()"):page.index("function paintAddAmount()") + 220]
+    assert "fitAddAmount();" in paint, "every paint of the figure refits it"
+    show = page[page.index("function showAddView(view)"):page.index("function updateKeypadVisibility()")]
+    assert "fitAddAmount();" in show, "Manual refits when it is shown"
+    assert 'window.addEventListener("resize", fitAddAmount);' in page
+    assert "@media (max-width: 360px) { .add-amount" not in page, "the narrow-phone size is the fit's job now"
+
+
+def test_the_ai_option_boxes_are_tall_touch_targets(client: TestClient) -> None:
+    """Both AI option boxes are at least 44px tall (80px here), and the sheet is content height.
+
+    The sheet is compact for the chooser and the AI view alike, so its height follows what it holds; only
+    Manual takes the full height. The title reads "Add with AI" so it no longer repeats the first row.
+    """
+    page = client.get("/").text
+    rule = page[page.index("  .add-row {\n"):page.index("  .add-row {\n") + 200]
+    height = int(re.search(r"min-height: (\d+)px", rule).group(1))
+    assert height >= 44, "an AI option box is a touch target"
+    for row in ('<button class="add-row" id="smartEntryBtn"', '<button class="add-row" id="scanBtn"'):
+        assert row in page, row
+    assert page.count('class="add-option-sub"') == 2, "one muted line under each option title"
+    assert '"Add with AI"' in page and 'ai: "Add with AI"' in page
+    assert "#addSheet.is-compact #screen-ai" in page, "the AI view hugs its content too"
+    assert '$("addSheet").classList.toggle("is-compact", view !== "manual");' in page

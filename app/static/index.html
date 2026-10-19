@@ -680,21 +680,24 @@
   .add-back-icon svg { width: 18px; height: 18px; }
   .add-type { flex: 1; min-width: 0; margin: 0; }
   .add-type .seg-btn { min-height: 44px; }
-  /* The amount block is content-sized now: the number stands at 40-44px with at most 10px of air above
-     and below. It no longer drinks the sheet's spare height — that stretching band was the empty space
-     the owner saw around the figure. The leftover height sits under the card instead, where the keypad
-     is the sheet's own footer. The caret blinks with a plain CSS loop: it repeats in place, it does not
-     animate a display change. */
+  /* The amount block takes the sheet's leftover height and centres the figure in it, so the dead band that
+     used to sit between the card and the keypad now sits above the category row instead. Its floor (48px)
+     is what a 375x667 sheet can spare once the card keeps its 12px to the keys; the 56px figure overhangs
+     that box by a few pixels, which is clear air on both sides. The caret blinks with a plain CSS loop:
+     it repeats in place, it does not animate a display change. */
   .add-amount-block {
-    flex: none; min-height: 0; display: flex; flex-direction: column; align-items: center;
-    justify-content: center; padding: 10px 0;
+    flex: 1 1 auto; min-height: 48px; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; padding: 0;
   }
+  /* 56px on a 667px screen, 64px on a tall one. fitAddAmount() steps it down for a long value, so a
+     figure never wraps or runs off the sheet. */
   .add-amount {
     display: flex; align-items: baseline; justify-content: center; max-width: 100%;
-    font-size: clamp(40px, 5dvh, 44px); font-weight: 700; letter-spacing: -.03em; line-height: 1.1;
+    font-size: clamp(56px, 8dvh, 64px); font-weight: 700; letter-spacing: -.03em; line-height: 1;
     font-variant-numeric: tabular-nums; white-space: nowrap;
   }
-  .add-amount-cur { flex: none; margin-right: 8px; font-size: 19px; font-weight: 600; letter-spacing: 0; color: var(--muted); }
+  /* RM is a share of the figure's own size, so the fit scales it with the number: 22-24px across the range. */
+  .add-amount-cur { flex: none; margin-right: 8px; font-size: .38em; font-weight: 600; letter-spacing: 0; color: var(--muted); }
   .add-amount-num { min-width: 0; overflow: hidden; }
   .add-caret {
     flex: none; align-self: center; width: 2px; height: 1em; margin-left: 3px; border-radius: 1px;
@@ -702,15 +705,13 @@
   }
   @keyframes add-caret-blink { 0% { opacity: 1; } 50% { opacity: 0; } }
   @media (prefers-reduced-motion: reduce) { .add-caret { animation: none; } }
-  /* At 44px a 375px screen fits ~9 characters ("RM 99,999.99"); a 320px screen spends one less. */
-  @media (max-width: 360px) { .add-amount { font-size: 40px; } }
   .add-cat-head { flex: none; display: flex; align-items: center; margin: 2px 0 0; }
   .add-label { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
   /* The four-row card: Merchant, Date, Mode and Note, on --card-2 (the sheet itself is --card). Each row is
      a label, so a tap anywhere on it opens its input. The hairline starts at the icon, not the card edge.
      The 14px top margin is the air between the chip row and the card; the card must never sit flush on the
      chips or the keypad. */
-  .add-card { flex: none; margin: 14px 0 0; border-radius: 20px; background: var(--card-2); }
+  .add-card { flex: none; margin: 14px 0 14px; border-radius: 20px; background: var(--card-2); }
   .add-row-field {
     position: relative; display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 14px 0 10px;
   }
@@ -796,17 +797,30 @@
   /* 12px above (after the chips) and 12px between the two rows: Smart Entry card, then Scan Receipt. */
   .add-rows { flex: none; display: flex; flex-direction: column; row-gap: 12px; margin: 6px 0 0; }
   /* One full-width row per action: icon left, label, chevron right. Light grey, 48px, 16px radius. */
+  /* The AI view's option boxes: a card 80px tall (76-88 range), 20px radius, a 52px tinted tile with a 28px
+     icon, an 18px semibold title and one muted line under it. The title and the line are one column, so
+     the box keeps its height whatever the line says. Both boxes are the same .add-row, so they read as one
+     list. Every box is a touch target well above the 44px floor. */
   .add-row {
-    width: 100%; min-height: 48px; padding: 0 14px; border: 0; border-radius: 16px;
+    width: 100%; min-height: 80px; padding: 14px 16px; border: 0; border-radius: 20px;
     background: var(--card-2); color: var(--text); font: inherit; font-size: 15px; font-weight: 600;
-    display: flex; align-items: center; gap: 10px; text-align: left;
+    display: flex; align-items: center; gap: 12px; text-align: left;
   }
   .add-row.is-open { background: var(--pressed); }
   .add-row[aria-busy="true"] { opacity: .55; }
-  .add-row-icon { display: inline-flex; flex: none; color: var(--accent); }
-  .add-row-icon svg { width: 20px; height: 20px; }
-  .add-row-icon .spinner { width: 18px; height: 18px; }
+  .add-row-icon {
+    display: inline-flex; flex: none; align-items: center; justify-content: center;
+    width: 52px; height: 52px; border-radius: 14px; background: var(--accent-soft); color: var(--accent);
+  }
+  .add-row-icon svg { width: 28px; height: 28px; }
+  .add-row-icon .spinner { width: 22px; height: 22px; }
   .add-row-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .add-option-text { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+  .add-option-text .add-row-label { flex: none; max-width: 100%; font-size: 18px; font-weight: 600; }
+  .add-option-sub {
+    display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 14px; font-weight: 400; line-height: 1.3; color: var(--text-2);
+  }
   .add-row-chev {
     width: 16px; height: 16px; flex: none; color: var(--chevron);
     transition: transform var(--dur-page) var(--ease-ios);
@@ -841,9 +855,9 @@
     font-size: 13px; font-weight: 400; line-height: 1.3; color: var(--text-2);
     overflow-wrap: break-word;
   }
-  /* The compact state. While the chooser is up the sheet hugs the cards at the bottom edge (the dim
-     above it shows how little of the screen it needs) instead of taking the Manual view's full height,
-     and it grows to that full height the moment Manual or AI is chosen. It is also the one state where
+  /* The compact state. While the chooser or the AI view is up the sheet hugs its content (the dim above
+     it shows how little of the screen it needs) instead of taking the Manual view's full height, and it
+     grows to that full height only for Manual, where the keypad needs every pixel. It is also the one state where
      #addSheet is NOT a size container: `container-type: size` applies `contain: size`, which collapses
      a box whose height is auto — so the cards are sized by their own rules above and not by the sheet's
      container queries. The bottom padding is the safe area plus a little, so the cards clear the home
@@ -853,7 +867,7 @@
     container-type: normal;
     padding-bottom: calc(16px + var(--sab));
   }
-  #addSheet.is-compact #screen-chooser { flex: none; }
+  #addSheet.is-compact #screen-chooser, #addSheet.is-compact #screen-ai { flex: none; }
   /* Back belongs to the flow, not to the header: the header keeps Cancel, which is the one control
      that leaves the sheet from every view. It is a chip for the same reason --text on --card-2 is
      ~15.6:1 light / ~13.9:1 dark, where accent on the sheet's white is ~4.0:1. */
@@ -903,34 +917,28 @@
   /* The keys give next: 44px is already Manual's size, which is 4 rows of 44 plus gaps = 16px back. */
   @media (max-height: 620px) { .key { height: 44px; } }
   /* The sheet's own box is the honest measure of the room left, and the content gives height back in
-     this order: the amount's own air, then the keypad's chrome, then the gaps. The 44px floors — keys,
+     this order: the keypad's chrome, then the gaps (the amount block takes whatever is left over). The 44px floors — keys,
      card rows, chips, tap targets — are tap targets and never give. (A container query styles the
      container's descendants, never the container itself, so everything tightened here lives inside the
      sheet.) The Add sheet's full-height views land under 640 on a short phone and over it on a tall one,
      so the AI view's rules below still apply. */
   @container (max-height: 640px) {
-    /* 1. the amount: still 40px (the clamp's floor), it just stands with less air around it */
-    .add-amount { line-height: 1; }
-    .add-amount-cur { font-size: 18px; }
-    .add-amount-block { padding: 4px 0; }
-    /* 2. the keys: 44px is the floor, because that is the tap target; the grid's chrome tightens instead */
+    /* 1. the keys: 44px is the floor, because that is the tap target; the grid's chrome tightens instead */
     .key { height: 44px; }
     #addKeypad .keypad-grid { gap: 3px 5px; padding: 1px; }
     #addKeypad { margin-top: 0; padding-top: 0; }
-    /* 3. the gaps — measured on 375x667, where the whole top cluster must land above the keys */
+    /* 2. the gaps — measured on 375x667, where the whole top cluster must land above the keys */
     #addSheet .sheet-grab { padding: 0 0 2px; }
     .add-cat-head { margin-top: 0; line-height: 1; }
     .smart-card { margin-bottom: 6px; }
-    .add-row { min-height: 44px; }
     .chip-scroll { margin-top: 0; }
-    .add-card { margin-top: 12px; }
+    .add-card { margin: 12px 0; }
     .add-rows { margin-top: 4px; }
     .keypad-grid { gap: 6px; }
     .keypad { padding-top: 4px; padding-bottom: calc(4px + var(--sab)); }
   }
-  /* Deeper again for a small screen with no notch: the number's air gives further, the keys stay at 44. */
+  /* Deeper again for a small screen with no notch: the option boxes tighten, the keys stay at 44. */
   @container (max-height: 560px) {
-    .add-amount-block { padding: 2px 0; }
     .smart-card { padding: 8px 12px; }
     .add-rows { margin-top: 4px; }
     .add-hint { display: none; }
@@ -1831,7 +1839,10 @@
             <span class="add-row-icon">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2.8 4.8 13.4h6.2L10.6 21.2l8.2-10.6h-6.2L13 2.8Z"/></svg>
             </span>
-            <span class="add-row-label">Smart Entry</span>
+            <span class="add-option-text">
+              <span class="add-row-label">Smart Entry</span>
+              <span class="add-option-sub">Typed note, Claude reads it</span>
+            </span>
             <svg class="add-row-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
           </button>
           <div class="smart-card-body" id="smartEntryBody" hidden>
@@ -1847,7 +1858,10 @@
         <div class="add-rows">
           <button class="add-row" id="scanBtn" type="button" aria-busy="false">
             <span class="add-row-icon" id="scanIcon"></span>
-            <span class="add-row-label" id="scanLabel">Scan Receipt</span>
+            <span class="add-option-text">
+              <span class="add-row-label" id="scanLabel">Scan Receipt</span>
+              <span class="add-option-sub">Receipt or bank screenshot</span>
+            </span>
             <svg class="add-row-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
           </button>
         </div>
@@ -3661,7 +3675,7 @@
   // that: compact while the chooser is up (its two cards are the whole content), full height from the
   // moment a flow is chosen, because Manual's keypad wants every pixel.
   var ADD_VIEWS = ["chooser", "manual", "ai"];
-  var ADD_VIEW_TITLES = { chooser: "Add Transaction", manual: "New Transaction", ai: "Smart Entry" };
+  var ADD_VIEW_TITLES = { chooser: "Add Transaction", manual: "New Transaction", ai: "Add with AI" };
   var addView = "chooser";
   var manualFieldFocused = false;   // true while a text field holds the caret (the keyboard is up)
 
@@ -3674,11 +3688,12 @@
     addView = view;
     ADD_VIEWS.forEach(function (name) { addViewNode(name).hidden = name !== view; });
     $("saveAddBtn").hidden = view !== "manual";
-    $("addSheet").classList.toggle("is-compact", view === "chooser");
+    $("addSheet").classList.toggle("is-compact", view !== "manual");
     $("addSheetTitle").textContent = ADD_VIEW_TITLES[view];
     manualFieldFocused = false;
     if (view === "manual") {
       $("manualBody").scrollTop = 0;   // every visit to Manual starts at the top
+      fitAddAmount();                  // the figure was hidden when it was painted, so it is measured now
       revealAddChip();                 // a prefill paints the chips while Manual is still hidden, so the
     }                                  // chosen chip's reveal waits for the view it belongs to
     updateKeypadVisibility();
@@ -3707,10 +3722,27 @@
     }).join("");
   }
 
+  // The figure starts at the size CSS gives it and steps down until it fits its one line, so a long value
+  // shrinks instead of wrapping or running off the sheet. The number is the flexible box: when it is too
+  // wide it shrinks inside the line, and scrollWidth still reports what it needs. Hidden, it measures
+  // nothing, so Manual runs this again when it is shown.
+  function fitAddAmount() {
+    var box = $("addAmount"), num = $("addAmountNum");
+    if (!box.clientWidth) return;
+    box.style.fontSize = "";
+    var size = parseFloat(window.getComputedStyle(box).fontSize);
+    box.style.fontSize = size + "px";
+    while (size > 32 && num.scrollWidth > num.clientWidth) {
+      size -= 1;
+      box.style.fontSize = size + "px";
+    }
+  }
+
   // Save is live only once there is something to save.
   function paintAddAmount() {
     $("addAmountNum").textContent = addAmount || "0.00";
     $("saveAddBtn").disabled = !(Number(addAmount) > 0);
+    fitAddAmount();
   }
 
   // Digits only, iOS style: one dot, two decimals, never a leading zero.
@@ -5168,6 +5200,7 @@
       $("fileInput").click();
     });
     $("fileInput").addEventListener("change", function () { scanFile(this.files[0]); });
+    window.addEventListener("resize", fitAddAmount);   // a rotation changes the line's width
     $("smartEntryBtn").addEventListener("click", function () {
       setSmartEntryOpen($("smartEntryBody").hidden);
     });

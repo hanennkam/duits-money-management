@@ -93,7 +93,7 @@ Icons → `public, max-age=600` (deliberately not `immutable`). Every response: 
 - Sheets: Add, detail/edit, month wheel, key dialog. Mounted permanently, each with a `.scrim` child layer.
   `openOverlay`/`closeOverlay` use WAAPI, a close token and a 500ms fallback. `attachSheetDrag` does swipe-to-dismiss.
 - Add sheet opens on a chooser (Manual / AI). Manual is one screen, in the Stitch order: Back + Expense/Income,
-  the amount (`RM` + caret; the number is 40-44px and content-sized, at most 10px of air around it), CATEGORY and
+  the amount (`RM` + caret; the number is 56-64px in a block that takes the spare height, shrunk by `fitAddAmount()` for a long value), CATEGORY and
   the chip row (no View All sheet; the chosen chip scrolls into view with
   the previous chip peeking), a four-row card (Merchant, Date, Mode — the Mode toggle is a 32px rounded `--control`
   track with a white selected pill, 44px tap boxes —, Note), and the keypad as the footer (44px keys,
