@@ -24,7 +24,7 @@ Prepared after the auth-screen polish on branch `multi-user`. Read this before t
 | Pass 13 — live cutover, steps 3–4 and 9 | **Done and verified.** Live was found already migrated, with the **fixed** `0002` (snapshot 2 rows, partial index with its `WHERE`). Receipts backed up (16 files / 10.8 MB), baseline audit 75 rows / 16 objects, and the 2 receipt objects moved into the owner's folder with a sha256 match against the backup. **Live is now in an open write window: the deployed code cannot insert until step 11.** |
 | Phase 1 — Add Transaction chooser (UI only) | **Done and measured in a desktop browser; not measured on a real iPhone, and no write was made.** The "+" now opens a two-option chooser — a compact sheet hugging two square cards, which expands to full height once Manual or AI is chosen; each flow has its own Back. See the Phase 1 section — it lists every number that was measured and everything that was not. |
 | Live's `0002` state, re-read by the owner | **Confirmed, 2026-10-17: `0002` is applied on live** — `public.transactions.user_id` exists on `viorpltdkpexswvofeul`. This line is the **owner's read-only check**, not something the assistant verified in this session. **Staging is behind live:** it is pre-0002 and needs `docs/migration-runbook.md` §2–§5. |
-| Phase 2, step 2a — budget, balance, commitments (SQL + API) | **Done; staging run reported clean by the owner** (up → verify → isolation suite → down → verify → up). Not observed by the assistant. See the 2a section. |
+| Phase 2, step 2a — budget, balance, commitments (SQL + API) | **Done; staging run reported clean by the owner** (up → verify → isolation suite → down → verify → up). Not observed by the assistant. See the 2a section. **0003 is now applied on LIVE** (owner-reported, 2026-10-19) and **0004 has not been run anywhere** — see the "Status: Pay Commitments" section at the end of this file. |
 | Phase 2, step 2b — the money UI | **Done, measured in desktop Chromium with the network stubbed; nothing has been on a phone or against staging.** The suite printed `296 passed, 21 skipped` then and prints `300 / 21` now. See the 2b section and the phone checklist at the end of this file. |
 | Phase 2, step 2b — Home reworked to the reference layout | **Done, measured in desktop Chromium at 390px and 375px in both themes; no phone and no real touch.** `300 passed, 21 skipped`. The four money states, the deleted card and where its breakdown still lives are recorded in the "Home reworked" section at the end. |
 | Phase 2, step 2c — the balance card: anchor, breakdown, budget offer (UI only) | **Done, measured in desktop Chromium at 390px in both themes; no phone and no real touch.** `306 passed, 21 skipped`. The five money states, the two new sheets and the anchor's round trip are recorded in the 2c section at the end. |
@@ -601,10 +601,13 @@ grants are revoked, because the view has no policy of its own and the API is its
 every read. `current_balance = opening_balance + total_income − total_expense` (the wire field is `total_expense`,
 singular — step 2b's UI reads that name), all-time and **every mode**.
 `unpaid_commitments` = the active commitments with no paid mark for the month being viewed.
-`safe_to_spend = current_balance − unpaid_commitments`. `remaining_budget = monthly_budget − unpaid_commitments −
-this month's spend **for the requested mode**`, and `null` when `monthly_budget` is `0` ("no budget set"). The one
-rule the tests pin hardest: paying a commitment is two writes — the expense, and the paid mark — and together they
-leave safe-to-spend exactly where it was, so the money is never taken twice.
+`safe_to_spend = current_balance − unpaid_commitments`. `remaining_budget = monthly_budget − (month_expense −
+month_commitment_expense)`, where `month_expense` is this month's spend **for the requested mode** and
+`month_commitment_expense` is the slice of it that came from a Pay flow (its `commitment_id` is set), and `null`
+when `monthly_budget` is `0` ("no budget set"). `unpaid_commitments` is **not** in the bar — it is Safe-to-spend's
+figure, and counting it in both moved the bar twice in opposite directions (see the 0004 section at the end of this
+file). The one rule the tests pin hardest: paying a commitment is two writes — the expense, and the paid mark — and
+together they leave safe-to-spend exactly where it was, so the money is never taken twice.
 
 **Status: 2a is complete.** `pytest` after each commit. **The staging sequence has since been run**, by the owner
 and not by this assistant: up → `verify_after_0003.sql` → the isolation suite → down → verify → up, all clean, no
@@ -1558,11 +1561,13 @@ autocorrect="off"`.
 
 ## 2026-10-19 — 0004: the Pay expense and the monthly budget bar (SQL + backend + one payload key)
 
-**Branch `feat/budget-balance-commitments`. NOT pushed, and the SQL has NOT been run anywhere by the
-assistant — you run it on staging after a backup (steps below).** The fix for the finding below, agreed with
-the owner in this session. `pytest` at the commit: **331 passed, 21 skipped, 2 warnings** (the session-start
-baseline was 324 passed, 21 skipped), read from the run, and the same numbers hold in a checkout of the
-commit itself and in the working tree beside the owner's uncommitted keypad pass.
+**Branch `feat/budget-balance-commitments`. Pushed to origin (2026-10-19, after the keypad tuning commit),
+and the SQL has NOT been run anywhere by the assistant — you run it on staging after a backup (steps below).**
+The fix for the finding below, agreed with the owner in this session. `pytest` at the commit: **331 passed,
+21 skipped, 2 warnings** (the session-start baseline was 324 passed, 21 skipped), read from the run, and the
+same numbers hold in a checkout of the commit itself and in the working tree beside the owner's uncommitted
+keypad pass. The suite now prints **333 passed, 21 skipped** after the 422-message fix (`f5506c7`) and the
+view-order pin (`c6c9c69`); see the "Status: Pay Commitments" section at the end of this file.
 
 **What was wrong.** Paying a commitment saved an ordinary "bills" expense (indistinguishable from any manual
 row) and then `remaining_budget = budget − unpaid − month_expense` moved it twice in opposite directions:
@@ -1593,7 +1598,9 @@ is refused (`row contains a value violating: commitment_id` — an unknown colum
 staging; **(2)** run `migrations/0004_commitment_link.up.sql` in the SQL editor in ONE session; **(3)**
 re-run `migrations/staging/verify_after_0003.sql` (still valid — 0004 touches nothing it checks) and check
 the up file's own guards answer clean; **(4)** run the isolation suite; **(5)** only then merge/deploy the
-code. Live gets the same up file after staging behaves for a while. The down file rebuilds the 0003 view
+code. Live gets the same up file after staging behaves for a while — and **0003 is already applied on LIVE**
+(owner-reported 2026-10-19, pg_dump taken first), so **do NOT re-run 0003 there**; live only needs 0004. The
+down file rebuilds the 0003 view
 FIRST and drops the column after — no data-loss acknowledgement needed, because no typed row depends on
 0004; only the links go.
 
@@ -1601,3 +1608,11 @@ FIRST and drops the column after — no data-loss acknowledgement needed, becaus
 key, checked by pins and the API tests, not by a finger; no staging and no live database were touched; the
 SQL files were written, not run (the migration SQL tests parse, they cannot execute); the wider-view call
 has not been observed against a real Supabase project.
+
+## 2026-10-19 — Status: Pay Commitments (at c6c9c69)
+
+pytest: 333 passed, 21 skipped. Backend + UI commitments complete, pinned by tests. Blockers are SQL rollout and device testing, not code.
+- 0003: rehearsed on staging (clean) AND already applied on LIVE today (pg_dump backup at ~/Backups/duits-live-2026-10-19 taken first; verify grid matched; transactions still 91 rows). Do NOT re-run 0003 on live.
+- 0004: staging attempt failed 42P16 (view column order), fixed in c6c9c69 (commitment_expense now last). NOT re-run anywhere yet. Live has the 0003 view, staging mirrors it, so staging is the real rehearsal.
+- Not tested on real iPhone: Pay flow, budget bar, 422 error message (f5506c7).
+Next, in order: (1) backup staging, run 0004 up on staging, re-run verify_after_0003.sql + isolation suite; (2) deploy code to staging, smoke-test Pay flow + budget bar on iPhone; (3) fresh pg_dump of live, run 0004 up on live, then merge to main (Render auto-deploys).
