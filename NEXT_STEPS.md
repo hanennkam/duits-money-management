@@ -1792,3 +1792,85 @@ Batch 3): the What's New bullet still calls them the "one-field balance sheet" a
 sheet" (line ~500), and the "No focus zoom" bullet's 16px inventory omits the money field while saying
 `.field` is `font: inherit` from the 17px body (line ~534) — `.field` is that input too, and
 `.sheet .money-field-input` pins it to 16px.
+
+
+## 2026-10-20 — Batch 3: shorter motion, a fading popup, one ring (UI only)
+
+**Commits on `feat/budget-balance-commitments`: `ab017e2` "Give sheets, the centred popup and the money
+block their own short motion" (UI + tests), `7a84cb9` "Point a What's New action at the card it
+described, with one ring" (UI + tests), and this docs commit. Not pushed.** UI only:
+`app/static/index.html`, `tests/test_static.py`, `README.md` and this file. No `app/*.py`, `schema.sql`,
+migration, route, payload or status code changed. **pytest: `359 passed, 21 skipped, 4 warnings`** — the
+Batch 2 baseline of 355 plus four new tests; two existing pins were rewritten because their strings
+moved (`test_a_failing_finance_read_never_blanks_home`,
+`test_the_income_and_expense_labels_are_the_two_words`).
+
+- **Motion is shorter and split in two.** `--dur-sheet: 220ms` up and `--dur-sheet-out: 180ms` down
+  replace the single 350ms; `--dur-pop: 200ms` is the centred popup's own beat. `--ease-ios` is
+  unchanged and remains the only curve. Reduce Motion sets all three to 150ms. The page behind Add and
+  the transaction sheet follows the same pair (`pageBehind`).
+- **The centred popup fades instead of sliding.** `.overlay.is-centre` gets a 200ms fade over
+  `scale(var(--move-pop))` (0.96 → 1, read by `moveScale()`); every bottom sheet keeps
+  `translateY(100%) → 0`. This is the one place a panel's own opacity animates. It is WAAPI only, it
+  ends at 1, and `finish` now drops `parts.sheet.style.opacity` as well as the transform before
+  cancelling, so the next open is fully opaque. The AGENTS.md §4 line "the sheet is never translucent"
+  still holds for bottom sheets; the popup is the documented exception, and a test pins that neither
+  `.overlay` nor `.sheet` carries opacity in CSS and that the slide keyframes never touch it.
+- **The money block fades in once per month and mode.** `fadeMoneyCards()` runs from `loadHome()` when
+  `/finance/summary` answers and replays `.is-money-fresh` on `#balanceCard`, `#statRow` (new id on the
+  income/expense row) and whichever of `#budgetCard` / `#budgetPromptCard` is visible. The animation is
+  opacity only, so Reduce Motion keeps it (shorter). The helper remembers `month|mode`, so a save's
+  `refreshFinanceCard` never blinks the figures and returning to Home does not repeat it; `clearCaches`
+  resets the key so a new session fades again.
+- **One ring after a What's New action.** `runWhatsNewAction` arms `pulseHomeLater(selector)` before the
+  card closes. A `MutationObserver` on every overlay's class waits until no `.overlay.open` remains —
+  all three actions open a sheet, and the ring waits for it too — then `pulseHome` replays `.is-pulse`
+  on the first visible match (`getClientRects().length`). Targets: `#balanceCard`, `#safePill` for
+  "Add a bill", `#budgetCard, #budgetPromptCard` for the budget. The ring is a 2px `--accent` `::after`
+  at `inset: -4px`, `border-radius: inherit`, `pointer-events: none`: 2s, one iteration, two opacity
+  beats, `both` so it holds 0 at the end. The class is removed at 2.2s; the observer gives up after 30s;
+  from another screen nothing is drawn.
+- **Reduce Motion keeps both fades and drops every movement**: the popup's scale is 1, the sheet's slide
+  is skipped, and the ring is `pulse-ring-steady` (one fade, no beats) via an early `!important` rule —
+  the shorthand that starts the ring is later in the file, so the name needs it to win.
+
+**Measured in desktop Chromium (the page's own bytes plus a stubbed API, 375×667 iframe) — no phone.**
+The desktop window was occluded, so its document timeline was throttled (one `requestAnimationFrame` per
+300ms, 7ms of timeline in 300ms); every animation value below was read by seeking the live animation with
+`currentTime` and reading computed style, and every state/class timing came from the real handlers.
+
+- **Sheet up:** 220ms, `cubic-bezier(0.32, 0.72, 0, 1)`, keyframes `translateY(100%) → 0`; the panel's
+  opacity is 1 at 0ms, 110ms and 220ms. **Sheet down:** 180ms, `translateY(0) → 100%`, opacity 1
+  throughout.
+- **Clean close:** after the close, `runningAnimations` is empty, the sheet's inline `opacity` and
+  `transform` are `""`, computed opacity is 1, and a reopen starts opaque (1 at +16ms).
+- **Popup:** 200ms; `opacity 0 → 1` and `scale(.96) → scale(1)`; at 100ms opacity 0.955 and scale
+  0.998. Centred at 375×667: 351×193 at top 237. The breakdown's close (180ms) finishes before the
+  popup opens — no stacked overlays.
+- **Page behind:** 220ms in, 180ms out, and the popup leaves it alone (0 animations on `.app`).
+- **Money fade:** `180ms`, keyframes only `opacity 0 → 1`, computed `transform: none`; at 90ms opacity
+  0.955. First load fades the three cards once; a mode change fades them once more; saving a balance
+  (PUT `{"opening_balance": 500}` from a typed 900) added **0** replays.
+- **Ring:** arms with the press; while the action's sheet was open there was no `is-pulse`. After it
+  closed, `#balanceCard` carried `.is-pulse`, `::after` was `2px rgb(10, 132, 255)`, `inset: -4px`,
+  radius 24px, `pointer-events: none`, `2000ms × 1`. Opacity by seek: 0 → 0.973 → 0.4 → 0.970 → 0,
+  and 0 at the end (the `both` fill holds it). The class was gone by 2.4s. Opening the card from Settings
+  (Home hidden) drew nothing. With `#budgetCard` hidden, the ring landed on `#budgetPromptCard`. The
+  card's and pill's rects and offsets are identical with and without the class; only `scrollWidth` /
+  `scrollHeight` grow by 4px on elements with `overflow: visible`.
+- **Reduce Motion, simulated** (the media query's token values set on `:root`, `matchMedia` stubbed —
+  not the OS setting): sheet open leaves only the scrim animation (150ms) and the panel sits at
+  `translateY(0)` immediately; the popup fades over 150ms with `scale(1)` at every sample; the close is
+  clean.
+- **Cascade check for the ring:** a copy of the reduce rule placed before the app's stylesheet loses
+  `animation-name` to the later shorthand without `!important` and wins with it — so the shipped
+  `!important` is what makes the steady ring reach the panel.
+- **README** is now in step: the two Batch 2 staleness fixes (the What's New bullet says *popup*; the
+  16px inventory names `.sheet .money-field-input`), plus the motion section's six durations, the popup
+  fade, the money fade and the ring.
+
+**Not verified on a real iPhone:** Safari, real touch, a real keyboard (the popup's fade while `--kb`
+changes), safe areas, the actual OS Reduce Motion setting, 120Hz feel, and whether VoiceOver should say
+anything about a ring that is purely visual. Real-time playback was not observed in this session — only
+the animation objects and computed values at chosen times — because the desktop window's timeline was
+throttled.

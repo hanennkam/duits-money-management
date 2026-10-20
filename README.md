@@ -497,10 +497,11 @@ One bottom sheet, shown once per version, for a user who has just met a big chan
   *Next* is the button at the foot, and it reads *Got it* on the last screen. Every way out — the
   button, the scrim and the drag — writes the version, so a user who dismisses it is never asked again.
 - **Each screen has a button that opens the thing it describes.** No new screen is built for the card:
-  Balance opens the one-field balance sheet, or the card's own *How this is calculated* breakdown when
+  Balance opens the one-field balance popup, or the card's own *How this is calculated* breakdown when
   a balance is already set; Commitments opens the commitments sheet with the add form ready; Monthly
-  budget opens the one-field budget sheet. The card closes before the next sheet opens, the way the app
-  stacks one sheet on another.
+  budget opens the one-field budget popup. The card closes before the next sheet opens, the way the app
+  stacks one sheet on another, and once that sheet is closed too a blue ring pulses for two seconds
+  around the card the screen described (see *Motion*).
 - **Settings > About has a "What's new" row** that opens the card whenever the user wants it, even
   when the stored version says they have read it. That is the difference between the one-shot nudge
   that appears by itself and a deliberate request; it does not write the version on the way in.
@@ -539,12 +540,13 @@ first row — and *Settings · Money* stays the text link beside it.
 Safari's own gestures are kept out of the way, because each one breaks the sheet:
 
 - **No focus zoom.** Every control a finger can focus is at least **16px** — `.add-field` (Smart Entry,
-  Merchant, Note), the Search field, and the invisible `<input type="date">` over the date pill (it is
-  `opacity: 0` but still focusable). `.field`, used by the API-key and edit sheets, is `font: inherit`
-  from the 17px body. A focused control under 16px makes iOS zoom the whole page in, which is what was
-  cutting the Smart Entry field and its `Add` button off on the right. `maximum-scale=1` is also in the
-  viewport meta, but the font size is the real fix (iOS has ignored `maximum-scale` for pinch since
-  iOS 10 — so pinch-zoom still works, as it should).
+  Merchant, Note), the Search field, the money field in the centred popup (`.sheet .money-field-input`,
+  pinned to 16px), and the invisible `<input type="date">` over the date pill (it is `opacity: 0` but
+  still focusable). `.field`, used by the API-key and edit sheets and shared by that money field, is
+  `font: inherit` from the 17px body unless a rule pins it. A focused control under 16px makes iOS zoom
+  the whole page in, which is what was cutting the Smart Entry field and its `Add` button off on the
+  right. `maximum-scale=1` is also in the viewport meta, but the font size is the real fix (iOS has
+  ignored `maximum-scale` for pinch since iOS 10 — so pinch-zoom still works, as it should).
 - **No double-tap zoom.** `touch-action: manipulation` on `html`, `body`, `button` (every tappable
   thing here is one, keys and chips and tabs included) and the date `<label>`. The Add sheet is
   `touch-action: none` so a swipe anywhere on it is a dismiss rather than a pan, with the chips scroller
@@ -625,9 +627,10 @@ grabber with a thumb is the one gesture a phone should not require. One implemen
 ### Motion
 
 Everything animates **transform and opacity only** (plus SVG `stroke-dasharray` for the ring), and in
-an overlay the only element whose opacity moves is the scrim layer (see *Motion*), so no
-animation can trigger layout on a phone. One curve, four durations, all in `:root` next to the
-palette: `--ease-ios: cubic-bezier(0.32, 0.72, 0, 1)`, with `--dur-sheet: 350ms`, `--dur-page: 180ms`,
+an overlay the only elements whose opacity moves are the scrim layer and the centred popup's own panel
+(see below), so no animation can trigger layout on a phone. One curve, six durations, all in `:root`
+next to the palette: `--ease-ios: cubic-bezier(0.32, 0.72, 0, 1)`, with `--dur-sheet: 220ms` up,
+`--dur-sheet-out: 180ms` down, `--dur-pop: 200ms` for the centred popup, `--dur-page: 180ms`,
 `--dur-press: 100ms` and `--dur-toast: 250ms`. No animation library, no JS tweening.
 
 - **`replay(element, className)`** is the one way anything restarts: remove the class, force a reflow
@@ -638,20 +641,43 @@ palette: `--ease-ios: cubic-bezier(0.32, 0.72, 0, 1)`, with `--dur-sheet: 350ms`
   on a timer that could be missed.
 - **Sheets** (Add, edit, month picker, key dialog) are mounted permanently and move on the **Web
   Animations API**: `openOverlay()` animates the sheet `translateY(100%) → 0` and the scrim
-  `opacity 0 → 1` (350ms, `--ease-ios`, `fill: both`), and `closeOverlay()` animates them back and
-  applies the closed state only when the animation reports `finished` — with a **500ms fallback
-  timer** so a close can never stick. Every open **cancels** whatever is still running *and* bumps a
-  close token, so ten fast open/close pairs land on the right state every time and a close still in
-  flight cannot re-close a sheet that has been reopened. The class is only *state* (`visibility:
-  hidden; pointer-events: none` when closed, with the sheet resting at `translateY(100%)` — never
-  `display: none`), and there is deliberately **no CSS transition on the overlay at all**, which is
-  exactly what iOS played once and then ignored.
-  **The sheet never fades.** Nothing animates the sheet's opacity: `openOverlay`/`closeOverlay` only
+  `opacity 0 → 1` (`--dur-sheet`, `--ease-ios`, `fill: both`), and `closeOverlay()` animates them back
+  over `--dur-sheet-out` and applies the closed state only when the animation reports `finished` —
+  with a **500ms fallback timer** so a close can never stick. The page behind the two full-height
+  sheets (Add, transaction) moves on the same pair: 220ms in, 180ms out. Every open **cancels**
+  whatever is still running *and* bumps a close token, so ten fast open/close pairs land on the right
+  state every time and a close still in flight cannot re-close a sheet that has been reopened. The
+  class is only *state* (`visibility: hidden; pointer-events: none` when closed, with the sheet resting
+  at `translateY(100%)` — never `display: none`), and there is deliberately **no CSS transition on the
+  overlay at all**, which is exactly what iOS played once and then ignored.
+- **The centred popup fades instead of sliding.** It is already in the middle of the screen and has
+  nowhere to travel, so the two `is-centre` branches give the panel a fade over
+  `scale(var(--move-pop))` (0.96 → 1, read back by `moveScale()`), 200ms in and `--dur-sheet-out` out,
+  while every bottom sheet keeps its slide. This is the one place a sheet's own opacity animates: the
+  keyframes are created only for `.is-centre`, they end at 1, and the close drops the inline opacity
+  and cancels the animation, so the next open starts fully opaque. Reduce Motion sets
+  `--move-pop: 1`, which leaves the fade and removes the movement; for every other sheet the slide is
+  skipped outright.
+- **A bottom sheet never fades.** Nothing animates its opacity: `openOverlay`/`closeOverlay` only
   ever move it, and there is no `opacity` on `.overlay` either — an opacity on an ancestor is a group
   opacity, so fading the overlay faded the sheet inside it and a closing sheet went see-through with
   the page showing through its text. The dim is a `.scrim` layer of its own (one per overlay, painted
-  under the sheet) and that is the only thing in an overlay that animates opacity. A downward drag cancels whatever animation is running, hands the transform to the
-  finger and releases into the same exit (see *Swipe to dismiss* below).
+  under the sheet) and that is the only other thing in an overlay that animates opacity. A downward
+  drag cancels whatever animation is running, hands the transform to the finger and releases into the
+  same exit (see *Swipe to dismiss* below).
+- **The money block fades in once per month and mode.** `fadeMoneyCards()` is called by `loadHome()`
+  when `/finance/summary` answers and replays `.is-money-fresh` on the balance card, the
+  income/expense row and whichever budget card is on screen. `money-in` is opacity only, so Reduce
+  Motion keeps it (just shorter). It remembers the `month|mode` it last faded, so a re-read after a
+  save (`refreshFinanceCard`) never blinks the figures, and coming back to Home does not repeat it.
+- **One ring after a What's New action.** The button arms `pulseHomeLater(selector)` before the card
+  closes; a `MutationObserver` then waits until no overlay is open (every action opens a sheet) and
+  `pulseHome()` replays `.is-pulse` on the first target that is actually visible
+  (`getClientRects().length`) — the balance card, `#safePill` for a bill, or whichever budget card is
+  on screen. The ring is a 2px accent `::after` at `inset: -4px` with `border-radius: inherit` and
+  `pointer-events: none`: two seconds, once, opacity only, and the class is dropped after 2.2s. Reduce
+  Motion swaps the two beats for one fade. The wait gives up after 30s, and from a screen that is not
+  Home nothing is drawn at all.
 - **Presses**: one shared rule — `button:not(.tab):not(.tab-add), .add-pill` scale to
   `var(--press-scale)` (0.96) and dim to 0.7 while held, springing back on release. The tab bar and
   the raised `+` are excluded on purpose; the date pill's hit target is the invisible native input
