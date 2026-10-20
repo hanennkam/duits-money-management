@@ -169,11 +169,14 @@
      zeroes out: the fades stay, the movement goes. */
   :root {
     --ease-ios: cubic-bezier(0.32, 0.72, 0, 1);
-    --dur-sheet: 350ms;
+    --dur-sheet: 220ms;      /* a sheet coming up from the bottom edge */
+    --dur-sheet-out: 180ms;  /* ... and going back down */
+    --dur-pop: 200ms;        /* the centred popup: a fade over a hair of scale */
     --dur-page: 180ms;
     --dur-press: 100ms;
     --dur-toast: 250ms;
     --move-sheet: 100%;      /* a sheet starts one full height below its resting place */
+    --move-pop: .96;         /* the centred popup starts a hair small and settles to 1 */
     --move-page: 6px;
     --move-month: 20px;
     --move-row: 4px;
@@ -185,10 +188,13 @@
        movement with no fade-only equivalent, so they are skipped outright (final state, no anim). */
     :root {
       --dur-sheet: 150ms;
+      --dur-sheet-out: 150ms;
+      --dur-pop: 150ms;
       --dur-page: 150ms;
       --dur-press: 1ms;
       --dur-toast: 150ms;
       --move-sheet: 0%;
+      --move-pop: 1;
       --move-page: 0px;
       --move-month: 0px;
       --move-row: 0px;
@@ -204,6 +210,9 @@
   @keyframes page-in { from { opacity: 0; transform: translateY(var(--move-page)); } }
   @keyframes month-in { from { opacity: 0; transform: translateX(var(--slide, 0px)); } }
   @keyframes row-in { from { opacity: 0; transform: translateY(var(--move-row)); } }
+  /* The money block settles rather than pops: a fade with no movement at all, so it keeps playing
+     under Reduce Motion (where it is simply shorter). */
+  @keyframes money-in { from { opacity: 0; } }
   @keyframes grow-in { from { transform: scaleX(0); } }
   @keyframes grow-up { from { transform: scaleY(0); } }
   /* One animation for the toast's whole life: in from above, hold, fade out. The percentages are the
@@ -1329,6 +1338,10 @@
   .toast { animation: toast-life 4500ms var(--ease-ios) both; }
   /* Lists: rows rise in with a 30ms stagger, first eight only (--i is capped in txnRowHtml). */
   .is-fresh .txn { animation: row-in var(--dur-page) var(--ease-ios) both; animation-delay: calc(var(--i, 0) * 30ms); }
+  /* The figures arrive with one short fade rather than popping into place; it is replayed by hand
+     because the cards are never re-created. Once per month and mode: a re-read after a save must not
+     blink, so fadeMoneyCards() remembers what it has already faded in. */
+  .is-money-fresh { animation: money-in var(--dur-page) var(--ease-ios); }
   /* Bars grow from the left edge. Width stays a real layout size; only scaleX moves. */
   .cat-fill { transform-origin: left center; }
   .is-fresh .cat-fill { animation: grow-in 600ms var(--ease-ios) both; }
@@ -1517,7 +1530,7 @@
     </div>
 
     <!-- The viewed month, split in two. Both figures are this month and this mode, unlike the balance. -->
-    <div class="stat-row">
+    <div class="stat-row" id="statRow">
       <div class="card stat-card">
         <span class="stat-label"><svg class="money-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 19V5"/><path d="M6 11l6-6 6 6"/></svg>Income</span>
         <span class="stat-amount in" id="incomeTotal">+RM 0.00</span>
@@ -2264,6 +2277,13 @@
     return value.indexOf("ms") > -1 ? ms : ms * 1000;
   }
 
+  // The same for the centred popup's starting scale: .96 by default, 1 under Reduce Motion, so the
+  // animation is a fade with no movement instead of a fade that has to be skipped.
+  function moveScale() {
+    var value = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--move-pop"));
+    return isNaN(value) || value <= 0 ? 1 : value;
+  }
+
   // Restart an animation or a transition by hand: drop the class, force a reflow so the browser has a
   // "before" state to come back from, then put it back. Every place that wants an entrance to play
   // again calls this — a tab becoming active, a month changing, data reloading — because letting an
@@ -2328,7 +2348,9 @@
     var frames = back
       ? [{ transform: current && current !== "none" ? current : "none" }, { transform: PAGE_BEHIND }]
       : [{ transform: PAGE_BEHIND }, { transform: "none" }];
-    pageMotion = app.animate(frames, { duration: motionMs("--dur-sheet"), easing: EASE_IOS, fill: "both" });
+    pageMotion = app.animate(frames, {
+      duration: motionMs(back ? "--dur-sheet" : "--dur-sheet-out"), easing: EASE_IOS, fill: "both"
+    });
   }
 
   // The scrim is a child layer, not the overlay itself: animating the overlay's opacity would apply a
@@ -2375,15 +2397,22 @@
     markMoving(element.querySelector(".sheet"), true);
     setTimeout(function () { markMoving(element.querySelector(".sheet"), false); }, motionMs("--dur-sheet") + 60);
     var parts = sheetParts(element);
-    var duration = motionMs("--dur-sheet");
+    // A sheet has the height of the screen to travel, so it comes up from below. The centred popup is
+    // already in the middle of the screen and has nowhere to go: it fades in over a hair of scale,
+    // which is why it has its own duration. Both are transform and opacity only.
+    var centre = element.classList.contains("is-centre");
+    var duration = motionMs(centre ? "--dur-pop" : "--dur-sheet");
     var options = { duration: duration, easing: EASE_IOS, fill: "both" };
     element.classList.add("open");
     element.setAttribute("aria-hidden", "false");
     element.runningAnimations = [parts.scrim.animate([{ opacity: 0 }, { opacity: 1 }], options)];
-    // Reduce motion: opacity only, and the sheet simply sits in its open position (class state).
-    if (!reducedMotion() && parts.sheet) {
+    // Reduce Motion: the popup keeps its fade (its scale is 1 there, so there is no movement to drop);
+    // a sheet is skipped outright, because sliding is all it has, and it simply sits in its class state.
+    if (parts.sheet && (centre || !reducedMotion())) {
       element.runningAnimations.push(parts.sheet.animate(
-        [{ transform: "translateY(100%)" }, { transform: "translateY(0)" }], options));
+        centre
+          ? [{ opacity: 0, transform: "scale(" + moveScale() + ")" }, { opacity: 1, transform: "scale(1)" }]
+          : [{ transform: "translateY(100%)" }, { transform: "translateY(0)" }], options));
     }
     pageBehind(element, true);
   }
@@ -2397,7 +2426,10 @@
     resetKeyboard();                   // the sheet is leaving; drop the keyboard's inset with it
     cancelOverlayMotion(element);
     var parts = sheetParts(element);
-    var options = { duration: motionMs("--dur-sheet"), easing: EASE_IOS, fill: "both" };
+    // The way out matches the way in: a sheet slides back down in --dur-sheet-out, the centred popup
+    // fades out over the same short beat. The scrim fades either way.
+    var centre = element.classList.contains("is-centre");
+    var options = { duration: motionMs("--dur-sheet-out"), easing: EASE_IOS, fill: "both" };
     var token = element.closeToken || 0;
     var done = false;
     var finish = function () {
@@ -2409,7 +2441,14 @@
       element.classList.remove("open");          // the closed state takes over before the fill drops
       element.setAttribute("aria-hidden", "true");
       if (parts.scrim) parts.scrim.style.opacity = "";   // a drag may have left a partial dim behind
-      if (parts.sheet) { parts.sheet.style.transform = ""; markMoving(parts.sheet, false); }
+      if (parts.sheet) {
+        // The popup's fade is the one animation that touches the sheet's own opacity. Dropping it by
+        // hand here, as well as cancelling the animation, is what makes the panel fully opaque again
+        // before it is ever shown a second time.
+        parts.sheet.style.opacity = "";
+        parts.sheet.style.transform = "";
+        markMoving(parts.sheet, false);
+      }
       var app = document.querySelector(".app");
       if (app && PAGE_BEHIND_SHEETS[element.id]) app.style.transform = "";
       if (pageMotion) { try { pageMotion.cancel(); } catch (error) { /* already finished */ } pageMotion = null; }
@@ -2423,9 +2462,11 @@
     var scrimFrom = from && parts.scrim
       ? (Number(window.getComputedStyle(parts.scrim).opacity) || 1) : 1;
     element.runningAnimations = [parts.scrim.animate([{ opacity: scrimFrom }, { opacity: 0 }], options)];
-    if (!reducedMotion() && parts.sheet) {
+    if (parts.sheet && (centre || !reducedMotion())) {
       element.runningAnimations.push(parts.sheet.animate(
-        [{ transform: "translateY(" + from + "px)" }, { transform: "translateY(100%)" }], options));
+        centre
+          ? [{ opacity: 1, transform: "scale(1)" }, { opacity: 0, transform: "scale(" + moveScale() + ")" }]
+          : [{ transform: "translateY(" + from + "px)" }, { transform: "translateY(100%)" }], options));
     }
     element.closeTimer = setTimeout(finish, 500);                  // can never stick
     var last = element.runningAnimations[element.runningAnimations.length - 1];
@@ -2582,6 +2623,7 @@
     commitRows = null;
     commitMonth = null;
     payCommitment = null;
+    moneyFadedFor = "";          // a new session's first Home load fades in like the first one did
     if ($("balanceAmount")) {
       $("balanceAmount").textContent = "\u2014";
       $("incomeTotal").textContent = "+" + money(0);
@@ -3632,7 +3674,7 @@
       state.rows = loaded[1];
       trackEarliestYear(loaded[1]);
       renderSummary(loaded[0]);
-      if (loaded[2]) paintFinance(loaded[2]); else paintFinanceError();
+      if (loaded[2]) { paintFinance(loaded[2]); fadeMoneyCards(); } else paintFinanceError();
       renderTransactions(state.rows);
     } catch (error) {
       state.rows = [];
@@ -3644,6 +3686,24 @@
       paintFinanceError();
       $("homeError").innerHTML = '<div class="error-card">' + escapeHtml(friendly(error)) + "</div>";
     }
+  }
+
+  // The figures land after the skeleton does. One short fade says "this was just filled in" rather than
+  // letting the numbers pop into place, and it is replayed by hand because the cards are never
+  // re-created. Once per month and mode: the same month re-read after a save must not blink, so the key
+  // remembers what has already been faded in. A failed read leaves the key alone, so the next good one
+  // still fades.
+  var moneyFadedFor = "";
+
+  function fadeMoneyCards() {
+    var key = state.month + "|" + state.mode;
+    if (key === moneyFadedFor) return;
+    moneyFadedFor = key;
+    replay($("balanceCard"), "is-money-fresh");
+    replay($("statRow"), "is-money-fresh");
+    var budget = !$("budgetCard").hidden ? $("budgetCard")
+      : (!$("budgetPromptCard").hidden ? $("budgetPromptCard") : null);
+    replay(budget, "is-money-fresh");
   }
 
   // Re-read only the money figures: a paid mark or a settings save moves the balance and the budget,

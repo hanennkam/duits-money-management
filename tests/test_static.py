@@ -608,6 +608,108 @@ def test_the_anchor_asks_one_question_with_one_preview_and_one_help_line(client:
     assert "body.opening_balance = openingFor(typed, summary.total_income, summary.total_expense);" in anchor_branch
 
 
+def test_the_sheet_and_the_popup_have_their_own_durations(client: TestClient) -> None:
+    """220ms up for a sheet, 180ms down, 200ms for the centred popup, and the same numbers shortened
+    under Reduce Motion.
+
+    The durations live in `:root` so `motionMs()` can read them back, which is also what lets Reduce
+    Motion shorten them without a second code path. The curve is the app's one ease-out, read from
+    `EASE_IOS`; nothing here introduces another.
+    """
+    page = client.get("/").text
+    root = page[page.index("  :root {"):page.index("@media (prefers-reduced-motion: reduce)")]
+    assert "--dur-sheet: 220ms;" in root
+    assert "--dur-sheet-out: 180ms;" in root
+    assert "--dur-pop: 200ms;" in root
+    assert "--move-pop: .96;" in root
+    reduced = page[page.index("@media (prefers-reduced-motion: reduce)"):page.index("@keyframes page-in")]
+    assert "--dur-sheet: 150ms;" in reduced
+    assert "--dur-sheet-out: 150ms;" in reduced
+    assert "--dur-pop: 150ms;" in reduced
+    assert "--move-pop: 1;" in reduced
+    assert "--move-sheet: 0%;" in reduced, "no travel at all under Reduce Motion"
+    # one curve, read from the same constant by every WAAPI call
+    assert 'var EASE_IOS = "cubic-bezier(0.32, 0.72, 0, 1)";' in page
+    open_fn = page[page.index("function openOverlay("):page.index("function closeOverlay(")]
+    close_fn = page[page.index("function closeOverlay("):page.index("function attachSheetDrag(")]
+    for block in (open_fn, close_fn):
+        assert "easing: EASE_IOS" in block
+        assert "cubic-bezier" not in block, "the curve comes from the constant, not from here"
+    # the popup's starting scale is read back like the durations are, so Reduce Motion can make it 1
+    assert "function moveScale()" in page
+    assert 'getPropertyValue("--move-pop")' in page
+    # the page behind the two full-height sheets leaves on the closing beat, not the opening one
+    behind = page[page.index("function pageBehind("):page.index("function isOutsideTap(")]
+    assert 'motionMs(back ? "--dur-sheet" : "--dur-sheet-out")' in behind
+
+
+def test_the_popup_fades_and_a_sheet_still_slides(client: TestClient) -> None:
+    """The centred popup has nowhere to travel: it fades over 0.96 -> 1. A bottom sheet still slides,
+    and it is fully opaque from the first frame to the last.
+
+    The panel's opacity is the one animation that touches the sheet's own alpha, so it is kept honest
+    here: the keyframes exist only for `.is-centre`, they end at 1, and the close drops the inline
+    style and cancels the animation, so the next open starts opaque. The rest of the app's overlays
+    keep the scrim as the only thing that fades.
+    """
+    page = client.get("/").text
+    open_fn = page[page.index("function openOverlay("):page.index("function closeOverlay(")]
+    close_fn = page[page.index("function closeOverlay("):page.index("function attachSheetDrag(")]
+    # the two ways in, chosen once at the top of the call
+    assert 'var centre = element.classList.contains("is-centre");' in open_fn
+    assert 'motionMs(centre ? "--dur-pop" : "--dur-sheet")' in open_fn
+    assert ('[{ opacity: 0, transform: "scale(" + moveScale() + ")" }, '
+            '{ opacity: 1, transform: "scale(1)" }]') in open_fn
+    assert '[{ transform: "translateY(100%)" }, { transform: "translateY(0)" }]' in open_fn
+    # and the two ways out
+    assert 'motionMs("--dur-sheet-out")' in close_fn
+    assert ('[{ opacity: 1, transform: "scale(1)" }, '
+            '{ opacity: 0, transform: "scale(" + moveScale() + ")" }]') in close_fn
+    assert '[{ transform: "translateY(" + from + "px)" }, { transform: "translateY(100%)" }]' in close_fn
+    # Reduce Motion: the popup keeps its fade (its scale is 1 there); a sheet is skipped outright
+    assert "if (parts.sheet && (centre || !reducedMotion())) {" in open_fn
+    assert "if (parts.sheet && (centre || !reducedMotion())) {" in close_fn
+    # nothing is left on the panel when it closes: no inline opacity, no fill, no transform
+    finish = close_fn[close_fn.index("var finish = function () {"):close_fn.index("pageBehind(element, false);")]
+    assert 'parts.sheet.style.opacity = "";' in finish
+    assert 'parts.sheet.style.transform = "";' in finish
+    assert "cancelOverlayMotion(element);" in finish
+    # and the CSS never makes a sheet or an overlay translucent, so the slide stays opaque
+    for selector in ("  .overlay {", "  .sheet {"):
+        start = page.index(selector)
+        rule = page[start:page.index("\n  }", start)]
+        assert "opacity" not in rule, selector
+
+
+def test_the_money_block_fades_in_once_per_month_and_mode(client: TestClient) -> None:
+    """The figures arrive with one short fade, once: first load, and a month or mode change.
+
+    A re-read of the same month after a save must not blink the cards, so the helper remembers the
+    month|mode it last faded and the post-save refresh never calls it. The animation is opacity only,
+    which is why it is safe to keep under Reduce Motion (it is simply shorter there).
+    """
+    page = client.get("/").text
+    assert 'id="statRow"' in page
+    assert ".is-money-fresh { animation: money-in var(--dur-page) var(--ease-ios); }" in page
+    assert "@keyframes money-in { from { opacity: 0; } }" in page
+    fn = page[page.index("function fadeMoneyCards()"):page.index("async function refreshFinanceCard()")]
+    assert 'var key = state.month + "|" + state.mode;' in fn
+    assert "if (key === moneyFadedFor) return;" in fn
+    assert 'replay($("balanceCard"), "is-money-fresh");' in fn
+    assert 'replay($("statRow"), "is-money-fresh");' in fn
+    assert '!$("budgetCard").hidden ? $("budgetCard")' in fn
+    assert "budgetPromptCard" in fn, "the offer fades when it is the budget card on screen"
+    # the one call site: the Home load, when the figures actually arrived
+    home = page[page.index("async function loadHome()"):page.index("function fadeMoneyCards()")]
+    assert "if (loaded[2]) { paintFinance(loaded[2]); fadeMoneyCards(); } else paintFinanceError();" in home
+    # and not after a save: refreshFinanceCard repaints the figures without the fade
+    refresh = page[page.index("async function refreshFinanceCard()"):page.index("function paintFinanceError()")]
+    assert "fadeMoneyCards" not in refresh, "a save re-reads the figures without blinking them"
+    # a new session starts over
+    caches = page[page.index("function clearCaches()"):page.index("function paintFinance(")]
+    assert 'moneyFadedFor = "";' in caches
+
+
 def test_the_calculation_sheet_is_the_short_list_and_a_pencil(client: TestClient) -> None:
     """Six rows, one line about safe to spend, and a named edit control; the long note is gone.
 
@@ -917,7 +1019,7 @@ def test_a_failing_finance_read_never_blanks_home(client: TestClient) -> None:
     page = client.get("/").text
     home = page[page.index("async function loadHome("):page.index("// Re-read only the money figures")]
     assert 'api("/finance/summary" + monthQuery()).catch(function () { return null; })' in home
-    assert "if (loaded[2]) paintFinance(loaded[2]); else paintFinanceError();" in home
+    assert "if (loaded[2]) { paintFinance(loaded[2]); fadeMoneyCards(); } else paintFinanceError();" in home
     # guarded per request: still one batch, and no second try of the same read
     assert home.count("await Promise.all(") == 1
     assert home.count("catch(function () { return null; })") == 1
@@ -1209,7 +1311,7 @@ def test_the_income_and_expense_labels_are_the_two_words(client: TestClient) -> 
     page = client.get("/").text
     assert 'stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 19V5"/><path d="M6 11l6-6 6 6"/></svg>Income</span>' in page
     assert 'stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 5v14"/><path d="M6 13l6 6 6-6"/></svg>Expenses</span>' in page
-    assert "this month</span>" not in page[page.index('<div class="stat-row">'):page.index('<div class="card budget-card"')]
+    assert "this month</span>" not in page[page.index('<div class="stat-row" id="statRow">'):page.index('<div class="card budget-card"')]
 
 
 def test_the_name_merchant_and_note_inputs_keep_autocomplete_off(client: TestClient) -> None:
