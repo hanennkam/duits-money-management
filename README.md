@@ -757,7 +757,7 @@ All of these except `/health` need `Authorization: Bearer <Supabase access token
 
 | Method | Path | Body | Returns |
 | --- | --- | --- | --- |
-| GET | `/health` | – | `{"status": "ok"}` (no auth) |
+| GET, HEAD | `/health` | – | `{"status": "ok"}` (no auth, no database — used by Render and UptimeRobot) |
 | POST | `/transactions/scan` | multipart: `file` (jpg/png/webp), optional `mode` | 201 created transaction |
 | POST | `/transactions/text` | JSON `{"text": "...", "mode": "personal"}` | 201 created transaction |
 | POST | `/transactions` | JSON: `amount` (required), `txn_date` (default today), `merchant`, `category`, `type`, `mode`, `note`, optional `commitment_id` (the Pay flow's link; must belong to the caller) | 201 created transaction (422 bad value or unknown field, 409 duplicate — a scan of the same receipt, or a Pay whose bill is already charged this month — 404 unknown/foreign `commitment_id`) |
@@ -803,8 +803,9 @@ migration, which is a separate decision.
 export API_KEY="paste-the-key-from-your-.env"
 BASE=http://127.0.0.1:8000
 
-# health (no key)
+# health (no key) — GET returns the body, HEAD is what UptimeRobot polls
 curl -s $BASE/health
+curl -sI $BASE/health
 
 # scan a receipt photo
 curl -s -X POST $BASE/transactions/scan \
