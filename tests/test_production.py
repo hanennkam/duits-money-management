@@ -34,6 +34,18 @@ def test_the_api_itself_still_works_in_production(production: TestClient) -> Non
     assert production.get("/health").status_code == 200
 
 
+def test_health_is_public_head_and_never_cached(client: TestClient) -> None:
+    """UptimeRobot polls /health with HEAD and no token; a cached reply would not keep Render awake."""
+    for method in (client.get, client.head):
+        response = method("/health")
+        assert response.status_code == 200
+        assert response.headers["Cache-Control"] == "no-store"
+
+    body = client.get("/health")
+    assert body.json() == {"status": "ok"}
+    assert body.headers["content-type"] == "application/json"
+
+
 def test_docs_stay_on_outside_production() -> None:
     assert main_module.app.docs_url == "/docs"
     assert main_module.app.openapi_url == "/openapi.json"
