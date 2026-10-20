@@ -710,6 +710,55 @@ def test_the_money_block_fades_in_once_per_month_and_mode(client: TestClient) ->
     assert 'moneyFadedFor = "";' in caches
 
 
+def test_a_whats_new_action_points_at_the_card_it_talked_about(client: TestClient) -> None:
+    """The button hands over to Home with one blue ring on the card it just described.
+
+    The ring is armed before the card closes, waits while any sheet is open (every action opens one),
+    and is drawn only if the target is on screen. It is two seconds, once, and it is a ring around the
+    element: nothing moves, nothing else is dimmed, and no tour or spotlight is built.
+    """
+    page = client.get("/").text
+    targets = page[page.index("var WHATS_NEW_TARGETS = {"):page.index("// The first match that is actually on screen")]
+    assert 'balance: "#balanceCard",' in targets
+    assert 'commitment: "#safePill",' in targets
+    assert 'budget: "#budgetCard, #budgetPromptCard"' in targets
+    # armed first, so the card's close and the sheet the button opens are both watched
+    action = page[page.index("function runWhatsNewAction()"):page.index("// Where each button's words land on Home")]
+    assert action.index("pulseHomeLater(WHATS_NEW_TARGETS[action]);") < action.index('closeOverlay($("whatsNewOverlay")')
+    # it fires only when no sheet is open any more
+    later = page[page.index("function pulseHomeLater("):page.index("// Shown once per version")]
+    assert 'if (document.querySelector(".overlay.open")) return;' in later
+    assert "observer.disconnect();" in later
+    assert "pulseHome(selector);" in later
+    # a hidden element matches the selector but has no box, so the pulse is skipped
+    find = page[page.index("function firstVisible("):page.index("var pulseTarget = null;")]
+    assert "if (found[i].getClientRects().length) return found[i];" in find
+    assert "return null;" in find
+    # two seconds, once, then the class is dropped so the next pulse can play
+    home = page[page.index("function pulseHome("):page.index("function pulseHomeLater(")]
+    assert 'replay(element, "is-pulse");' in home
+    assert "}, 2200);" in home
+    assert 'element.classList.remove("is-pulse");' in home
+    # the ring itself: outside the element's edge, the element's own radius, never in the way
+    start = page.index('  .is-pulse::after {\n    content: "";')
+    ring = page[start:page.index("\n  }", start)]
+    assert "position: absolute;" in ring
+    assert "inset: -4px;" in ring
+    assert "border: 2px solid var(--accent);" in ring
+    assert "border-radius: inherit;" in ring
+    assert "pointer-events: none;" in ring
+    assert "animation: pulse-ring 2s var(--ease-ios) 1 both;" in ring
+    # opacity only: the card it is drawn around cannot move
+    beats = page[page.index("@keyframes pulse-ring {"):page.index("@keyframes pulse-ring-steady")]
+    assert "transform" not in beats and "opacity" in beats
+    # Reduce Motion keeps the ring and drops the two beats. !important because the shorthand that
+    # starts the ring sits later in the file and would otherwise win the name back.
+    reduced = page[page.index("@media (prefers-reduced-motion: reduce)"):page.index("@keyframes page-in")]
+    assert ".is-pulse::after { animation-name: pulse-ring-steady !important; }" in reduced
+    steady = page[page.index("@keyframes pulse-ring-steady {"):page.index("@keyframes grow-in {")]
+    assert "transform" not in steady and "opacity" in steady
+
+
 def test_the_calculation_sheet_is_the_short_list_and_a_pencil(client: TestClient) -> None:
     """Six rows, one line about safe to spend, and a named edit control; the long note is gone.
 

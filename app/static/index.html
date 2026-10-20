@@ -204,6 +204,9 @@
     .txn,
     .cat-fill,
     .day-bar { animation: none !important; }
+    /* The What's New ring keeps its fade but loses the two beats. !important for the same reason as
+       the rules below: the shorthand that starts the ring is later in the file. */
+    .is-pulse::after { animation-name: pulse-ring-steady !important; }
     /* The ring is drawn, not animated: without this its dash offset would stay at the hidden value. */
     .donut-seg { stroke-dashoffset: 0 !important; transition: none !important; }
   }
@@ -213,6 +216,21 @@
   /* The money block settles rather than pops: a fade with no movement at all, so it keeps playing
      under Reduce Motion (where it is simply shorter). */
   @keyframes money-in { from { opacity: 0; } }
+  /* Two beats, then out. The ring only changes opacity: the element it is drawn around never moves. */
+  @keyframes pulse-ring {
+    0% { opacity: 0; }
+    12% { opacity: 1; }
+    38% { opacity: .4; }
+    62% { opacity: 1; }
+    100% { opacity: 0; }
+  }
+  /* Reduce Motion: one fade in and out, no beats. */
+  @keyframes pulse-ring-steady {
+    0% { opacity: 0; }
+    15% { opacity: 1; }
+    85% { opacity: 1; }
+    100% { opacity: 0; }
+  }
   @keyframes grow-in { from { transform: scaleX(0); } }
   @keyframes grow-up { from { transform: scaleY(0); } }
   /* One animation for the toast's whole life: in from above, hold, fade out. The percentages are the
@@ -1342,6 +1360,18 @@
      because the cards are never re-created. Once per month and mode: a re-read after a save must not
      blink, so fadeMoneyCards() remembers what it has already faded in. */
   .is-money-fresh { animation: money-in var(--dur-page) var(--ease-ios); }
+  /* One blue ring, two seconds, once: the hand-off from a What's New button to the card it just
+     described. It is a pseudo-element so nothing moves and nothing else dims; -4px keeps it clear of
+     the element's own edge, and it borrows the element's radius (a card corner, or the pill's 9999px).
+     pointer-events: none means a ring that is on screen can never eat a tap. */
+  .is-pulse { position: relative; }
+  .is-pulse::after {
+    content: ""; position: absolute; inset: -4px; border: 2px solid var(--accent);
+    border-radius: inherit; pointer-events: none;
+    /* both: hold the final 0 after the last beat, so the ring cannot pop back to full for the
+       200ms between the animation ending and the class being dropped. */
+    animation: pulse-ring 2s var(--ease-ios) 1 both;
+  }
   /* Bars grow from the left edge. Width stays a real layout size; only scaleX moves. */
   .cat-fill { transform-origin: left center; }
   .is-fresh .cat-fill { animation: grow-in 600ms var(--ease-ios) both; }
@@ -3509,6 +3539,9 @@
   // stacking one sheet on another (openBillsFromBalance) does it in this order.
   function runWhatsNewAction() {
     var action = WHATS_NEW_SCREENS[whatsNewIndex].action;
+    // The ring is armed before the card starts to close: the close and the sheet the button opens both
+    // come after this line, and it has to be watching before the first of them happens.
+    pulseHomeLater(WHATS_NEW_TARGETS[action]);
     closeOverlay($("whatsNewOverlay"), function () {
       if (action === "balance") {
         if (openingIsSet(financeSummary)) { openBalanceSheet(); return; }
@@ -3522,6 +3555,61 @@
       }
       openMoneyField("budget");
     });
+  }
+
+  // Where each button's words land on Home: the balance card is the figure itself, the safe-to-spend
+  // pill is the line the unpaid bills move, and the budget is whichever of its two states is on screen
+  // (the card once a limit is set, the offer before that).
+  var WHATS_NEW_TARGETS = {
+    balance: "#balanceCard",
+    commitment: "#safePill",
+    budget: "#budgetCard, #budgetPromptCard"
+  };
+
+  // The first match that is actually on screen. A hidden element still matches a selector and still has
+  // a place in the document, so the test is whether it gets any client rects at all.
+  function firstVisible(selector) {
+    var found = document.querySelectorAll(selector);
+    for (var i = 0; i < found.length; i += 1) {
+      if (found[i].getClientRects().length) return found[i];
+    }
+    return null;
+  }
+
+  var pulseTarget = null;
+  var pulseTimer = null;   // removed when the 2s animation is over, so the next pulse is a fresh class
+
+  // One blue ring, two seconds, once. The class is replayed by hand like every other entrance, and it
+  // is dropped when its time is up: a leftover class would make the next pulse invisible.
+  function pulseHome(selector) {
+    var element = firstVisible(selector);
+    if (!element) return;
+    if (pulseTarget && pulseTarget !== element) pulseTarget.classList.remove("is-pulse");
+    clearTimeout(pulseTimer);
+    pulseTarget = element;
+    replay(element, "is-pulse");
+    pulseTimer = setTimeout(function () {
+      element.classList.remove("is-pulse");
+      if (pulseTarget === element) pulseTarget = null;
+    }, 2200);
+  }
+
+  // Armed before the card closes and fired only once no sheet is open: every action in the card opens
+  // one, and a ring behind a sheet points at nothing. A class change on any overlay is the signal,
+  // because that is how both the close and the next sheet announce themselves. The guard stops the
+  // observer after half a minute — the ring belongs to this press, not to a close much later.
+  function pulseHomeLater(selector) {
+    var guard;
+    var observer = new MutationObserver(function () {
+      if (document.querySelector(".overlay.open")) return;   // another sheet is up: wait for it
+      observer.disconnect();
+      clearTimeout(guard);
+      pulseHome(selector);
+    });
+    Array.prototype.forEach.call(document.querySelectorAll(".overlay"), function (overlay) {
+      observer.observe(overlay, { attributes: true, attributeFilter: ["class"] });
+    });
+    guard = setTimeout(function () { observer.disconnect(); }, 30000);
   }
 
   // Shown once per version, and only after the user is actually in: the sign-in, set-password and
