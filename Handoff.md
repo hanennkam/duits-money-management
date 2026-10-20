@@ -92,9 +92,15 @@ Icons → `public, max-age=600` (deliberately not `immutable`). Every response: 
   browser from `GET /transactions` rows; Week = stitched from whole months, filtered client-side.
 - Sheets: Add, detail/edit, month wheel, key dialog. Mounted permanently, each with a `.scrim` child layer.
   `openOverlay`/`closeOverlay` use WAAPI, a close token and a 500ms fallback. `attachSheetDrag` does swipe-to-dismiss.
-- Add sheet: header → Smart Entry card (`POST /transactions/text`) → Expense/Income → amount → pills → chips →
-  Scan Receipt → keypad. Fixed bottom sheet, never resizes for the keyboard, never scrolls. Shrink order via
-  container queries: amount font, key height, gaps.
+- Add sheet opens on a chooser (Manual / AI). Manual is one screen, in the Stitch order: Back + Expense/Income,
+  the amount (`RM` + caret; the number is 56-64px in a block capped at 16px of air a side, shrunk by `fitAddAmount()` for a long value), CATEGORY and
+  the chip row (no View All sheet; the chosen chip scrolls into view with
+  the previous chip peeking), a four-row card (Merchant, Date, Mode — the Mode toggle is a 32px rounded `--control`
+  track with a white selected pill, 44px tap boxes —, Note), and the keypad as the footer (fixed 58px keys, 8px gaps,
+  28px digits, 16px side inset, content-sized at 256px, 48px rows on a short sheet; hidden while Merchant or Note holds the caret).
+  The whole screen fits 390x844 and 430x932 without scrolling; 375x667 scrolls ~25px. AI is
+  Smart Entry (`POST /transactions/text`) and Scan Receipt, with no keypad. Note is `raw_extraction.note`. The
+  short-phone shrink order is container queries: the amount's air, then the keypad's chrome, then the gaps.
 - Save: `afterAdd()` waits for the sheet's close and both lists, then `flashRow(id)` highlights the row.
 - Scan Receipt: the browser downscales to 1600px, re-encodes JPEG q0.85 (strips EXIF/GPS, HEIC → JPEG), then uploads.
 - Settings → About → **Build** row: the git short hash stamped by `GET /` (`dev` locally), plus status-bar
@@ -112,9 +118,12 @@ Icons → `public, max-age=600` (deliberately not `immutable`). Every response: 
   `dy > 120px` or velocity > 0.5 px/ms; otherwise spring back in 250ms. Allow list `DRAG_SURFACES`, deny list
   `DRAG_BLOCKERS` (inputs, buttons, chips, keypad, `.kv`, `.no-drag`…). A sheet that is scrolled keeps its gesture.
 - **One Save in the Add sheet (header).** The thumb-reach Save pill was reverted in `8f39d7e`.
-- **No `visualViewport`, no `--vvh`, no scroll-into-view in the Add sheet.** The keypad stays where it is, and
-  the keyboard covers its lower half while typing. This is a deliberate trade: keys are unreachable until the
-  keyboard is dismissed. `focus({ preventScroll: true })` everywhere.
+- **The iOS keyboard is measured from `visualViewport`.** Its height = `innerHeight - visualViewport.height
+  - visualViewport.offsetTop`, kept in one variable and written to `--kb`. `--kb` sets each sheet's `bottom`
+  (and every overlay's bottom padding) and clamps its `max-height`, so the sheet lifts above the keys while
+  the page behind stays scroll-locked. Sheet heights are `dvh`, never `vh`. Focusing a sheet field centres it
+  after ~300ms by moving the sheet's own `scrollTop`; the window is never scrolled.
+  `focus({ preventScroll: true })` everywhere, and `--kb` resets on close.
 - **Text inputs are ≥16px** so iOS does not zoom on focus. `touch-action: manipulation` on `html`, `body`,
   `button`, date label. Swipe surfaces use `touch-action: none`.
 - **`--sat/--sab/--sal/--sar`** are the only `env(safe-area-inset-*)` reads.

@@ -30,6 +30,7 @@ from app import auth, db
 from app.config import get_settings
 from app.main import app
 from app.models import Extraction
+from conftest import redact_secrets  # noqa: E402  (tests/ is on sys.path via the root conftest)
 
 REAL_SIGNING_KEY_FOR = auth.signing_key_for  # captured before the root conftest can replace it
 LEGACY_0_BYTES = b"fake receipt legacy-0"
@@ -62,7 +63,10 @@ def project_ref(url: str) -> str | None:
 
 @pytest.fixture(scope="module")
 def env() -> dict[str, str]:
-    """The staging settings, read from the file, after a refusal for the live project."""
+    """The staging settings, read from the file, after a refusal for the live project.
+
+    Secret-shaped values come back wrapped as `Secret`, so a traceback can never print a key from here.
+    """
     values = dotenv_values(ENV_FILE)
     ref = project_ref(values.get("SUPABASE_URL", ""))
     assert ref != LIVE_PROJECT_REF, "refusing: this is the live project"
@@ -70,7 +74,7 @@ def env() -> dict[str, str]:
     assert project_ref(os.environ.get("SUPABASE_URL", "")) == STAGING_PROJECT_REF, (
         "the app must be configured from .env.staging (use scripts/run_staging_tests.py)"
     )
-    return {key: value for key, value in values.items() if value is not None}
+    return redact_secrets({key: value for key, value in values.items() if value is not None})
 
 
 @pytest.fixture(scope="module")
@@ -80,7 +84,10 @@ def base(env: dict[str, str]) -> str:
 
 @pytest.fixture(scope="module")
 def service(env: dict[str, str]) -> dict[str, str]:
-    return {"apikey": env["SUPABASE_SERVICE_KEY"], "Authorization": f"Bearer {env['SUPABASE_SERVICE_KEY']}"}
+    """Service-key headers, wrapped the same way: `money_rows`' assertion failure once printed these."""
+    return redact_secrets(
+        {"apikey": env["SUPABASE_SERVICE_KEY"], "Authorization": f"Bearer {env['SUPABASE_SERVICE_KEY']}"}
+    )
 
 
 def sign_in(base: str, env: dict[str, str], email: str) -> str:
@@ -398,3 +405,287 @@ def test_storage_rls_stops_b_reading_a_receipt(base: str, env, token_a: str, tok
                      headers={"apikey": key, "Authorization": f"Bearer {token_a}"}, timeout=30)
     assert as_b.status_code != 200, "B must not download A's receipt"
     assert as_a.status_code == 200
+
+
+# ---------------------------------------------------------------- 0003: money settings, commitments, budget
+# These run only when 0003 is applied. They are what proves the two things the migration's FORCE row level
+# security could break: the service-key API still reads and writes its own rows with the policies forced
+# on, and anon/publishable still gets nothing at all. `0003 down` leaves the project without these tables,
+# so the fixtures skip with the reason rather than failing the whole module.
+
+CREATED_COMMITMENTS: list[str] = []
+SETTINGS_MONTH = "2026-10"
+MONEY_TABLES = ("user_finance_settings", "monthly_commitments", "commitment_payments")
+# The column that identifies a row: the settings table is one row per owner and is keyed by user_id, the
+# other two by id. Reads that only want to know "is a row there" name the key explicitly — the first version
+# selected `id` from all three and PostgREST refused the settings read, failing the test for the wrong reason.
+MONEY_KEY_COLUMN = {"user_finance_settings": "user_id", "monthly_commitments": "id", "commitment_payments": "id"}
+
+
+@pytest.fixture(scope="module")
+def money_tables(base: str, service: dict[str, str]) -> None:
+    """Skip when 0003 is not applied: this module also runs between rehearsals."""
+    response = httpx.get(f"{base}/rest/v1/monthly_commitments?select=id&limit=1", headers=service, timeout=30)
+    if response.status_code != 200:
+        pytest.skip(
+            "0003 is not applied to staging "
+            "(run migrations/0003_budget_commitments.up.sql, then verify_after_0003.sql)"
+        )
+
+
+@pytest.fixture(scope="module", autouse=True)
+def cleanup_money_rows(base: str, service: dict[str, str]) -> Iterator[None]:
+    """Remove the commitments these tests created; their paid marks cascade with them."""
+    yield
+    for commitment_id in CREATED_COMMITMENTS:
+        httpx.delete(
+            f"{base}/rest/v1/monthly_commitments?id=eq.{commitment_id}", headers=service, timeout=30
+        )
+    CREATED_COMMITMENTS.clear()
+
+
+@pytest.fixture(scope="module")
+def restore_b_settings(base: str, service: dict[str, str], ids: dict[str, str]) -> Iterator[None]:
+    """Put B's settings row back exactly as it was: these tests write real values into it."""
+    before = money_rows(base, service, "user_finance_settings", f"user_id=eq.{ids['b']}&select=*")
+    yield
+    if before:
+        httpx.post(
+            f"{base}/rest/v1/user_finance_settings?on_conflict=user_id",
+            headers={**service, "Prefer": "resolution=merge-duplicates"},
+            json=before[0],
+            timeout=30,
+        )
+    else:
+        httpx.delete(f"{base}/rest/v1/user_finance_settings?user_id=eq.{ids['b']}", headers=service, timeout=30)
+
+
+def money_rows(base: str, service: dict[str, str], table: str, query: str) -> list[dict[str, Any]]:
+    response = httpx.get(f"{base}/rest/v1/{table}?{query}", headers=service, timeout=30)
+    assert response.status_code == 200, response.text[:200]
+    return response.json()
+
+
+def test_the_api_still_reads_and_writes_with_force_rls_on(
+    client: TestClient, token_b: str, base: str, service: dict[str, str], ids: dict[str, str],
+    money_tables: None, restore_b_settings: None,
+) -> None:
+    """The service key bypasses RLS, and FORCE must not change that: the endpoint path is the proof."""
+    settings = client.get("/finance/settings", headers=bearer(token_b))
+    assert settings.status_code == 200 and settings.json()["user_id"] == ids["b"]
+
+    written = client.put(
+        "/finance/settings", headers=bearer(token_b),
+        json={"opening_balance": 250.5, "monthly_budget": 1000},
+    )
+    assert written.status_code == 200 and written.json()["opening_balance"] == 250.5
+
+    created = client.post(
+        "/commitments", headers=bearer(token_b),
+        json={"name": "Kedai Sewa Staging", "amount": 300, "day_of_month": 15},
+    )
+    assert created.status_code == 201, created.text
+    commitment_id = created.json()["id"]
+    CREATED_COMMITMENTS.append(commitment_id)
+
+    # The row is really in the table, not only in the response: the service key reads it back.
+    assert money_rows(base, service, "monthly_commitments", f"id=eq.{commitment_id}&select=user_id")[0][
+        "user_id"
+    ] == ids["b"]
+
+    marked = client.post(
+        f"/commitments/{commitment_id}/paid", headers=bearer(token_b), json={"month": SETTINGS_MONTH}
+    )
+    assert marked.status_code == 200 and marked.json()["paid"] is True
+
+    # The summary agrees with the rows the API just listed: no figure is stored, so they cannot drift.
+    listed = client.get(f"/commitments?month={SETTINGS_MONTH}", headers=bearer(token_b)).json()
+    assert next(row for row in listed if row["id"] == commitment_id)["paid"] is True
+    expected_unpaid = sum(
+        float(row["amount"]) for row in listed if row["active"] and not row["paid"]
+    )
+    summary = client.get(f"/finance/summary?month={SETTINGS_MONTH}", headers=bearer(token_b)).json()
+    assert round(summary["unpaid_commitments"], 2) == round(expected_unpaid, 2)
+    assert summary["monthly_budget"] == 1000.0
+
+    undo = client.delete(
+        f"/commitments/{commitment_id}/paid?month={SETTINGS_MONTH}", headers=bearer(token_b)
+    )
+    assert undo.status_code == 204
+    unmarked = client.get(f"/commitments?month={SETTINGS_MONTH}", headers=bearer(token_b)).json()
+    assert next(row for row in unmarked if row["id"] == commitment_id)["paid"] is False
+
+    patched = client.patch(
+        f"/commitments/{commitment_id}", headers=bearer(token_b), json={"amount": 320}
+    )
+    assert patched.status_code == 200 and patched.json()["amount"] == 320.0
+
+    assert client.delete(f"/commitments/{commitment_id}", headers=bearer(token_b)).status_code == 204
+    assert money_rows(base, service, "monthly_commitments", f"id=eq.{commitment_id}&select=id") == []
+
+
+def test_anon_can_neither_read_nor_write_the_money_tables(
+    base: str, env: dict[str, str], service: dict[str, str], money_tables: None
+) -> None:
+    """The policies are `to authenticated`, so the publishable key gets a refusal or an empty answer."""
+    anon = {"apikey": env["SUPABASE_PUBLISHABLE_KEY"]}
+    ghost = str(uuid.uuid4())  # an owner that exists nowhere, so every write is identifiable afterwards
+
+    for table in MONEY_TABLES:
+        rows_read = httpx.get(
+            f"{base}/rest/v1/{table}?select={MONEY_KEY_COLUMN[table]}", headers=anon, timeout=30
+        )
+        assert rows_read.status_code != 200 or rows_read.json() == [], table
+
+    for table, body in (
+        ("user_finance_settings", {"user_id": ghost, "opening_balance": 1, "monthly_budget": 1}),
+        ("monthly_commitments", {"user_id": ghost, "name": "Anon", "amount": 1, "day_of_month": 1}),
+        (
+            "commitment_payments",
+            {"user_id": ghost, "commitment_id": str(uuid.uuid4()), "month": SETTINGS_MONTH},
+        ),
+    ):
+        written = httpx.post(
+            f"{base}/rest/v1/{table}",
+            headers={**anon, "Prefer": "return=representation"},
+            json=body,
+            timeout=30,
+        )
+        assert written.status_code in (401, 403), f"{table}: {written.status_code} {written.text[:120]}"
+
+    # And nothing slipped in behind the refusal.
+    for table in MONEY_TABLES:
+        assert money_rows(base, service, table, f"user_id=eq.{ghost}&select={MONEY_KEY_COLUMN[table]}") == [], table
+
+
+def test_b_cannot_see_change_or_delete_a_commitment_through_postgrest(
+    base: str, env: dict[str, str], token_a: str, token_b: str, ids: dict[str, str], service: dict[str, str],
+    money_tables: None,
+) -> None:
+    """The same check 0002 got for transactions, on the new table and with the policies forced."""
+    key = env["SUPABASE_SERVICE_KEY"]
+    a_headers = {"apikey": key, "Authorization": f"Bearer {token_a}", "Prefer": "return=representation"}
+    b_headers = {"apikey": key, "Authorization": f"Bearer {token_b}", "Prefer": "return=representation"}
+
+    created = httpx.post(
+        f"{base}/rest/v1/monthly_commitments",
+        headers=a_headers,
+        json={"user_id": ids["a"], "name": "Sewa Staging A", "amount": 150, "day_of_month": 5},
+        timeout=30,
+    )
+    assert created.status_code in (200, 201), created.text[:200]
+    commitment = created.json()[0]
+    CREATED_COMMITMENTS.append(commitment["id"])
+
+    seen = httpx.get(
+        f"{base}/rest/v1/monthly_commitments?id=eq.{commitment['id']}&select=*", headers=b_headers, timeout=30
+    )
+    patched = httpx.patch(
+        f"{base}/rest/v1/monthly_commitments?id=eq.{commitment['id']}",
+        headers=b_headers, json={"amount": 1}, timeout=30,
+    )
+    deleted = httpx.delete(
+        f"{base}/rest/v1/monthly_commitments?id=eq.{commitment['id']}", headers=b_headers, timeout=30
+    )
+    assert seen.status_code == 200 and seen.json() == []
+    assert patched.status_code in (200, 204) and patched.json() == []
+    assert deleted.status_code in (200, 204) and deleted.json() == []
+    assert money_rows(base, service, "monthly_commitments", f"id=eq.{commitment['id']}&select=amount")[0][
+        "amount"
+    ] == 150.0
+
+    # B may not hand a row to A either: the INSERT policy's WITH CHECK refuses it.
+    smuggled = httpx.post(
+        f"{base}/rest/v1/monthly_commitments",
+        headers=b_headers,
+        json={"user_id": ids["a"], "name": "Samseng B", "amount": 5, "day_of_month": 5},
+        timeout=30,
+    )
+    assert smuggled.status_code in (401, 403), smuggled.text[:200]
+
+    # And a row B creates is invisible to A.
+    b_own = httpx.post(
+        f"{base}/rest/v1/monthly_commitments",
+        headers=b_headers,
+        json={"user_id": ids["b"], "name": "Sewa Staging B", "amount": 60, "day_of_month": 6},
+        timeout=30,
+    )
+    assert b_own.status_code in (200, 201), b_own.text[:200]
+    CREATED_COMMITMENTS.append(b_own.json()[0]["id"])
+    a_sees = httpx.get(
+        f"{base}/rest/v1/monthly_commitments?id=eq.{b_own.json()[0]['id']}&select=id",
+        headers=a_headers, timeout=30,
+    )
+    assert a_sees.status_code == 200 and a_sees.json() == []
+
+
+def test_a_paid_mark_cannot_point_at_another_owners_commitment(
+    base: str, env: dict[str, str], token_a: str, token_b: str, ids: dict[str, str], service: dict[str, str],
+    money_tables: None,
+) -> None:
+    """The composite foreign key, which is the guard that holds even if the API's own check is skipped."""
+    key = env["SUPABASE_SERVICE_KEY"]
+    created = httpx.post(
+        f"{base}/rest/v1/monthly_commitments",
+        headers={**service, "Prefer": "return=representation"},
+        json={"user_id": ids["a"], "name": "Sewa Untuk FK", "amount": 90, "day_of_month": 7},
+        timeout=30,
+    )
+    assert created.status_code in (200, 201), created.text[:200]
+    a_commitment = created.json()[0]["id"]
+    CREATED_COMMITMENTS.append(a_commitment)
+
+    # B claims A's commitment: (commitment_id, user_id) has no such parent row, so the FK refuses it.
+    as_b_for_a = httpx.post(
+        f"{base}/rest/v1/commitment_payments",
+        headers={"apikey": key, "Authorization": f"Bearer {token_b}", "Prefer": "return=representation"},
+        json={"user_id": ids["b"], "commitment_id": a_commitment, "month": SETTINGS_MONTH},
+        timeout=30,
+    )
+    assert as_b_for_a.status_code == 409, as_b_for_a.text[:200]
+
+    # B filing a mark under A's name fails earlier, on the policy's WITH CHECK.
+    as_b_named_a = httpx.post(
+        f"{base}/rest/v1/commitment_payments",
+        headers={"apikey": key, "Authorization": f"Bearer {token_b}", "Prefer": "return=representation"},
+        json={"user_id": ids["a"], "commitment_id": a_commitment, "month": SETTINGS_MONTH},
+        timeout=30,
+    )
+    assert as_b_named_a.status_code in (401, 403), as_b_named_a.text[:200]
+
+    assert money_rows(
+        base, service, "commitment_payments", f"commitment_id=eq.{a_commitment}&select=id"
+    ) == []
+
+
+def test_the_view_is_not_readable_with_a_user_token(
+    base: str, env: dict[str, str], token_b: str, money_tables: None
+) -> None:
+    """`revoke all` on the view is the gate: it has no policy of its own to fall back on."""
+    key = env["SUPABASE_SERVICE_KEY"]
+    response = httpx.get(
+        f"{base}/rest/v1/transaction_totals?select=user_id,total_expense",
+        headers={"apikey": key, "Authorization": f"Bearer {token_b}"},
+        timeout=30,
+    )
+    assert response.status_code in (401, 403), response.text[:200]
+
+
+def test_the_view_agrees_with_the_owners_own_rows(
+    base: str, service: dict[str, str], ids: dict[str, str], money_tables: None
+) -> None:
+    """The view is what the API sums for the balance, so it has to agree with the rows themselves."""
+    rows = rows_for(base, service, f"user_id=eq.{ids['b']}&select=txn_date,amount,type,mode")
+    expected_expense = sum(
+        Decimal(str(row["amount"])) for row in rows if row["type"] == "expense"
+    )
+    expected_income = sum(Decimal(str(row["amount"])) for row in rows if row["type"] == "income")
+
+    totals = money_rows(base, service, "transaction_totals", f"user_id=eq.{ids['b']}&select=*")
+
+    assert totals, "B has seeded rows, so the view must have at least one"
+    assert all(row["user_id"] == ids["b"] for row in totals)
+    assert all(re.match(r"^\d{4}-\d{2}-01$", row["month"]) for row in totals)  # a month, first of it
+    assert sum(Decimal(str(row["total_expense"] or 0)) for row in totals) == expected_expense
+    assert sum(Decimal(str(row["total_income"] or 0)) for row in totals) == expected_income
+    assert sum(row["row_count"] for row in totals) == len(rows)

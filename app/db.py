@@ -1,8 +1,9 @@
 """Supabase (Postgres + Storage) client and query/insert helpers.
 
-Every helper that reads, writes or signs a transaction or a receipt takes a required, keyword-only `user_id`.
-There is no default and no optional form, so a call without an owner is a TypeError, not an unfiltered query.
-The service-role client bypasses RLS, so this module is the only place that talks to Supabase.
+Every helper that reads, writes or signs a transaction, a receipt, a finance setting or a commitment takes a
+required, keyword-only `user_id`. There is no default and no optional form, so a call without an owner is a
+TypeError, not an unfiltered query. The service-role client bypasses RLS, so this module is the only place
+that talks to Supabase.
 """
 
 from __future__ import annotations
@@ -10,7 +11,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from functools import lru_cache
 from typing import Any
@@ -144,7 +145,11 @@ def _bucket() -> Any:
 
 
 def _owned(query: Any, user_id: UUID) -> Any:
-    """Every transactions query goes through here: a row is seen or changed only by its owner."""
+    """Every owner-scoped query goes through here: a row is seen or changed only by its owner.
+
+    That covers transactions, finance settings, commitments and their payments. The service key bypasses
+    RLS, so this filter — not a policy — is what keeps tenants apart on the API's own path.
+    """
     return query.eq("user_id", str(user_id))
 
 
@@ -184,6 +189,30 @@ def find_by_dedupe_hashes(hashes: list[str], *, user_id: UUID) -> dict[str, Any]
 def find_by_dedupe_hash(dedupe: str, *, user_id: UUID) -> dict[str, Any] | None:
     """This owner's row with this dedupe hash, if any."""
     rows = _owned(_table().select("*").eq("dedupe_hash", dedupe), user_id).limit(1).execute().data or []
+    return rows[0] if rows else None
+
+
+def find_pay_expense(
+    commitment_id: str, month: str, *, user_id: UUID
+) -> dict[str, Any] | None:
+    """This owner's Pay expense for one commitment in one month, if any.
+
+    The month is the transaction's own `txn_date` month, so the range is the whole month and the
+    link column is the commitment. `user_id` is filtered here rather than left to a policy: the
+    service key bypasses RLS, so this filter is what keeps one owner's rows away from another.
+
+    A Pay expense is a manual row and manual rows are never deduped (a typed entry is deliberate),
+    so this lookup is what stops a retried Pay from charging the same bill twice.
+    """
+    start, end = month_bounds(month)
+    query = (
+        _table()
+        .select("*")
+        .eq("commitment_id", commitment_id)
+        .gte("txn_date", start.isoformat())
+        .lt("txn_date", end.isoformat())
+    )
+    rows = _owned(query, user_id).order("txn_date", desc=True).limit(1).execute().data or []
     return rows[0] if rows else None
 
 
@@ -250,6 +279,146 @@ def summarize(start: date, end: date, mode: str, *, user_id: UUID) -> dict[str, 
         category = row.get("category") or "other"
         by_category[category] = by_category.get(category, Decimal("0")) + amount
     return {"total_expense": total_expense, "total_income": total_income, "by_category": by_category}
+
+
+# ---------------------------------------------------------------- money settings and commitments
+# Every helper below is owner-scoped through `_owned` and sets `user_id` itself on a write: the owner is
+# never taken from the payload. They are the only code that touches 0003's tables.
+
+
+def _settings_table() -> Any:
+    return get_supabase().table("user_finance_settings")
+
+
+def _commitments_table() -> Any:
+    return get_supabase().table("monthly_commitments")
+
+
+def _payments_table() -> Any:
+    return get_supabase().table("commitment_payments")
+
+
+def _totals_view() -> Any:
+    return get_supabase().table("transaction_totals")
+
+
+def get_finance_settings(*, user_id: UUID) -> dict[str, Any] | None:
+    """This owner's settings row, or None when they have never saved one (the caller applies defaults)."""
+    rows = _owned(_settings_table().select("*"), user_id).limit(1).execute().data or []
+    return rows[0] if rows else None
+
+
+def upsert_finance_settings(patch: dict[str, Any], *, user_id: UUID) -> dict[str, Any]:
+    """Insert or update this owner's one row. The owner and `updated_at` are set here, never from `patch`."""
+    if "user_id" in patch:
+        raise ValueError("finance settings' owner cannot be changed")
+    row = {
+        **patch,
+        "user_id": str(user_id),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    # default_to_null=False: a column left out of `patch` keeps its default instead of becoming NULL.
+    rows = _settings_table().upsert(row, on_conflict="user_id", default_to_null=False).execute().data or []
+    return rows[0]
+
+
+def list_commitments(*, user_id: UUID) -> list[dict[str, Any]]:
+    """Every commitment this owner has, active or not, in due-date order (settings needs to show both)."""
+    query = (
+        _commitments_table()
+        .select("*")
+        .order("day_of_month")
+        .order("created_at")
+    )
+    return _owned(query, user_id).execute().data or []
+
+
+def get_commitment(commitment_id: str, *, user_id: UUID) -> dict[str, Any] | None:
+    """One of this owner's commitments by id, or None (another owner's id is None, never a row)."""
+    rows = (
+        _owned(_commitments_table().select("*").eq("id", commitment_id), user_id)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    return rows[0] if rows else None
+
+
+def insert_commitment(row: dict[str, Any], *, user_id: UUID) -> dict[str, Any]:
+    """Insert one commitment for `user_id`. The owner is set here, never taken from `row`."""
+    return _commitments_table().insert({**row, "user_id": str(user_id)}).execute().data[0]
+
+
+def update_commitment(
+    commitment_id: str, patch: dict[str, Any], *, user_id: UUID
+) -> dict[str, Any] | None:
+    """Apply `patch` to one of this owner's commitments, or None if it is not theirs."""
+    if "user_id" in patch:
+        raise ValueError("a commitment's owner cannot be changed")
+    rows = (
+        _owned(_commitments_table().update(patch).eq("id", commitment_id), user_id)
+        .execute()
+        .data
+        or []
+    )
+    return rows[0] if rows else None
+
+
+def delete_commitment(commitment_id: str, *, user_id: UUID) -> bool:
+    """Delete one of this owner's commitments; True if a row was actually removed.
+
+    The payments go with it (ON DELETE CASCADE on the composite key), so a deleted commitment cannot
+    leave a paid mark behind.
+    """
+    rows = _owned(_commitments_table().delete().eq("id", commitment_id), user_id).execute().data
+    return bool(rows)
+
+
+def list_commitment_payments(month: str, *, user_id: UUID) -> list[dict[str, Any]]:
+    """This owner's paid marks for one month (YYYY-MM), across every commitment."""
+    query = _payments_table().select("*").eq("month", month)
+    return _owned(query, user_id).execute().data or []
+
+
+def mark_commitment_paid(commitment_id: str, month: str, *, user_id: UUID) -> dict[str, Any]:
+    """Mark one commitment paid for one month, idempotently: a repeat returns the same mark.
+
+    The composite foreign key refuses a commitment that belongs to someone else, so this cannot be used
+    to write across tenants even if the ownership check above it were ever skipped. default_to_null=False
+    keeps `paid_at` at its default on the conflicting update rather than nulling it.
+    """
+    row = {"commitment_id": commitment_id, "month": month, "user_id": str(user_id)}
+    rows = (
+        _payments_table()
+        .upsert(row, on_conflict="commitment_id,month", default_to_null=False)
+        .execute()
+        .data
+        or []
+    )
+    return rows[0]
+
+
+def unmark_commitment_paid(commitment_id: str, month: str, *, user_id: UUID) -> bool:
+    """Remove the paid mark for one commitment and month; True if one was there."""
+    rows = (
+        _owned(_payments_table().delete().eq("commitment_id", commitment_id).eq("month", month), user_id)
+        .execute()
+        .data
+    )
+    return bool(rows)
+
+
+def transaction_totals(*, user_id: UUID) -> list[dict[str, Any]]:
+    """This owner's per-month, per-mode totals from `public.transaction_totals`.
+
+    The view aggregates inside Postgres on purpose: an all-time sum built by fetching every transaction
+    would be capped by PostgREST's max-rows and would come up short without saying so.
+    """
+    query = _totals_view().select(
+        "mode,month,total_income,total_expense,commitment_expense,row_count"
+    )
+    return _owned(query, user_id).execute().data or []
 
 
 def upload_receipt(path: str, content: bytes, content_type: str, *, user_id: UUID) -> str:

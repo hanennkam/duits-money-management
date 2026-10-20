@@ -22,6 +22,115 @@ Prepared after the auth-screen polish on branch `multi-user`. Read this before t
 | Pass 11 — runbook read-through against the tools | **Done.** Every tool-agreeing claim verified against code; four stale-prose fixes; steps 3–4 now self-report the project ref. |
 | Pass 12 — live `image_hash` shape, step 3 hardened | **Done except the staging rollback.** Production's `image_hash` uniqueness is a *partial unique index*, which step 3's text patterns could not see; step 3 now reads the catalog. Staging rebuilt to that shape and re-run: `up`, `verify_after_up.sql` and the 15 isolation tests all clean. `0002 down` on staging is the one rehearsal step left. *(Rollback since run — see Pass 13.)* |
 | Pass 13 — live cutover, steps 3–4 and 9 | **Done and verified.** Live was found already migrated, with the **fixed** `0002` (snapshot 2 rows, partial index with its `WHERE`). Receipts backed up (16 files / 10.8 MB), baseline audit 75 rows / 16 objects, and the 2 receipt objects moved into the owner's folder with a sha256 match against the backup. **Live is now in an open write window: the deployed code cannot insert until step 11.** |
+| Phase 1 — Add Transaction chooser (UI only) | **Done and measured in a desktop browser; not measured on a real iPhone, and no write was made.** The "+" now opens a two-option chooser — a compact sheet hugging two square cards, which expands to full height once Manual or AI is chosen; each flow has its own Back. See the Phase 1 section — it lists every number that was measured and everything that was not. |
+| Live's `0002` state, re-read by the owner | **Confirmed, 2026-10-17: `0002` is applied on live** — `public.transactions.user_id` exists on `viorpltdkpexswvofeul`. This line is the **owner's read-only check**, not something the assistant verified in this session. **Staging is behind live:** it is pre-0002 and needs `docs/migration-runbook.md` §2–§5. |
+| Phase 2, step 2a — budget, balance, commitments (SQL + API) | **Done; staging run reported clean by the owner** (up → verify → isolation suite → down → verify → up). Not observed by the assistant. See the 2a section. **0003 is now applied on LIVE** (owner-reported, 2026-10-19) and **0004 has not been run anywhere** — see the "Status: Pay Commitments" section at the end of this file. |
+| Phase 2, step 2b — the money UI | **Done, measured in desktop Chromium with the network stubbed; nothing has been on a phone or against staging.** The suite printed `296 passed, 21 skipped` then and prints `300 / 21` now. See the 2b section and the phone checklist at the end of this file. |
+| Phase 2, step 2b — Home reworked to the reference layout | **Done, measured in desktop Chromium at 390px and 375px in both themes; no phone and no real touch.** `300 passed, 21 skipped`. The four money states, the deleted card and where its breakdown still lives are recorded in the "Home reworked" section at the end. |
+| Phase 2, step 2c — the balance card: anchor, breakdown, budget offer (UI only) | **Done, measured in desktop Chromium at 390px in both themes; no phone and no real touch.** `306 passed, 21 skipped`. The five money states, the two new sheets and the anchor's round trip are recorded in the 2c section at the end. |
+
+## Phase 1 — the Add Transaction chooser (UI only)
+
+**Branch `feat/add-transaction-chooser`, cut from `origin/main` = `52e7a75`; nothing pushed, nothing merged, no
+schema or database change.** Files: `app/static/index.html` (the change), `tests/test_static.py` (five new page
+tests), `NEXT_STEPS.md` (this section). `app/*.py`, `schema.sql`, `migrations/`, `docs/` untouched — Phase 1 is
+the UI only.
+
+**What the sheet is now.** The header is unchanged (Cancel / title / Save), and under it sit three views:
+`#screen-chooser` (the two options, as two square cards side by side on a sheet that hugs them),
+`#screen-add` (Manual: the amount, the keypad, the date and mode pills, Details, the chips) and `#screen-ai`
+(AI: the Smart Entry card and Scan Receipt). While the chooser is up the sheet is **compact** — `height: auto`,
+growing from the bottom edge to fit the two 176px cards and nothing else — and it expands to its full height the
+moment Manual or AI is chosen. The `is-compact` class that says so is set by the same `showAddView()` call that
+switches the view and the chrome, so the height cannot disagree with what is on screen. The keypad is the sheet's
+last row and, with Save in the header, exists **only** in Manual — there is no amount to type and nothing to save
+in the other two. One function, `showAddView()`, moves the three views and that chrome together; `openAddSheet()`
+asks for the chooser on every open, so a second open cannot land on the view the last one used. Each flow has its
+own Back (`reverseAddView`, which blurs first so the chooser cannot return under a raised keyboard); Cancel, the
+scrim tap and the swipe-down drag are unchanged, so the sheet can still be dismissed from any view. Both flows
+submit exactly what they submitted before: `POST /transactions` (keypad Save), `POST /transactions/text` and
+`POST /transactions/scan`, with the same fields, the same payload keys and the same duplicate handling — only the
+entry point moved. The notice slot is now two slots (one above the keys, one in the AI view), because the manual
+slot lives inside the keypad and would be invisible in a view that has no keypad.
+
+**Measured, this session, in desktop Chromium — nothing below is an inference.** The behaviour walk was run twice:
+once against the **real served page** (`uvicorn` on `127.0.0.1:8000`, `GET` only) and once on a copy of that same
+response served on a second port so it could be framed at exact sizes, in both themes, at 375x667, 390x844 and
+320x568. The layout below is the **refined** one — a compact chooser sheet with two square cards; this branch's
+first pass had two full-width rows on a full-height sheet, and those numbers are superseded here rather than kept.
+
+- **The walk, identical in every viewport and both themes:** closed → `+` → chooser on screen, Manual and AI
+  hidden, keypad hidden, Save hidden, title **Add Transaction**, and **zero `input`/`select`/`textarea` inside the
+  sheet**; → Manual → form + keypad + Save on screen, title **New Transaction**, three inputs (date, merchant,
+  note), the amount line reading **RM 0.00** with Save still greyed (no digits were typed this session — the keys
+  themselves are unchanged by this work); → Back → chooser, keypad gone and the sheet back to its compact height
+  (251px); → AI → Smart Entry card and Scan Receipt on screen, title **Smart Entry**, keypad and Save hidden, one
+  input; → Back → chooser; → Cancel → the overlay is closed (`.open` gone, `aria-hidden="true"`, the sheet parked
+  at `translateY(251px)`). A second open lands on the chooser again, never on the last view.
+- **The sheet is compact in the chooser and full height in both flows.** Chooser: **251px** at all three sizes —
+  `height: auto` hugging two 176px cards (grab 17 + head 38 + grid margin 4 + card 176 + 16 bottom), flush to the
+  bottom edge (0px gap), `container-type: normal`. That last part is the subtle one: this is the only state where
+  `#addSheet` is **not** a size container, because `container-type: size` applies `contain: size`, which collapses
+  a box whose height is auto. The cards are therefore sized by their own rules, and the sheet's
+  `@container (max-height: 640px)` block simply does not apply while the chooser is up. Manual and AI:
+  **600.3px** at 375x667 (that block applies again), **759.6px** at 390x844, **511.2px** at 320x568 — the same
+  heights the sheet had before this change. The bottom padding is `calc(16px + var(--sab))`, so the cards clear a
+  home indicator; `--sab` is 0 in the harness.
+- **The chooser grid, from `getBoundingClientRect()`:** two cards on one row — `display: grid`,
+  `grid-template-columns: 1fr 1fr`, `gap: 12px` — 165.5x176 at 375 (w/h 0.94), 173x176 at 390 (0.98), 138x176 at
+  320 (0.78). Each card is one `<button>` (no chevron: there is nowhere to go sideways) carrying a 40x40 badge, a
+  16px/700 label and a 13px help line that **wraps** (2 lines at 375 and 390, 3 at 320) rather than ellipsising;
+  `scrollWidth == clientWidth` and `scrollHeight == clientHeight` on every card and every text node, so **nothing
+  is clipped and nothing is ellipsised**. `document.documentElement.scrollWidth - innerWidth` was **0** at every
+  size and every theme, and so was the sheet's own overflow. (The only horizontal scroller the sweep finds is
+  `#addChips`, the chips row in Manual, which pans sideways by design — 539px of content at 375.)
+- **Contrast, computed from the painted colours with alpha compositing** (foreground over the background it sits
+  on, light / dark): card label **15.59 / 13.94**; card help line **8.44 / 5.27**; sheet title **17.21 / 17.01**;
+  Cancel **4.02 / 4.66** (unchanged). Two new numbers worth stating rather than burying, because this refinement
+  added the elements they belong to: the badge icon (`--accent` on `--accent-soft` over `--card-2`) is
+  **3.14 / 3.11** — above the 3:1 floor for a graphic, but with little to spare, and it is decorative (the label
+  names the option); and the card's own surface is only **1.10 / 1.22** against the sheet's white / `#1c1c1e`,
+  with its hairline border at **1.36 / 1.44** — the same "surface + hairline, not a 3:1 ring" posture every other
+  `--card-2` control in this sheet already has (Back chip, pills, chips). The help line deliberately uses
+  `--text-2` and not the `--muted` the sheet's other secondary text uses: `--muted` measured **2.97:1** on
+  `--card-2` in light mode, under 4.5:1 for 13px text. `.add-hint` still uses `--muted` — pre-existing and left
+  alone. The Back chip (**15.59 / 13.94** text, **3.64 / 3.82** chevron) and the Smart Entry field
+  (**17.21 / 13.94**) were measured in this branch's first pass; those elements did not change.
+- **The AI failure path renders where it can be seen** (measured in this branch's first pass, not re-run since; the
+  AI view and both notice slots are untouched by the refinement): with a typed note and the framed copy's request
+  answered as unauthorised (no session there), the error card appeared **inside the AI view** (`#addNoticeAi` on
+  screen, the manual slot off screen because its keypad is hidden), sheet overflow still 0, and Back returned to a
+  clean chooser. No write was issued at any point.
+- **Console: no JavaScript errors in any run.** The real served page reported **0 messages**; the framed copies
+  reported only 18 x `404 /logo.png`, which have no file to load there — a harness artefact, not the app.
+- **Three screenshots were taken this session** (the browser tool could capture the harness page, unlike the first
+  pass of this branch): the chooser at 375x667, 390x844 and 320x568 in **light** and in **dark**, and Manual/AI
+  opened from it. They are **not in the repo** — `chooser-light-375-390-320.png`,
+  `chooser-dark-375-390-320.png` and `flows-manual-ai-manual.png` sit beside `page.html` and `harness.html` (the
+  framed copy and its wrapper) under `$TMPDIR/opencode/phase1-measure/`. The two chooser shots were taken with the
+  copy's sign-in screen hidden — see (5) below for why that was necessary.
+
+**NOT measured, and recorded as not measured.** (1) **No real iPhone and no iOS keyboard.** Nothing here was
+touched by a finger; the three device-specific questions this change raises are open — Back while the AI field has
+focus and the keyboard is up, focus zoom in the two flows, and how much of the AI view the iOS keyboard covers.
+Every iOS trap the file relies on is unchanged and pinned by test, but that is not the same as measured. (2) **No
+write was made, anywhere.** The three endpoints are asserted unchanged by the page test and by reading the calls,
+not exercised end to end; the acceptance for Phase 1 is the entry point, so nothing was posted. (3) The framed runs
+had `--sat`/`--sab` = 0 and no keyboard, and `dvh` inside a frame is the frame's height; a real 375x667 iPhone
+Safari box is not this 600.3px box, and none of the above saw a notch or a home indicator. (4) The framed copy and
+the real page are both **signed out** (no session is available to an agent), so the page behind the overlay was the
+app's sign-in screen and not a real transaction list — the sheet's geometry does not depend on what is behind it,
+but that is an assumption, not a measurement. (5) That sign-in screen sits at `z-index: 40`, above `#addOverlay`
+(20) and the tab bar (10) — **pre-existing, untouched by Phase 1**, and irrelevant on a signed-in phone, but it is
+why the visual evidence required hiding `#authScreen` first. (6) The theme was set by writing `data-theme` on
+`<html>` rather than by the OS preference, and the harness copy's own theme choice resolved to dark on this desktop
+— worth knowing before reading any single-pass number out of context.
+
+**Branch and docs, stated because they do not line up.** This branch was cut from **`origin/main` = `52e7a75`**,
+because local `main` is a **stale ref 43 commits behind** it. `multi-user` carries **Pass 14 and Pass 15**
+(`f881b67`, `19179ef`), which record PR #1's merge and the deployed commit; they are **still unmerged**, so this
+branch's copy of this file is two docs commits behind them and the `## Next` below is Pass 13's list, not the
+current one.
 
 ## Pass 13 — the live cutover: what live actually was, and steps 3–4 and 9
 
@@ -453,13 +562,150 @@ Three fixes follow from it:
 
 ## Current branch + last commit
 
-- Branch: `multi-user`, tracking `origin/multi-user`, pushed.
-- `main` is untouched and was **not** pushed. PR **#1** (`multi-user` → `main`) is open and unmerged:
-  https://github.com/hanennkam/duits-money-management/pull/1
-- `pytest` at Pass 13: **206 passed, 15 skipped, 2 warnings**. Staging suite: **15 passed**. Read the count
-  from the run you make — this line is a checkpoint, not a constant.
+- `main` and `origin/main`: `52e7a75`, "Merge pull request #1 from hanennkam/multi-user". **PR #1 is merged and
+  deployed**, which is what closed the Pass 13 write window: step 11 has happened. The previous `main` commit is
+  the rollback target, and the local `main` ref was once 43 commits stale — it has since been fast-forwarded in
+  place to `52e7a75` (`git fetch origin && git branch -f main origin/main`, authorised, nothing pushed), so branch
+  from `origin/main` if you are re-cutting this work.
+- `multi-user`: `19179ef` (Pass 15), pushed to `origin/multi-user`, **2 commits ahead of `main`** — `f881b67`
+  (Pass 14: "merged, deployed, and step 12's HTTP half") and `19179ef` (Pass 15: the orphan dates and the
+  citations). Both are notes/docs commits, and the branch is not merged into `main`.
+- Phase 1 UI branch: `feat/add-transaction-chooser` at `58110bf`, cut from `origin/main` = `52e7a75`, **1 commit
+  ahead of it** and **unpushed** (`git ls-remote origin` lists `main` and `multi-user` only). It adds the
+  Manual / AI chooser to the Add sheet; it is approved but **unmeasured on a real iPhone**. Its `pytest` is
+  **211 passed, 15 skipped, 2 warnings** — the 206 of Pass 13 plus five new page tests (page harness alone: 41).
+- Phase 2 branch: `feat/budget-balance-commitments`, cut from `52e7a75` and **rebased onto Phase 1's `58110bf`**,
+  so step 2b builds on the chooser instead of colliding with `openAddSheet`/`showAddView`. Step 2a — the 0003 SQL,
+  `app/finance.py`, the models, the db helpers, the nine routes and the tests, with **no change to
+  `app/static/index.html`** — is committed there. It is **not** merged and **not** pushed.
+- `pytest` on this branch after 2a: **282 passed, 21 skipped, 2 warnings**. Read the count from the run you make —
+  this line is a checkpoint, not a constant. (15 of the 21 skips are pre-existing; 6 are the new staging tests.)
+- **Live's `0002` state, re-read by the owner (2026-10-17): applied.** `public.transactions.user_id` exists on
+  `viorpltdkpexswvofeul`, so the schema half of the cutover is already behind us. Attributed to the owner's
+  read-only check, **not** to this session — no SQL and no audit was run by the assistant here. **Staging is
+  behind live:** it is pre-0002 (the 0003 up's failure was its view reading the missing `transactions.user_id`),
+  and `docs/migration-runbook.md` §2–§5 is the sequence that brings it forward.
 
-## Pass 5 — what changed
+## Phase 2, step 2a — budget, account balance and monthly commitments (code only)
+
+**What it adds.** Three tables plus a view (`migrations/0003_budget_commitments.up.sql`), all with ENABLE **and**
+FORCE row level security and four owner policies each: `user_finance_settings` (one row per user: opening balance,
+optional monthly budget, currency pinned to MYR), `monthly_commitments`, and `commitment_payments` (one paid mark
+per commitment per month — this is what stops a paid commitment being subtracted twice). A composite foreign key
+`(commitment_id, user_id)` makes "a payment points at a commitment of the same owner" a database rule.
+`public.transaction_totals` is a `security_invoker` view (owner + mode + month totals) so the all-time balance is
+summed in Postgres instead of a Python loop that PostgREST's `max-rows` would truncate; its `anon`/`authenticated`
+grants are revoked, because the view has no policy of its own and the API is its only reader.
+
+**The figures, and where they come from.** Nothing is stored: `app/finance.py` derives everything from the rows on
+every read. `current_balance = opening_balance + total_income − total_expense` (the wire field is `total_expense`,
+singular — step 2b's UI reads that name), all-time and **every mode**.
+`unpaid_commitments` = the active commitments with no paid mark for the month being viewed.
+`safe_to_spend = current_balance − unpaid_commitments`. `remaining_budget = monthly_budget − (month_expense −
+month_commitment_expense)`, where `month_expense` is this month's spend **for the requested mode** and
+`month_commitment_expense` is the slice of it that came from a Pay flow (its `commitment_id` is set), and `null`
+when `monthly_budget` is `0` ("no budget set"). `unpaid_commitments` is **not** in the bar — it is Safe-to-spend's
+figure, and counting it in both moved the bar twice in opposite directions (see the 0004 section at the end of this
+file). The one rule the tests pin hardest: paying a commitment is two writes — the expense, and the paid mark — and
+together they leave safe-to-spend exactly where it was, so the money is never taken twice.
+
+**Status: 2a is complete.** `pytest` after each commit. **The staging sequence has since been run**, by the owner
+and not by this assistant: up → `verify_after_0003.sql` → the isolation suite → down → verify → up, all clean, no
+data lost. That run is what closes the "never parsed or run" note below; nothing in it was observed by the assistant.
+Step 2b — the Home card, the commitments sheet and the Settings "Money" section in `app/static/index.html` — is
+**done**; see the 2b section directly after this one.
+
+**Two prerequisites are now guards, not footnotes.** The up file checks that `0002` is applied before it creates
+anything (`run 0002 first: public.transactions.user_id is missing`, or `public.api_tokens`), because its view reads
+the column `0002` adds; the down file refuses with `nothing to roll back: 0003 is not applied` when none of the four
+objects exist, and cleans up a half-applied 0003 by snapshotting only the tables that are there.
+`verify_after_0003.sql` reports `transactions.user_id` as its first row (row 0), and `docs/migration-runbook.md` §10
+states the `0002` prerequisite and points at `verify_after_up.sql` first.
+
+**Not verified by the assistant:** the SQL was never parsed or run here, so `security_invoker`, FORCE RLS, the
+composite FK and the view's revoke are argued from the documentation and from 0002's conventions, not observed on
+this project. The staging run (owner's, above) is what gates the claims in this section; this session only read the
+files.
+
+## Phase 2, step 2b — the money UI (UI only)
+
+**Branch `feat/budget-balance-commitments`, on top of 2a; nothing pushed, nothing merged, no schema or database
+change, no live write.** Files: `app/static/index.html` (the change), `tests/test_static.py` (eight new page tests
+plus two guards re-counted from three overlays to four), `tests/test_page_auth.py` (the commitment name joins the
+escaped-field pins), `NEXT_STEPS.md` (this section). `app/*.py`, `schema.sql` and `migrations/` are untouched.
+
+**What it adds.** Three surfaces, all reading the 2a routes and nothing else:
+
+- **Home, "Safe to spend"** — one compact card **above** the "Spent this month" hero: the figure, and one line
+  saying what it is made of (`RM 54.90 still due this month · RM 700.00 of budget left`; over budget reads
+  `RM 50.00 over budget`). A negative figure is the only coloured state on the page and it uses `--danger`, with
+  the minus put back by hand because `money()` drops the sign. With no opening balance and no budget saved, the
+  card asks for the opening balance instead of drawing a total that would only mean "minus your spending", and a
+  tap on the card goes to Settings → Money. **Details** opens the commitments sheet. The read is a third call in
+  `loadHome()`'s existing `Promise.all`, with the same `monthQuery()` (month + mode) as `/summary`.
+- **The commitments sheet** (`#commitOverlay` / `#commitSheet`) — the viewed month's commitments, each with
+  `RM amount · due Nth` (proper ordinal suffixes), a two-way **Paid** toggle (POST to mark, DELETE to undo, both
+  carrying the month) and a **Pay** button. Paused commitments show greyed with `· paused` and no Pay. An inline
+  form adds one (name, amount, day 1–31) and validates all three before posting. The list comes from
+  `GET /commitments?month=`, which is required by the API; committing a month change resets the cache, so one
+  month can never show another's rows.
+- **Settings, "Money"** (above Account) — Opening balance and Monthly budget as text fields with
+  `inputmode="decimal"` at 16px, saving one field at a time on `change` (the API keeps what a request omits), a
+  Commitments row that opens the same sheet and shows how many are active, and Currency MYR as info only. The
+  Currency row moved here out of About rather than being duplicated.
+
+**Pay is two writes, and the order is the feature.** Pay opens the Add sheet prefilled (`merchant = name`,
+`amount`, `category = "bills"`, `type = "expense"`) on its Manual view, with Details expanded so the merchant is
+visible but no keyboard raised. The paid mark is posted **only after** `POST /transactions` answers, and it is
+posted for the month captured when Pay was tapped — not `state.month` at save time, because `afterAdd()` may move
+the view to the transaction's own month. If the mark fails, the transaction stays saved and the toast says
+`Transaction saved, but marking it paid failed.` A cancelled or failed save clears the pending mark, so nothing is
+ever marked paid without its expense.
+
+**One API-shape limitation, stated rather than worked around.** The summary has no "settings saved" flag, so "no
+opening balance yet" is read as `opening_balance == 0 && monthly_budget == 0` — exactly what a user who has never
+saved a row gets back (the defaults are not stored). A genuine RM 0.00 opening balance with no budget is
+indistinguishable from "not set" and keeps seeing the prompt. That is honest rather than wrong (there is still
+nothing to subtract from), and fixing it properly needs a response field — which is an API change this step was not
+allowed to make.
+
+**Measured, this session, in desktop Chromium — with the network stubbed, not on a phone, not on staging.** The
+real page was served from the working tree on `127.0.0.1:8771` with `fetch` replaced by a harness that answered the
+money routes; every call it received was recorded. `pytest` at the end: **295 passed, 21 skipped** (287 before this
+step, i.e. eight new tests). What the walk showed:
+
+- boot → `safeAmount` `RM 945.10`, meta `RM 54.90 still due this month · RM 700.00 of budget left`, and the only
+  three reads `GET /summary`, `GET /transactions`, `GET /finance/summary` — the third carries `month=2026-10&mode=personal`;
+- a negative figure → text `−RM 120.50`, class `neg`, computed colour `rgb(255, 69, 58)` = `--danger`;
+- opening 0 / budget 0 → `Set your opening balance`, class `is-setup`, and a tap on the card lands on Settings with
+  the Money fields filled;
+- **Details** → sheet open (aria-hidden `false`), sub-line `October 2026 · RM 54.90 still due`, rows
+  `Netflix … due 12th` / `Spotify … due 3rd` / `Gym … due 28th · paused` (no Pay on Gym), and a name sent as
+  `Netflix <b>` reached the DOM as `Netflix &lt;b&gt;` — the raw tag was **not** there;
+- the Paid toggle → `DELETE /commitments/c2/paid?month=2026-10` unmarks, `POST /commitments/c1/paid
+  {"month":"2026-10"}` marks, each followed by a fresh `GET /commitments` and `GET /finance/summary`; the sub-line
+  moved 54.90 → 74.80 → 19.90;
+- **Pay** → Add sheet on top of the still-open sheet, `RM 54.90`, merchant `Netflix <b>`, bills chip on, Expense
+  active, Details expanded, Save enabled; Save fired `POST /transactions` (bills/expense/54.9/today) **then**
+  `POST /commitments/c1/paid {"month":"2026-10"}`, toast `Paid · Netflix <b>`, the Add sheet closed and the row
+  behind it went paid;
+- the same flow with the mark forced to 500 → toast `Transaction saved, but marking it paid failed.`, row still
+  unpaid, sub-line still counting it;
+- the inline form → day 32 rejected with no request; `Astro / 1,299.90 / 31` posted
+  `{"name":"Astro","amount":1299.9,"day_of_month":31}`, cleared the fields and rendered `RM 1,299.90 · due 31st`;
+- Settings → inputs `1000.00` / `2000.00`, Commitments `2 monthly`; `2,500.5` posted
+  `{"opening_balance":2500.5}` (one field, commas stripped), tidied to `2500.50`, toast `Saved.`; `-5` budget and
+  `abc` were both refused with a toast and **zero** requests, the field restored;
+- Done and the scrim each closed the sheet (`class="overlay"`, aria-hidden `true`, sheet translated fully down);
+- the console held no messages and no uncaught errors through the whole walk.
+
+**Not verified, and what would verify it.** No iPhone, no Safari, no real touch: the sheet's drag-to-dismiss, the
+`touch-action`, the 16px no-zoom rule, the safe-area insets and the visual feel are **not** measured here — desktop
+Chromium with a mouse proves none of them. No staging and no real data: every figure above came from the harness,
+so the wire shapes are trusted from 2a's tests (`total_expense`, nullable `remaining_budget`, `paid` per month)
+rather than observed. The two things to check on a phone against **staging** are listed at the end of this file.
+
+
 
 **You checked `verify_after_up.sql` sections B–F** against staging, so the catalog side of the migration is
 confirmed: `user_id` NOT NULL, the two per-owner unique keys present with no global `UNIQUE (dedupe_hash)`,
@@ -762,6 +1008,13 @@ needs no manual bump; forgot-password delivers and the enumeration leak is close
 
 ## Next
 
+> **Phase 1 (the Add Transaction chooser) is on `feat/add-transaction-chooser`** — the section at the top of this
+> file has the facts and the not-measured list. **Everything below is Pass 13's list, written while PR #1 was
+> open, and is superseded:** PR #1 has been merged (`main` = `52e7a75`), Render deployed it, and Passes 14–15
+> record that — they live on `multi-user` (`f881b67`, `19179ef`) and are **still unmerged**, which is why this
+> branch's copy of this file is behind them. Fold those in (direct merge, no PR) before treating the list below
+> as current, and do not merge this branch to `main` until the branch's own copy of this file has them.
+
 **The write window decides the schedule.** Every scan, text and manual entry against live has been failing since
 step 7 (`main` never sets `user_id`; live's `user_id` is `NOT NULL`), so closing it is the priority and the
 order below is fixed. Step 1 is done — **PR #1 is open and unmerged**.
@@ -928,3 +1181,696 @@ invite flow. Re-run on staging with a fresh invite link:
 | After saving the password | signed in, Home empty (`RM 0.00`, 0 rows) |
 
 So the fix holds on the path it was written for.
+
+## Phase 2, step 2b — the phone pass, against STAGING
+
+Nothing below has been done. It is the checklist for the one environment a desktop browser cannot stand in for.
+**Staging only: no live account, no real money, no write anywhere else.**
+
+**Setup.** Staging's API (`https://<staging-service>.onrender.com`, the Render service that points at the staging
+Supabase project) must first be brought to schema 0003 (`docs/migration-runbook.md` §10) and seeded with the two
+`--phase after` fixtures (`scripts/staging_seed.py`, which needs a `user_id` after the 0002 up). Then, on the
+iPhone, open the staging URL in **Safari** (not the Home Screen copy — that can be an old build; check
+Settings → About → Build matches the deploy) and sign in as **the staging test account**, the same one
+`scripts/run_staging_tests.py` uses. Personal mode, current month.
+
+**What to look at, and what "right" is:**
+
+1. **The balance card.** Home opens with **Balance** (all time, every mode) — the largest figure on the screen, a
+   quarter larger than it was — with the month named only by the picker in the header above, and under it a
+   tappable pill reading **Safe to spend**: the opening balance plus everything in,
+   minus everything out, minus the unpaid commitments of the month being viewed. Set Opening balance in
+   Settings → Money to a number you can check by hand (e.g. 1000), add one commitment of RM 50 due this month, and
+   the pill must drop by exactly 50 against the same pill before the commitment existed. Overspend on purpose and
+   the **pill** must go **red with a minus sign** (light theme `#ba1a1a`, dark `#ff453a`), not just red — the
+   balance above it keeps the body colour and only grows a minus sign.
+2. **Fresh account.** With the settings row deleted (or a brand-new staging user), the balance reads **—** and the
+   pill reads **Set your opening balance** (no "Safe to spend" label beside it); tapping the pill lands on Settings
+   with the Money section on screen; saving an opening balance and coming back to Home replaces both with figures.
+   Then the budget card below: absent until a Monthly budget is saved, and absent again when you browse to an
+   earlier month, because "days remaining" only means something in the month you are in.
+3. **The sheet, by touch.** Details opens the commitments sheet and it comes up from the bottom with the page dimmed
+   behind it, **not see-through at any point**. The title stays put while the list scrolls. Swipe down on the drag
+   handle or the header closes it and nothing else moves; a swipe that starts on a row at the top of the list closes
+   it too (by design), and one that starts mid-list scrolls. The dim is not reachable while the sheet is animating.
+4. **Paid.** Tapping **Paid** marks it (green) and the line under the title drops by that amount; tapping again
+   unmarks it. The card behind updates without closing the sheet. Kill the network mid-tap: the row must come back
+   to where it was, with a toast, not stay half-toggled.
+5. **Pay, and the month trap.** Tap **Pay** on an unpaid bill: the Add sheet must open **on Manual**, prefilled with
+   the name as merchant, the amount, bills, Expense, Details already open, and **no keyboard covering the amount**.
+   Save: the transaction lands, the sheet closes back to the commitments list, the row is paid and the toast names
+   it. **Then view last month (month pill) with an unpaid bill from last month, tap Pay, and save.** The
+   transaction is dated today but the *last* month's bill must be the one marked paid — that is the whole point of
+   capturing the month at tap time.
+6. **The mark failing.** Hard to force on staging; if you can pull the network between the save and the mark, the
+   toast must say the transaction was saved and the mark failed, and the bill must stay unpaid.
+7. **The inline form.** Add a commitment by touch: name, `1,299.90`, day `31`. It must accept the comma, reject day
+   `32` and an empty name with a toast, and the new row must appear in the list without a reload. A long name must
+   ellipsize, not push the buttons off the row.
+8. **The fields.** Opening balance and Monthly budget must **never zoom the page** when focused (that is the 16px
+   floor), the numeric keyboard must come up (a `,` and `.` must both work — `NaN` is rejected with a toast), and
+   flipping the phone to dark must keep every field and the dim readable.
+9. **Sign out.** Settings → Sign out, then sign in as the other staging user: the card must not show the first
+   user's figure for even a frame, and the commitments list must be empty rather than the other account's.
+
+Record what is seen; anything that fails belongs in a new section here, not in a silent fix.
+
+## 2026-10-18 — the money UI against live (`0003` is not on it)
+
+Ran the app locally against the live project (what `.env` holds) to look at 2b. **Home is fine; every money read
+500s**, because live is at `0002` and 2b reads the `0003` tables — `PGRST205` on `public.user_finance_settings`,
+then on `public.monthly_commitments` and `public.commitment_payments`. That is the schema being one migration
+behind the UI, not a UI fault, and **no write landed** (the one `POST /commitments` attempt answered 500).
+
+Looking at it turned up two real UI faults of the same kind — a value that was never read, painted as a fact:
+
+| Fixed in | Was | Now |
+| --- | --- | --- |
+| `b5ef265` | a 500 from `/finance/summary` rode in the same `Promise.all` as `/summary` and `/transactions`, so Home rendered `RM 0.00`, "0 items" and a server error *while `/transactions` had answered 200 with rows* | the card's read is guarded on its own; its failure costs the card and nothing else |
+| `f0b9a8f` | the sheet read "October 2026 · nothing still due" directly over its own error card, and Settings → Money → Commitments read "None" | "could not be read" in both, and the sub claims nothing about a month before that month has been read |
+
+Seen on the owner's **iPhone** (the Home half only): with the finance read failing, the hero, the ring and the rows
+render and the card reads "—" / "Not available right now." — so `b5ef265` is confirmed on a real device. The
+sheet's copy was captured afterwards in the desktop harness and has **not** been re-checked on the phone.
+
+**To see 2b work, the database it points at needs `0003`.** Nothing in the UI changes that.
+
+## 2026-10-18 — Home reworked to the reference layout (UI only)
+
+**Branch `feat/budget-balance-commitments`; UI only — no API, no SQL, no schema, no migration, nothing pushed.**
+Files: `app/static/index.html` (the layout), `tests/test_static.py` and `tests/test_page_auth.py` (the pins),
+`NEXT_STEPS.md` (this section).
+
+**The order now** (top to bottom): the header as it was (title, month pill, Personal/Business); the **Balance**
+card — the label, a month pill on its right, `current_balance` big, and under it the **Safe to spend** pill you tap
+to open the commitments sheet; **Income** and **Expenses** as two half-width cards, both from the existing
+`/summary`; the **Monthly budget limit** card — percentage of the budget, a progressbar, "left to spend" (or "over
+budget"), and the days remaining computed client-side; then **Recent Transactions** unchanged at three rows plus
+See All. The old "Spent this month" hero and its Income/Net split are gone, along with the item-count pill. The
+balance still comes from the one guarded `/finance/summary` inside `loadHome`'s existing `Promise.all`: this pass
+added no request.
+
+**The category card is deleted from Home and nothing was orphaned by it.** It was never a sheet — a tap anywhere on
+it called `showScreen("insights")` — so the breakdown it pointed at is Insights' own "Spending by category" card
+(`donutSvg` + `insightCategoryList`), reachable from the tab bar and untouched. Everything that existed only to draw
+the Home ring went with it: `renderHomeCategories`, `homeCategoryGroups`, `legendRowHtml`, `HOME_DONUT_ROWS`, the
+`small` option in `donutSvg`, and the `.cat-split*`, `.legend-*`, `.donut-sm` and `.card-tap` rules.
+
+**Measured, this session, in desktop Chromium, offline, with every network call answered by a local stub** (the
+harness is not in the repo). The page was framed at exact sizes — an iframe of 390x844 and one of 375x812 — and read
+back through `getBoundingClientRect` and `getComputedStyle`, in both themes. Four states, all eight combinations:
+
+| | budget set, under | budget set, over | budget 0 | `/finance/summary` 500 |
+| --- | --- | --- | --- | --- |
+| balance | `RM 1,400.00`, 50px | `−RM 50.00`, 50px | `RM 900.00`, 50px | `—`, 50px |
+| safe pill | `RM 945.10`, 44px | `−RM 325.00`, `#ba1a1a` / `#ff453a` | `RM 845.10` | `—` |
+| budget card | `65% of RM 2,000.00`, `RM 700.00 left to spend`, `13 days remaining`, bar 65% `#007aff` / `#0a84ff`, `progressbar now=65` | `100% of RM 1,000.00`, `RM 250.00 over budget` red, bar full red, `now=100` | absent | absent |
+| month cards | `+RM 1,200.00` green, `−RM 800.00` | same | same | same (`/summary` answered) |
+| recent rows | 3 | 3 | 3 | 3 |
+| sideways overflow | 0 px | 0 px | 0 px | 0 px |
+
+- **The pill is the tap target**: 321x44 at 390px, 306x44 at 375px, with the same 14px `--chevron` the settings rows
+  use. The budget card's bar is 8px on `--card-2`, its fill `--accent` (or `--danger` when over).
+- **Browsing to September**, driven through the real month picker (open, `monthCol.scrollTop`, Done): the budget
+  card hides, its bar resets to `0%` / `now=0`, the hero pill follows to `Sep 2026`, and the three reads re-ran once
+  each for `2026-09`. **The balance does not move with the month** — `RM 1,400.00` in both — because it is all time
+  and every mode.
+- **A five-figure month does not fit half of a 375px phone** at the 19px the design asked for: `+RM 12,345.67` is
+  139px in a 135px box, measured rather than guessed. The figure now steps its own font down until it fits
+  (`fitText`: 19→14px for the two month cards, 40→22px for the balance, 17→12px for the pill). `123,456.78` lands
+  at 17px with its right edge exactly on the card's padding, at both widths, and ordinary figures are left at
+  19px / 40px / 17px. The fit skips an element with no layout, so a screen painted while hidden is fitted when its
+  tab is next shown (checked by leaving Home and coming back).
+- **Nothing removed is left behind**: `categoryCard`, `categoryList`, `itemsPill`, `totalSpent`, `netTotal`,
+  `heroSplit` and `safeCard` are absent from the served DOM in every state above.
+
+**Two judgement calls, either of which is one line to change:**
+- **Expenses are not red.** Only Income carries a token (green); the expense figure keeps the body colour with a
+  leading minus, because colouring an ordinary month red would read as a warning. The budget card is where
+  `--danger` is earned.
+- **A negative balance is not red either** — it grows a minus sign. Only Safe to spend turns red, as asked.
+
+**Follow-up tweaks, same day, same branch (one commit, UI only).** Three changes on the owner's instruction:
+1. **The hero has no month pill.** This section first recorded it as kept — one `Oct 2026` under another, because
+   the shared `paintMonth()` paints every `.js-month-label`. It is gone; the header picker is the only place the
+   month is named (elements carrying `.js-month-label` on a loaded page: 4 → 3, one per screen header). The
+   now-single-child `.hero-top` wrapper went with it.
+2. **The budget card gained one line**: `<p class="budget-note">Monthly limit, separate from your balance.</p>`, in
+   the secondary token (`--text-2`, 13px — dark `rgba(235, 235, 245, .6)`), inside the card, so it appears and
+   disappears with it. The card is 133px tall with it at 390px.
+3. **The balance is the largest number on Home**: `.hero-balance { font-size: 50px }` — 1.25x `.hero-amount`'s 40px,
+   same 800 weight and letter-spacing, applied only to Home (`Insights`' own `.hero-amount` total stays 40px). The
+   fit pass now starts at 50: `RM 1,400.00` stays at 50px at both 390px and 375px, and `RM 1,234,567.89` steps to
+   47px at 375px.
+
+Re-measured after the tweaks, 390px and 375px, both themes, same four states: nothing else moved — Safe to spend
+still 17px, the month cards 19px, the budget card unchanged apart from the extra line, no sideways overflow, and no
+console errors.
+
+**Not verified:** no iPhone and no real touch (no swipe, no keyboard, no zoom, no safe-area behaviour — the 44px
+floor, the target-based guards and the sheet's opacity rule are pinned in the page tests, not felt); **no
+screenshot**, because this machine had no visible browser window for `browser.screenshot` to capture; no staging and
+no live database, so every figure above is the stub's; nothing saved through Settings in this pass; and the two
+rewritten items in the phone checklist above are still unrun.
+
+## 2026-10-19 — the balance card: the anchor, the breakdown, the budget offer (UI only)
+
+**Branch `feat/budget-balance-commitments`, UI only: `app/static/index.html`, `tests/test_static.py`,
+`tests/test_page_auth.py`.** No `app/*.py`, no `schema.sql`, no `migrations/`, no `.env*`, no API and no SQL
+change, nothing pushed, nothing touched on live or staging. This section replaces the first-run checklist that was
+proposed for this screen: that idea is dropped, and the card now asks for one figure instead.
+
+**The problem it answers.** The Balance is the all-time figure across every month and both modes, while the two
+cards under it are this month and one mode, so the three numbers never reconciled on their own. And with
+`opening_balance` still 0 the card showed a large negative number that read like a fact about the owner's money.
+
+**What the card is now.**
+1. **No opening balance yet (`opening_balance == 0`):** the card is titled `Set your balance`, carries one line
+   (`Tell us how much money you have right now. We keep track from there.`) and one primary button. No figure, no
+   Safe to spend — the whole figure area is `hidden`, so nothing on the card can be misread as a balance.
+2. **The anchor sheet** asks exactly one question (`How much money do you have right now?`, `type="text"`
+   `inputmode="decimal"`, 16px, comma and sign tolerant) and shows what will be stored before it is stored:
+   `Starting balance will be RM x`, where `x = typed − total_income + total_expense`, computed in **integer cents**
+   (`toCents`/`openingFor`), so the preview and the save cannot disagree. The save is the existing
+   `PUT /finance/settings { opening_balance: x }`.
+3. **With a balance set, the whole figure area is one real `<button id="balanceTap">`** (≥44px, accessible name
+   `Balance RM 1,400.00. How this is calculated`) opening the **breakdown sheet**: `Starting balance`,
+   `+ Income (all months, all modes)`, `− Expenses (all months, all modes)`, `= Balance`, `Bills still due this
+   month`, `= Safe to spend`, the one line that explains why they differ from the month cards, `Edit my balance`
+   (the anchor again, stacked over the list) and `Settings · Money`. Every figure is the API's own.
+4. **The two half cards say which month they are:** `Income · this month` and `Expenses · this month` (the mode is
+   still the header's toggle).
+5. **No budget yet (`monthly_budget == 0`):** the same slot offers one — a dashed card, `Set a monthly budget
+   (optional)`, a button to the one-field sheet (`PUT /finance/settings { monthly_budget }`), and the same caption,
+   `Monthly limit, separate from your balance.` With a budget the real card is unchanged.
+6. **Read failure:** `—` in the hero, `Not available right now.` and a **`Try again`** row that re-runs only
+   `/finance/summary`. The figure area is present but `disabled` (there is no breakdown to draw), and the
+   not-set prompt is not shown: unreachable is a different thing to unset.
+7. **Settings → Money** gained one helper line under Opening balance:
+   `Tip: use 'Set your balance' on Home if you are not sure what to enter.`
+
+**Measured, desktop Chromium, harness `http://127.0.0.1:8771/frame/390x844?state=…`, 390px wide, both themes,
+no sideways overflow in any state (0px).**
+
+| state (URL suffix) | what it is | measured |
+| --- | --- | --- |
+| `?state=setup` (a) | brand new: no balance, no budget | `Set your balance` card, no figure (the tap area is `hidden`, 0×0), button 321×50 @17px; the dashed budget offer with its 321×50 button and the caption; the real budget card `hidden`; both labels read `… · this month` |
+| `?state=zero` (b) | balance set, no budget | `RM 900.00` @50px, Safe to spend `RM 845.10`, `RM 54.90 still due this month`, tap area 321×134; the offer is dashed in both themes (`rgba(60, 60, 67, .18)` light, `rgba(84, 84, 88, .6)` dark) |
+| `?state=under` (c) | everything set, under budget | breakdown opens with six rows from the reply — `RM 500.00`, `RM 1,200.00`, `−RM 800.00`, `= RM 900.00`, `−RM 54.90`, `= RM 845.10` — the note, and both links at 326×44 |
+| `?state=over` (d) | over budget | `−RM 50.00`, pill `−RM 325.00`, draw at `--danger` (dark `rgb(255, 69, 58)`, light `rgb(186, 26, 26)`), `100% of RM 1,000.00`, `RM 250.00 over budget`, bar `aria-valuenow="100"` |
+| `?state=fail` (e) | `/finance/summary` answers 500 | `—` in the hero, `Not available right now.`, `Try again` 64×44, the tap area `disabled`, no budget card and no offer; the month cards, the rows and the list are untouched |
+
+**The three destinations inside the breakdown sheet (state `under`), one click each:**
+- **`Edit my balance`** opens the anchor sheet *over* the breakdown (breakdown still open underneath; **0 requests**).
+  `Cancel` closes the anchor and leaves the breakdown in place (settles in ~500ms, the usual close animation).
+- **`Settings · Money`** closes the breakdown, shows Settings with the Money section in view, both fields filled
+  (`1000.00` / `2000.00`). The only requests are that screen's own two: `GET /finance/settings` and
+  `GET /commitments?month=2026-10`.
+- **The `Bills still due this month` row** closes the breakdown and opens the commitments sheet (one request,
+  `GET /commitments?month=2026-10`; 3 rows; `October 2026 · RM 54.90 still due`). That row is the commitments
+  sheet's way in now that the card itself opens the breakdown.
+
+**`Try again` (state `fail`), requests per click: exactly 1 — `GET /finance/summary?month=2026-10&mode=personal`
+and nothing else.** With the API answering again the card repaints in place: `RM 1,400.00`, `RM 945.10`,
+`RM 54.90 still due this month`, the retry row hides again, the tap area is re-enabled, and the budget card comes
+back at `65% of RM 2,000.00`. (Harness caveat: the `fail` state has no finance object at all, so the first retry
+was answered with a `null` body — one request, and the page stayed in its error state rather than crashing visibly.
+The second retry, against a real-shaped body, is the one recorded above.)
+
+**The anchor's round trip, measured in state `setup`:** typing `1250.00` previewed `Starting balance will be
+RM 850.00`; `Save` sent `PUT /finance/settings {"opening_balance": 850}`, then one `GET /finance/summary` — and the
+card read **`RM 1,250.00`**, the figure the owner typed. Preview cases: `1,250 → RM 850.00`, `-80 → −RM 480.00`,
+`0.10 → −RM 399.90` (the drift case, exact), `abc`/empty → the hint line instead of a figure. The field computes
+**16px** (a bare `.money-field-input` rule lost to `.field`'s later `font: inherit` and computed 17px; the selector
+is now `.sheet .money-field-input`, and 17px would still be above the 16px zoom floor, so nothing ever zoomed).
+
+**The edge case, stated rather than hidden:** an anchor that computes to **exactly 0** is saved as computed and
+never nudged (no `x − 0.01`). `opening_balance == 0` is also the only signal for "not set", so the card then goes
+back to asking for the balance. That is honest — the prompt is one tap from being redone — and it is very unlikely
+to be reached, because the figure the owner types gets the month's income and spending added back out of it.
+
+**Tests.** `306 passed, 21 skipped` (baseline was `304 passed, 21 skipped`). The seven pins that went stale with
+the redesign were rewritten, not added; two tests are new: the anchor maths (a **Python mirror** of the JS
+`toCents`/`openingFor` — the page's JS is neither exported nor executed by the suite, so the mirror is kept honest
+by three string pins on the formula; cases: negative typed, `0.1 + 0.2`, `12,345,678.90`, exactly zero, comma
+tolerance, unreadable input) and the registration of the two new sheets (`openOverlay`/`attachSheetDrag`/
+`isOutsideTap`, the 16px field, the six breakdown rows).
+
+**One fragile pin was repaired, not a regression.** `test_sign_out_clears_the_session_and_the_cached_rows` read
+`clearCaches` through a fixed 1400-character slice; the six lines this pass added pushed `hideBudget();` past it
+and the test failed while nothing about sign-out changed. It now takes the whole function with a brace-matching
+helper (`function_body`), and pins the balance card's three reset nodes too.
+
+**Not verified:** **no iPhone and no real touch** — every interaction above is a DOM `click`/`input` event
+dispatched inside the harness iframe in desktop Chromium, so nothing here is a swipe, a keyboard, a zoom or a
+safe-area measurement; no real API, no staging and no live database (every figure is the stub's); nothing saved
+through the real backend; the anchor maths test mirrors the JS rather than running it; and `showMoneySettings`'
+smooth scroll settles with the Money section 6px above the viewport top (pre-existing, unrelated to this pass, and
+it leaves the helper line fully visible).
+
+**For the phone pass (unrun, on a real iPhone):**
+1. **The anchor.** Fresh account (or Settings → Money, empty the opening balance): tap `Set your balance`, type
+   `1250`, check the preview says `Starting balance will be RM 850.00` and that the keyboard does not zoom the
+   page (16px field), then `Save` — the card should read `RM 1,250.00` and the sheet should be gone.
+2. **The breakdown.** Tap the Balance figure: the sheet must open with a tap anywhere on the area (label, number,
+   pill or the line under it), drag down from the header must dismiss it, and `Edit my balance` must stack the
+   anchor over it and come back.
+3. **The budget offer and the retry.** With no budget, check the dashed card and that the button opens the
+   one-field sheet; kill the connection (or leave the tab offline) and reopen Home to see `Try again` — tapping it
+   once must repaint the card without a full reload.
+
+## 2026-10-19 — Smart Entry as a row, shorter income/expense labels (UI only)
+
+- **Smart Entry** is one row (bolt, label, chevron), the same `.add-row` as Scan Receipt. Its field and Add open
+  under it. Collapsed card **100.95px → 48px** (375 and 390, clone measure). Open card **128px**.
+- **Income / Expenses** cards lost "· this month". Both are **92.74px → 75.2px** (clone, 375 and 390), labels on one
+  line, amounts aligned at 35.55px from the top. Real desktop page: 72.19px in both themes.
+- **Autocomplete:** the commitment name, Merchant and Note already carried `autocomplete="off"`; now pinned, not added.
+  Smart Entry's field (`textInput`) does not have it.
+- **Not done, found on the way:** the commitment name, Merchant and Note inputs are still 38px (`.add-field`), under
+  the 44px touch floor. They share the class with the Manual sheet, which is not decided yet.
+- **Not verified:** iPhone, touch, keyboard, safe-area. Harness: DOM clicks in desktop Chromium.
+
+## 2026-10-19 — Manual in two steps, a 65% sheet, and the iOS keyboard (UI only)
+
+**Branch `feat/budget-balance-commitments`, UI only — `app/static/index.html` (the change),
+`tests/test_static.py` (the pins).** No `app/*.py`, no `schema.sql`, no `migrations/`, no `.env*`, no API, no
+SQL; nothing pushed, and nothing touched on staging or live. Three commits: the Manual split + `65dvh`, the
+keyboard lift + centring, and this docs pass.
+
+- **Manual is two steps.** Step 1 is *Expense/Income*, the amount and the three pills, with the keypad as the
+  sheet's last row; **Details** switches to step 2 — Merchant, Note and the category chips — which rises in
+  place (step 1 is hidden, not overlaid) and carries its own Back to step 1. Only one step is in the sheet at a
+  time, and every open starts on step 1. The keypad is derived from state, never remembered: it is on screen
+  only in step 1 and only while neither text field holds the caret.
+- **Manual is `65dvh`** (dvh, not vh). Because 65% of a phone is under the 640px container-query threshold, the
+  keypad keys are 44px and the amount font 44px at both target sizes, and step 1 fits with no scroll.
+- **Merchant and Note are 44px** (16px text). The commitment name/amount/day fields are still 38px
+  (`.add-field`) and the pills/Back are 34px: raising those breaks step 1 at 375×667 (measured: 29px of
+  overflow), so they keep the sizes the sheet was tuned with.
+- **The keyboard now moves the sheet.** `--kb` = `innerHeight - visualViewport.height -
+  visualViewport.offsetTop`, clamped to `0` below 80px. It sets each sheet's `bottom` (and every overlay's
+  bottom padding) and clamps `max-height`, so the sheet sits above the keys with its top still at
+  `--sheet-top-gap`. Focusing a sheet field (Merchant, Note, the commitment fields, the edit form's rows)
+  centres it about 300ms later by moving the sheet's own `scrollTop`; the window and the page behind stay
+  scroll-locked. `--kb` resets when the keyboard closes and when a sheet closes.
+
+**Measured, this session, in desktop Chromium with `fetch` stubbed** — a clone of `#addSheet` in a fixed-size
+wrapper, because the tool cannot change the real viewport; DOM clicks, not touches. Step 1 with `RM 12,345.67`
+in both themes, `scrollHeight == clientHeight` (no overflow):
+
+| size | sheet (`65dvh`) | step 1 | amount | keys |
+| --- | --- | --- | --- | --- |
+| 375×667 | **433.55px** | 152px, no overflow | 42.05px, 44px font | 44px |
+| 390×844 | **548.59px** | 267px, no overflow | 157.09px, 44px font (slack) | 44px |
+
+Step 2 at both sizes: 44px fields at 16px, `scrollHeight == clientHeight`, no overflow. Live page (a 939px
+desktop viewport): chooser **251px**, Manual **610.34px**, AI **845.09px**.
+
+**The keyboard was simulated, not real.** `visualViewport.height` was overridden to `innerHeight - 320` and a
+`resize` dispatched. Add sheet on step 2 (Merchant focused): `--kb: 320px`, the sheet's bottom 320px above the
+viewport bottom, height clamped to 525.09px, top at 93.91px (the gap). The txn edit sheet lifted the same way
+and its own `scrollTop` moved 0 → 31, so `#editMerchant` ended up centred (0.2px off) with `window.scrollY`
+still 0. The commitments sheet's bottom moved 927 → 607 (exactly 320px) and its name field stayed visible above
+the keys. Closing a sheet dropped `--kb` back to `0px`. `pytest`: `317 passed, 21 skipped`.
+
+**NOT verified — `belum disahkan pada peranti`.** (1) **No iPhone and no real iOS keyboard**: the height above
+is a faked `visualViewport`, so the real inset, the keyboard's own animation, whether `dvh` really stays put
+with the keyboard up, and whether the sheet lands where the keys actually are are all unmeasured. (2) **No real
+touch** — the step switch, the keypad hiding on focus and the drag-to-dismiss were DOM events. (3) **No
+safe-area insets** (`--sat`/`--sab` were 0, as on a desktop). (4) No staging, no live, no write anywhere. (5)
+`pytest` is the only automated check; the UI numbers come from a scratch harness that is not in the repo.
+
+
+## 2026-10-19 — Manual as one Stitch-style screen, and the category sheet (UI only)
+
+**Branch `feat/budget-balance-commitments`; UI only.** Files: `app/static/index.html` (the change), `tests/test_static.py`
+and `tests/test_page_auth.py` (the pins), and these docs. No `app/*.py`, no `schema.sql`, no migration, no API or SQL
+change; nothing pushed, nothing touched on staging or live.
+
+- **Manual is one screen.** The two steps and the Details pill are gone: every field Details held sits on the screen
+  (Merchant, Date, Mode, Note as the four rows of the card, the categories as the chip row). Order: Back and
+  Expense/Income, the amount (`RM`, caret) and the *Malaysian Ringgit* pill, CATEGORY with **View All**, the chips,
+  the card, the keypad.
+- **The 65% decision is superseded.** The reference stack does not fit in 65dvh. Manual is the full sheet now.
+- **Only Manual's middle scrolls, and only on a short phone.** The keypad is pinned and its keys are 44px everywhere
+  (the 56px keys of a tall screen are overridden for Manual). The card is one `.add-card` of four 48px label rows.
+- **Back** moved to a 44px chevron beside the type control. **Cancel** is unchanged.
+- **View All** opens a plain category sheet (`#catOverlay`) over the Add sheet. A tap picks and closes the list only.
+- **Note** is still `raw_extraction.note`. The payload keys did not change: the same seven keys with or without a note
+  (`note` is `null` when blank). The Add sheet is never used for editing, and the edit sheet does not show the note,
+  so there is no read path to reuse. Adding one is a separate decision.
+
+**Measured in desktop Chromium** — the app's own page in a `srcdoc` iframe at the real layout size (375×667 and
+390×844), both themes, `fetch` stubbed with a fake session, DOM clicks. Keypad pinned at the bottom in every case.
+
+| size | theme | sheet | body (visible / needed) | keypad | keys |
+| --- | --- | --- | --- | --- | --- |
+| 375×667 | light, dark | 600.3px | 317 / 450 — scrolls 133px | 456.5–667 (210.5px) | 44px |
+| 390×844 | light, dark | 759.59px | 468 / 468 — no scroll | 625.5–844 (218.5px) | 44px |
+
+Both sizes: no horizontal page overflow, nothing off-screen outside the chip row, Save disabled until an amount, the
+chip row overflows (9 chips, 1097px) with the last chip cut at the edge, inputs 16px, Back / segmented / View All 44px.
+
+Payloads, from the stub: with a note `{amount, category, merchant, mode, note, txn_date, type}`; without one the same
+keys with `null`s. Pay posts `POST /transactions` (1200, bills, "Sewa rumah"), then `POST /commitments/c1/paid` with
+`{month}`, in that order.
+
+**Simulated, not real.** The harness window had no focus, so native focus never fired; the merchant/note keypad rule
+was exercised with dispatched `focus`/`blur` events on the fields. The keyboard lift is not part of this run.
+
+**NOT verified — `belum disahkan pada peranti`.**
+1. No iPhone. No real iOS keyboard: the keypad hiding on a real focus, the lift, the centring, and whether the body
+   stays put with the keyboard up.
+2. No real touch: Manual's body scroll against the sheet's swipe-to-dismiss (the `scrolledInside` gate) is untested.
+3. Safe-area insets were 0 (a desktop); the keypad's bottom padding under the home indicator is unmeasured.
+4. The caret blink, the native date picker over the row, and the input's ellipsis for a long merchant or note
+   on iOS Safari.
+5. The View All list at 375×667 (587px, fits) was measured only in the desktop harness.
+
+**Open, for the owner's call.** At 375×667 the card's lower rows (Date, Mode, Note) sit below the fold and scroll
+inside the sheet. The reference stack needs about 140px more than that screen has while the keys stay at 44px. Options
+are a smaller amount on short screens, dropping the currency pill below a height, or 40px keys. None is made here.
+
+**Same-day follow-up — the cramped screen, resolved.** View All (and its category sheet) and the Malaysian Ringgit
+pill came out; the card rows are 44px; the Mode toggle paints 32px inside its 44px box; the keypad's chrome tightened
+around the same 44px keys; the chosen chip now scrolls into view with the previous chip peeking. The whole form fits
+375×667 (card bottom 466.4px against a keypad top of 467.5px) and 390×844 with nothing scrolling. Currency still
+stamps `MYR` server-side; the client payload keys are unchanged. Merchant carries `spellcheck="false"
+autocorrect="off"`.
+
+## 2026-10-19 — 0004: the Pay expense and the monthly budget bar (SQL + backend + one payload key)
+
+**Branch `feat/budget-balance-commitments`. Pushed to origin (2026-10-19, after the keypad tuning commit),
+and the SQL has NOT been run anywhere by the assistant — you run it on staging after a backup (steps below).**
+The fix for the finding below, agreed with the owner in this session. `pytest` at the commit: **331 passed,
+21 skipped, 2 warnings** (the session-start baseline was 324 passed, 21 skipped), read from the run, and the
+same numbers hold in a checkout of the commit itself and in the working tree beside the owner's uncommitted
+keypad pass. The suite now prints **333 passed, 21 skipped** after the 422-message fix (`f5506c7`) and the
+view-order pin (`c6c9c69`); see the "Status: Pay Commitments" section at the end of this file.
+
+**What was wrong.** Paying a commitment saved an ordinary "bills" expense (indistinguishable from any manual
+row) and then `remaining_budget = budget − unpaid − month_expense` moved it twice in opposite directions:
+`unpaid` dropped by the amount and `month_expense` rose by it, so the bar stayed still and the paid bill
+kept eating the budget for as long as every paid bill stayed in `month_expense`. The bar and Safe to spend
+also disagreed about what a bill that has not been paid yet is worth.
+
+**The rule now.** `remaining_budget = budget − (month_expense − month_commitment_expense)`, and `null` when
+no budget. The Pay flow's expense arrives at `/finance/summary` labelled (`commitment_expense`, the slice of
+the month's `total_expense` whose `commitment_id` is set — migrations/0004 adds the column and the view's
+extra output), and the bar subtracts it out. `unpaid` is deliberately not in the bar at all: it is
+Safe-to-spend's figure. Effects: a bill that is not paid yet does not eat the bar; paying a bill cannot
+move the bar (both terms rise by the same amount); Safe to spend is untouched (`balance − unpaid`), and so
+are the balance, the month cards and the categories, which keep counting the Pay expense.
+
+Files: `migrations/0004_commitment_link.up.sql` and `.down.sql` (column + wider view, no FK on purpose —
+deleting a commitment must keep every expense; the API answers 404 for a link that is not the caller's),
+`schema.sql` (mirrors both), `app/db.py` (+ `commitment_expense` in the totals select), `app/finance.py`
+(`month_commitment_expense`, the new `derive`), `app/models.py` (`commitment_id` on create/response),
+`app/main.py` (the 404 ownership check on POST `/transactions`), `app/static/index.html` (one payload key:
+`commitment_id: paying ? paying.id : null` in `saveAdd`), `README.md`, `tests/{test_finance,
+test_endpoints,test_models,test_static}.py`. The wire shape of `/finance/summary` is unchanged; the
+`Transaction` response gained one nullable field.
+
+**Run order — the code is behind the SQL, not ahead of it.** With 0003 tables but no 0004 column, the code
+fails loudly: `GET /finance/summary` 500s (PostgREST: column `commitment_expense` missing) and a Pay save
+is refused (`row contains a value violating: commitment_id` — an unknown column). So: **(1)** backup
+staging; **(2)** run `migrations/0004_commitment_link.up.sql` in the SQL editor in ONE session; **(3)**
+re-run `migrations/staging/verify_after_0003.sql` (still valid — 0004 touches nothing it checks) and check
+the up file's own guards answer clean; **(4)** run the isolation suite; **(5)** only then merge/deploy the
+code. Live gets the same up file after staging behaves for a while — and **0003 is already applied on LIVE**
+(owner-reported 2026-10-19, pg_dump taken first), so **do NOT re-run 0003 there**; live only needs 0004. The
+down file rebuilds the 0003 view
+FIRST and drops the column after — no data-loss acknowledgement needed, because no typed row depends on
+0004; only the links go.
+
+**Not verified (belum disahkan pada peranti):** no iPhone and no real touch — the UI change is one payload
+key, checked by pins and the API tests, not by a finger; no staging and no live database were touched; the
+SQL files were written, not run (the migration SQL tests parse, they cannot execute); the wider-view call
+has not been observed against a real Supabase project.
+
+## 2026-10-19 — Status: Pay Commitments (at c6c9c69)
+
+pytest: 333 passed, 21 skipped. Backend + UI commitments complete, pinned by tests. Blockers are SQL rollout and device testing, not code.
+- 0003: rehearsed on staging (clean) AND already applied on LIVE today (pg_dump backup at ~/Backups/duits-live-2026-10-19 taken first; verify grid matched; transactions still 91 rows). Do NOT re-run 0003 on live.
+- 0004: staging attempt failed 42P16 (view column order), fixed in c6c9c69 (commitment_expense now last). NOT re-run anywhere yet. Live has the 0003 view, staging mirrors it, so staging is the real rehearsal.
+- Not tested on real iPhone: Pay flow, budget bar, 422 error message (f5506c7).
+Next, in order: (1) backup staging, run 0004 up on staging, re-run verify_after_0003.sql + isolation suite; (2) deploy code to staging, smoke-test Pay flow + budget bar on iPhone; (3) fresh pg_dump of live, run 0004 up on live, then merge to main (Render auto-deploys).
+
+## 2026-10-19 — the Pay guard, the What's New sheet, and the stale note
+
+Three commits on `feat/budget-balance-commitments`, none pushed to `main`:
+
+- **`fix stale budget note`** — the note under the balance breakdown still described the budget rule
+  that 0004 threw out ("this mode's spending + unpaid bills"), and it was in Malay while the app is in
+  English. It now says what the code does.
+- **`whats-new sheet`** — a three-screen sheet shown once per version (`WHATS_NEW_VERSION` against
+  `localStorage["duits.whatsnew"]`), opened only after the user is on Home and never on the sign-in,
+  set-password or reset screens. The copy is the app's own rules in words, with no example amounts.
+  The (i) beside "Safe to spend" says the card opens "How this is calculated"; it is decoration
+  inside the card's own button, so it has no handler.
+- **`pay duplicate guard`** — `POST /transactions` with a `commitment_id` now answers **409 with the
+  row that is already saved** when that commitment already has an expense in the transaction's own
+  month. This closes a real bug: paying is two writes, the *mark* was idempotent but the *expense*
+  was not, so a Pay whose mark failed and was retried charged the same bill **twice**. The UI treats
+  a 409 on a Pay as "the expense is there, only the mark is missing": it closes the sheet, carries on
+  to the mark, and says "Already recorded. Marked as paid."
+
+**Known limit (the guard is a check, not a constraint):** two Pay requests that arrive *at the same
+instant* can both pass the lookup and both insert. There is no unique index on
+`(commitment_id, month)`, so a genuine race is still possible. Closing it needs a SQL migration —
+`0005`, a unique partial index on `public.transactions (commitment_id, date_trunc('month',
+txn_date))` where `commitment_id is not null` — and the 0004 rollback would have to drop it with
+0004's column. Not done, and not to be done without the owner's decision: the index would refuse
+the second insert with a 23505, which the API does not translate into the 409 the UI expects.
+
+**To show the What's New sheet again:** change `WHATS_NEW_VERSION` in `app/static/index.html`. It
+is the only switch — the constant is compared with `localStorage["whatsNew:<user id>:lastSeenVersion"]`,
+and a different value means the sheet opens for every user once more. Nothing else has to be touched,
+and there is no dev-only override to remember.
+
+## 2026-10-19 — the What's New card, reworked (three commits, not pushed)
+
+- **`730916f` — the version is remembered per account.** The key was one for the whole device
+  (`duits.whatsnew`), so the first account to read the card hid it from the second one signed in on
+  the same phone. It is now `whatsNew:<user id>:lastSeenVersion`, where the id is the access token's
+  `sub` claim — the same id the API scopes by. No database, no migration.
+- **`27632b7` — a button per screen, and a way back in.** Balance opens the one-field balance sheet
+  (or *How this is calculated* when a balance is already set), Commitments opens the commitments
+  sheet with the add form ready, Monthly budget opens the one-field budget sheet. Settings > About
+  gained a "What's new" row that opens the card whenever the user wants it, even if the stored
+  version says they have read it.
+- **`b995280` — the screens are cards, and the copy is two sentences each.** The sheet is white in
+  the light theme, so bare text on it read as floating text. The separate formula box is gone: one
+  card, one set of sentences. Screen 1 keeps one worked example of the arithmetic, and says it is an
+  example.
+
+**The copy, in full** (what the user sees):
+
+1. **Balance and safe to spend** — "Balance is your starting balance plus income, minus expenses. If
+   you had RM1,700, spent RM900 and had no unpaid bills, safe to spend would be RM800." / "Safe to
+   spend drops the bills you have not paid yet, so it is what you can really spend." — button:
+   *Set my balance* (or *How this is calculated* when a balance is set).
+2. **Commitments** — "Commitments are your fixed monthly bills. Pay one to record the expense and mark
+   the bill paid for the month." / "Once a bill is paid it stays paid — the app has no way to undo
+   it." — button: *Add a bill*.
+3. **Monthly budget** — "Set a limit for daily spending like food and fuel. Bills you pay through
+   Duits don't count against it." / "The bar turns yellow at half used, and red when 20% is left." —
+   button: *Set a budget*.
+
+**Not measured on a real iPhone:** the three cards at 390x844 in both themes, the action buttons
+opening the right sheets, the Settings row, the drag-to-dismiss, and the per-account key with two
+real accounts on one device. Everything above was measured in desktop Chromium (a 390x844 frame) and
+in Node against the page's own functions.
+
+
+## 2026-10-20 — the balance card and the sheet, in the app's own words
+
+**Commit `polish: balance sheet clarity` on `feat/budget-balance-commitments`; pushed, not merged to
+`main`.** UI and tests only; no `app/*.py`, `schema.sql` or migration change.
+
+- **The (i) beside "Safe to spend" is gone.** The card's foot already says *How this is calculated* in
+  words, with a chevron in the accent, so the mark said the same thing in a convention the user had to
+  know. The pill keeps its own chevron; the card is still one button. The 2026-10-19 entry above is a
+  log of that day and still describes the (i).
+- **The bills row in the breakdown is a stack.** The label (with its calendar icon) is the first line
+  and *View bills ›* is the second, both in the accent; the amount keeps the right edge on the label's
+  line. Measured in desktop Chromium at 375px: the row is 62px, no horizontal overflow; the sheet's
+  action row is 44px and still one line.
+- **The pencil has a name.** It opens the one-field sheet for the opening balance — the breakdown's own
+  first row is "Starting balance" — so it reads *Edit starting balance* with the icon, a 44px target,
+  and no `aria-label` (the visible words are the name). The actions row wraps at 320px (two lines,
+  measured) rather than overflowing.
+- **"Income (all time)" and "Expenses (all time)"** in the breakdown, so the two all-time rows cannot be
+  read as this month's cards on Home.
+
+**pytest:** `352 passed, 21 skipped, 4 warnings` (the run in this session). **Not measured on a real
+iPhone:** the sheet at 375px was measured in desktop Chromium with the app's markup injected (no signed-in
+data), so tap targets, the drag, and the iOS keyboard were not exercised.
+
+
+## 2026-10-20 — Batch 2: the one-field ask is a centred popup, and it no longer stacks
+
+**Commits on `feat/budget-balance-commitments`: `821ccca` "Make the one-field ask a centred popup, and
+stop it stacking" (UI + tests) and "Record Batch 2 in the docs" (this entry). Not pushed.** UI only:
+`app/static/index.html` and `tests/test_static.py`; no `app/*.py`, `schema.sql`, migration, route, payload
+or status code changed. **pytest: `355 passed, 21 skipped, 4 warnings`** — the Batch 1 baseline of 352
+plus the three new tests (`test_the_pencil_closes_the_breakdown_before_the_popup_opens`,
+`test_the_one_field_popup_is_centred_and_lifts_its_field_above_the_keys`,
+`test_the_anchor_asks_one_question_with_one_preview_and_one_help_line`), with
+`test_the_breakdown_sheet_and_the_one_field_sheet_are_registered` renamed to
+`…_popup_are_registered` and three pins rewritten.
+
+- **The two sheets were stacked: the pencil called `openMoneyField` with the breakdown still open**, so
+  two overlays were on screen at once — the popup over the sheet it had just replaced. The pencil now
+  goes through `closeOverlay($("balanceOverlay"), function () { openMoneyField("balance"); })`, the same
+  handover the bills row already used for the commitments sheet. Reproduced and fixed in the page's own
+  code, not by assumption: `openBillsFromBalance()` was the only caller that closed first.
+- **Set your balance / Set a monthly budget are now one centred popup**, not bottom sheets. New
+  `.overlay.is-centre` class (`align-items: center`) plus a 420px cap on the panel; the overlay keeps the
+  scrim, the close token, the 500ms fallback timer and the target-based `isOutsideTap` guard, and the
+  panel keeps the shared `--kb`/safe-area clamp. There is **no grab and no `attachSheetDrag`** for this
+  overlay: the scrim, Cancel and Save are its three ways out.
+- **The field takes focus on open** (`focusWithoutScroll` + `centreFocusedFieldSoon`), so the keyboard
+  lifts the panel (`--kb`) and the field is centred inside the panel's own box, never the window.
+- **The anchor's copy is one question, one field, one preview, one help sentence.** The fallback line
+  ("Type what you have now, and Duits keeps track from there.") is gone — the preview slot now shows the
+  figure that will be saved or nothing (`:empty { display: none }`), so there is no blank gap. The
+  budget's *separate from your balance* line moved from the painted note to the static help sentence.
+  PUT `{ opening_balance }` / `{ monthly_budget }` and post-save behaviour are unchanged.
+- **Cancel after the pencil now lands on Home, and that is the new, deliberate behaviour — not a
+  regression.** The breakdown has already closed by the time the popup opens, so Cancel cannot return to
+  it. Measured: after Cancel, `document.querySelectorAll(".overlay.open").length === 0` and Home shows the
+  "Set your balance" card again.
+- **The Pay flow still stacks on purpose and was not touched.** Measured: Commitments → Pay leaves
+  `#commitOverlay` and `#addOverlay` both open (2 overlays), with the Add sheet over the sheet it came
+  from and the merchant "Phone bill" filled in.
+
+**Measured in desktop Chromium (the page's own bytes plus a stubbed API, in 375×667 and 390×844 iframes)
+— no phone, no real touch, no real keyboard.** The harness served the real `index.html` with a fake
+session and stubbed `/summary`, `/transactions`, `/finance/summary`, `/finance/settings` and
+`/commitments`, so the real handlers ran.
+
+- **No overlap.** Pencil, 375×667: breakdown `open` at t=462, breakdown closed at t=821, popup `open` at
+  t=821 (same tick, from the close callback) — `balanceOverlay && moneyFieldOverlay` was never true.
+  390×844: 1964 → 2320 → 2320, same result. One frame after the tap the breakdown is still up and the
+  popup is not: the handover is a sequence, not a swap.
+- **Centred.** 375×667: panel 351×193 at (12…363)×(237…430), centre (188, 334) against a viewport centre
+  of (188, 334). 390×844: panel 366×193, centre (195, 422) against (195, 422).
+- **Preview, in integer cents** (with the month's totals 1200 in / 800 out): `1,250` → *Starting balance
+  will be RM 850.00*; `-80` → *−RM 480.00*; `abc` and empty → no line, `display: none`.
+- **Save.** PUT `/finance/settings` body `{"opening_balance": 850}` — integers, in cents — popup closed,
+  toast "Saved.", and the card back to RM 1,250.00 with safe to spend RM 950.00.
+- **x = 0.** Typed `400` (400 − 1200 + 800) previewed *RM 0.00*, saved `{"opening_balance": 0}`
+  unmodified, and the card returned to "Set your balance". Confirmed, not changed.
+- **Budget.** Title/question/help correct; the preview line stays absent (a budget never shows one).
+  `-5` and `0` → toast "Enter an amount above zero." and **no request**; `abc` → "Enter an amount like
+  1250.00." and no request; `500` → `{"monthly_budget": 500}`, popup closed, budget card up (60% of
+  RM 500.00, RM 200.00 left to spend).
+- **Keyboard and insets.** With `--kb: 300px` on `:root` (what `paintKeyboard` writes) the panel's bottom
+  is 280 at 375×667 — 87px above the keyboard's top edge — and 369 at 390×844; `max-height` clamps to
+  343px / 520px and the panel never scrolls internally. With `--kb: 0` and `--sab: 34px` the overlay's
+  bottom padding is 46px and the panel's bottom is 220px (375) / 308px (390) above the home-indicator
+  band, with no clipping. `--kb 260 + --sab 34` at once: bottom 283, top 90, still inside both clamps.
+- **Both themes.** Panel `#fff`/`#1c1c1e`, help line `rgb(142,142,147)` (the `--muted` token, in both
+  palettes), preview `--text-2`, field 16px and 44px min-height, question 16px, scrim
+  `rgba(0,0,0,.28)`/`.55`.
+- **The real server** (`http://127.0.0.1:8000/`, the served bytes with the CSP and the nonce) also
+  reports `overlay is-centre`, `align-items: center`, a 420px panel centred on the viewport, no grab
+  element and no inline handlers.
+- **The Pay stack, measured**: Commitments → Pay → 2 overlays open, Add sheet (67…667) over the
+  commitments sheet (417…655), merchant "Phone bill".
+
+**Not verified at all:** a real iPhone (no Safari, no real keyboard `--kb`, no real touch, no real safe
+areas — `--sab` was simulated with a CSS variable, and `--kb` with the same variable `paintKeyboard`
+writes), the centred popup's scroll-back of the focused field on a real keyboard, Reduce Motion, and the
+scrim tap with a real finger. The harness ran in iframes on desktop Chromium with a stubbed API, so no
+Supabase read or write happened.
+
+**README is stale in two places and was deliberately not edited** (the edit goes in the docs commit after
+Batch 3): the What's New bullet still calls them the "one-field balance sheet" and "one-field budget
+sheet" (line ~500), and the "No focus zoom" bullet's 16px inventory omits the money field while saying
+`.field` is `font: inherit` from the 17px body (line ~534) — `.field` is that input too, and
+`.sheet .money-field-input` pins it to 16px.
+
+
+## 2026-10-20 — Batch 3: shorter motion, a fading popup, one ring (UI only)
+
+**Commits on `feat/budget-balance-commitments`: `ab017e2` "Give sheets, the centred popup and the money
+block their own short motion" (UI + tests), `7a84cb9` "Point a What's New action at the card it
+described, with one ring" (UI + tests), and this docs commit. Not pushed.** UI only:
+`app/static/index.html`, `tests/test_static.py`, `README.md` and this file. No `app/*.py`, `schema.sql`,
+migration, route, payload or status code changed. **pytest: `359 passed, 21 skipped, 4 warnings`** — the
+Batch 2 baseline of 355 plus four new tests; two existing pins were rewritten because their strings
+moved (`test_a_failing_finance_read_never_blanks_home`,
+`test_the_income_and_expense_labels_are_the_two_words`).
+
+- **Motion is shorter and split in two.** `--dur-sheet: 220ms` up and `--dur-sheet-out: 180ms` down
+  replace the single 350ms; `--dur-pop: 200ms` is the centred popup's own beat. `--ease-ios` is
+  unchanged and remains the only curve. Reduce Motion sets all three to 150ms. The page behind Add and
+  the transaction sheet follows the same pair (`pageBehind`).
+- **The centred popup fades instead of sliding.** `.overlay.is-centre` gets a 200ms fade over
+  `scale(var(--move-pop))` (0.96 → 1, read by `moveScale()`); every bottom sheet keeps
+  `translateY(100%) → 0`. This is the one place a panel's own opacity animates. It is WAAPI only, it
+  ends at 1, and `finish` now drops `parts.sheet.style.opacity` as well as the transform before
+  cancelling, so the next open is fully opaque. The AGENTS.md §4 line "the sheet is never translucent"
+  still holds for bottom sheets; the popup is the documented exception, and a test pins that neither
+  `.overlay` nor `.sheet` carries opacity in CSS and that the slide keyframes never touch it.
+- **The money block fades in once per month and mode.** `fadeMoneyCards()` runs from `loadHome()` when
+  `/finance/summary` answers and replays `.is-money-fresh` on `#balanceCard`, `#statRow` (new id on the
+  income/expense row) and whichever of `#budgetCard` / `#budgetPromptCard` is visible. The animation is
+  opacity only, so Reduce Motion keeps it (shorter). The helper remembers `month|mode`, so a save's
+  `refreshFinanceCard` never blinks the figures and returning to Home does not repeat it; `clearCaches`
+  resets the key so a new session fades again.
+- **One ring after a What's New action.** `runWhatsNewAction` arms `pulseHomeLater(selector)` before the
+  card closes. A `MutationObserver` on every overlay's class waits until no `.overlay.open` remains —
+  all three actions open a sheet, and the ring waits for it too — then `pulseHome` replays `.is-pulse`
+  on the first visible match (`getClientRects().length`). Targets: `#balanceCard`, `#safePill` for
+  "Add a bill", `#budgetCard, #budgetPromptCard` for the budget. The ring is a 2px `--accent` `::after`
+  at `inset: -4px`, `border-radius: inherit`, `pointer-events: none`: 2s, one iteration, two opacity
+  beats, `both` so it holds 0 at the end. The class is removed at 2.2s; the observer gives up after 30s;
+  from another screen nothing is drawn.
+- **Reduce Motion keeps both fades and drops every movement**: the popup's scale is 1, the sheet's slide
+  is skipped, and the ring is `pulse-ring-steady` (one fade, no beats) via an early `!important` rule —
+  the shorthand that starts the ring is later in the file, so the name needs it to win.
+
+**Measured in desktop Chromium (the page's own bytes plus a stubbed API, 375×667 iframe) — no phone.**
+The desktop window was occluded, so its document timeline was throttled (one `requestAnimationFrame` per
+300ms, 7ms of timeline in 300ms); every animation value below was read by seeking the live animation with
+`currentTime` and reading computed style, and every state/class timing came from the real handlers.
+
+- **Sheet up:** 220ms, `cubic-bezier(0.32, 0.72, 0, 1)`, keyframes `translateY(100%) → 0`; the panel's
+  opacity is 1 at 0ms, 110ms and 220ms. **Sheet down:** 180ms, `translateY(0) → 100%`, opacity 1
+  throughout.
+- **Clean close:** after the close, `runningAnimations` is empty, the sheet's inline `opacity` and
+  `transform` are `""`, computed opacity is 1, and a reopen starts opaque (1 at +16ms).
+- **Popup:** 200ms; `opacity 0 → 1` and `scale(.96) → scale(1)`; at 100ms opacity 0.955 and scale
+  0.998. Centred at 375×667: 351×193 at top 237. The breakdown's close (180ms) finishes before the
+  popup opens — no stacked overlays.
+- **Page behind:** 220ms in, 180ms out, and the popup leaves it alone (0 animations on `.app`).
+- **Money fade:** `180ms`, keyframes only `opacity 0 → 1`, computed `transform: none`; at 90ms opacity
+  0.955. First load fades the three cards once; a mode change fades them once more; saving a balance
+  (PUT `{"opening_balance": 500}` from a typed 900) added **0** replays.
+- **Ring:** arms with the press; while the action's sheet was open there was no `is-pulse`. After it
+  closed, `#balanceCard` carried `.is-pulse`, `::after` was `2px rgb(10, 132, 255)`, `inset: -4px`,
+  radius 24px, `pointer-events: none`, `2000ms × 1`. Opacity by seek: 0 → 0.973 → 0.4 → 0.970 → 0,
+  and 0 at the end (the `both` fill holds it). The class was gone by 2.4s. Opening the card from Settings
+  (Home hidden) drew nothing. With `#budgetCard` hidden, the ring landed on `#budgetPromptCard`. The
+  card's and pill's rects and offsets are identical with and without the class; only `scrollWidth` /
+  `scrollHeight` grow by 4px on elements with `overflow: visible`.
+- **Reduce Motion, simulated** (the media query's token values set on `:root`, `matchMedia` stubbed —
+  not the OS setting): sheet open leaves only the scrim animation (150ms) and the panel sits at
+  `translateY(0)` immediately; the popup fades over 150ms with `scale(1)` at every sample; the close is
+  clean.
+- **Cascade check for the ring:** a copy of the reduce rule placed before the app's stylesheet loses
+  `animation-name` to the later shorthand without `!important` and wins with it — so the shipped
+  `!important` is what makes the steady ring reach the panel.
+- **README** is now in step: the two Batch 2 staleness fixes (the What's New bullet says *popup*; the
+  16px inventory names `.sheet .money-field-input`), plus the motion section's six durations, the popup
+  fade, the money fade and the ring.
+
+**Not verified on a real iPhone:** Safari, real touch, a real keyboard (the popup's fade while `--kb`
+changes), safe areas, the actual OS Reduce Motion setting, 120Hz feel, and whether VoiceOver should say
+anything about a ring that is purely visual. Real-time playback was not observed in this session — only
+the animation objects and computed values at chosen times — because the desktop window's timeline was
+throttled.

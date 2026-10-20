@@ -58,9 +58,14 @@ and from the web UI.
 - **The sheet is never translucent.** Do not put `opacity` on `.overlay`, `.sheet` or any ancestor that
   animates. The dim is its own `.scrim` layer, and only that layer animates opacity. Animate
   `transform` on the sheet only.
-- **Fixed sheet height, no keyboard resize.** The Add sheet is `position: fixed` with a height from
-  `--sheet-top-gap`, not `window.innerHeight`. Do not add `visualViewport`, `--vvh` or scroll-into-view
-  logic. Call `focus({ preventScroll: true })`.
+- **Sheets lift for the iOS keyboard; the page behind does not move.** iOS shrinks only the *visual*
+  viewport when the keyboard opens, so its height — `innerHeight - visualViewport.height -
+  visualViewport.offsetTop` — goes into one variable and one CSS variable, `--kb`. That sets each
+  sheet's `bottom` (and every overlay's bottom padding) and clamps its `max-height`, so the sheet sits
+  above the keys with its top still clear of `--sheet-top-gap`. Sheet heights are `dvh`; never `vh`.
+  Focusing a sheet field centres it about 300ms later by moving the sheet's own `scrollTop` — never the
+  window, which stays scroll-locked. Call `focus({ preventScroll: true })`, and reset `--kb` when the
+  keyboard closes and when a sheet closes.
 - **Viewport font-size 16px.** Every control a finger can focus (inputs, the date input, search) must
   be at least 16px, or iOS zooms the page on focus. `maximum-scale=1` is a belt, not the fix.
 - **`touch-action: manipulation`** on `html`, `body`, `button` and the date label stops double-tap zoom.

@@ -39,7 +39,11 @@ def main() -> int:
 
     import pytest
 
-    return int(pytest.main(["tests/staging", "-m", "staging", "-q", "-p", "no:randomly"]))
+    # --tb=short, and never -l/--showlocals: a traceback must name the row that failed, not render the
+    # fixtures — they carry the service key, the publishable key and the test password. Secret (tests/
+    # conftest.py) hides a credential from repr(), but the long traceback styles print whole source
+    # contexts, so short is the ceiling here.
+    return int(pytest.main(["tests/staging", "-m", "staging", "-q", "--tb=short", "-p", "no:randomly"]))
 
 
 if __name__ == "__main__":

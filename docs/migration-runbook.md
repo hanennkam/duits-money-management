@@ -13,6 +13,10 @@ objects have been migrated — see `NEXT_STEPS.md`, Pass 13.)* Do not start this
 here was rehearsed on the staging project first (see "What staging proved"). Each step names the expected
 result, and a deviation is a stop, not a judgement call.
 
+*(Added 2026-10-17: §10 records the **0003** rehearsal — budget, balance and monthly commitments. That migration
+is new, **nothing in it has been run anywhere**, and §10 is the sequence to run. It does not touch
+`public.transactions`, so it does not re-open anything in §1–§8.)*
+
 Live project ref: `viorpltdkpexswvofeul`. Staging ref: `tddigsmukmhkjrwiqdec`. Check the ref in every
 console and env file before a write. The scripts refuse live unless `--allow-live` is given, and only this
 runbook passes it.
@@ -204,3 +208,125 @@ Rehearsed on the staging project (`tddigsmukmhkjrwiqdec`), with fake data for tw
 **Open finding (not fixed in this step):** `GET /transactions/{id}/receipt-url` returns Supabase's **relative**
 signed path (`/object/sign/...`). A client cannot use it as a URL. The fix is to join it to
 `<SUPABASE_URL>/storage/v1`, and it needs a decision because it changes the response.
+
+## 10. 0003 — budget, balance and monthly commitments (staging rehearsal, NOT run)
+
+`migrations/0003_budget_commitments.up.sql` adds `public.user_finance_settings`, `public.monthly_commitments`,
+`public.commitment_payments` and the view `public.transaction_totals`. It touches **nothing** in
+`public.transactions`: no column, no row, no index, so it does not re-open anything in §1–§8. The down file drops
+the four objects, and because that destroys rows the owner typed in, it first copies every row into
+`public.migration_0003_saved_rows` (RLS enabled **and** forced, 0 policies) and refuses to start until the
+operator acknowledges the loss.
+
+Run all of this on the **staging** project (`tddigsmukmhkjrwiqdec`). Only the two migration files write; the
+verification script is `SELECT`-only and names no project. `.env.staging` drives the app, and
+`scripts/run_staging_tests.py` refuses to run if that file points at live.
+
+**Before step 1: 0002 must already be applied to the target project.** 0003 is built on top of 0002 — step 5's
+view reads `public.transactions.user_id`, which 0002 adds, and the file expects `public.api_tokens` to exist.
+On a pre-0002 project the up file's new step 0 raises `run 0002 first: public.transactions.user_id is missing`
+(or `... public.api_tokens is missing`) instead of failing later, inside the view. So the order is §4 first —
+`select set_config('app.owner_id', '<owner auth.users id>', false);` and then the whole of
+`migrations/0002_multi_user.up.sql` — followed by `verify_after_up.sql`, whose grid is the table above. Two
+things make a skipped prerequisite obvious at a glance: that guard, and `verify_after_0003.sql`'s new **row 0**,
+which reads `MISSING (0002 is not applied: public.transactions.user_id does not exist)`.
+
+The down file is the other way round: it refuses `nothing to roll back: 0003 is not applied` when none of the
+four 0003 objects exist, and on a half-applied 0003 it proceeds and snapshots only the tables that are there.
+
+1. **Up.** In the staging SQL editor, in **one run**, paste the whole of
+   `migrations/0003_budget_commitments.up.sql`. It opens with `begin;` and ends with `commit;`, and its final
+   `do $$` block names whatever is missing.
+   - Expected: no error. **STOP** on any error — the run rolls back as a whole, so the project is unchanged.
+2. **Verify.** Run `migrations/staging/verify_after_0003.sql`: one statement, one grid. Compare every row with the
+   expectation written in that row's own name.
+   - Row 0 must read `uuid / NO` — 0002's `public.transactions.user_id`. `MISSING` there means step 1 ran
+     against a pre-0002 project: go back to the prerequisite above, apply 0002 and re-verify.
+   - Row 4 must read `true/true, true/true, true/true` — ENABLE **and** FORCE, per table.
+   - Row 5 must read `4 / 4 / 4`, and row 6 must read `6` (insert and update policies carry a `WITH CHECK`).
+   - Row 7 must name **both** columns:
+     `FOREIGN KEY (commitment_id, user_id) REFERENCES monthly_commitments(id, user_id) ON DELETE CASCADE`.
+   - Row 12 must read `v / true` (a view, `security_invoker`), and row 13 must read `false / false` — neither
+     `anon` nor `authenticated` has `SELECT` on the view, because the revoke is the whole gate for it.
+   - Row 16 (`transactions` rows) must equal what it was before step 1. 0003 must not move a transaction.
+   - **STOP** on any other value, and go to step 4.
+   - **A parse-time bug in that grid was found on staging and fixed (2026-10-18).** The file is ONE statement, and
+     Postgres resolves every relation name in a statement while it **parses** it — *before* any `case` or
+     `to_regclass(...)` guard is evaluated. Rows 15 and 17 therefore raised
+     `42P01 relation "public.migration_0003_saved_rows" does not exist` instead of printing their value:
+     `migration_0003_saved_rows` is created by the **down** file, so it is absent in the normal post-`up` state,
+     and the three 0003 tables are absent on a pre-0003 project and again after step 4's rollback. (The error
+     naming row 17 rather than row 15 is itself the evidence that `0003 up` had run: had the 0003 tables been
+     missing too, row 15's reference would have failed first.) The fix: an object that may legitimately be absent
+     is now read through a **string** — `to_regclass(...)`, or
+     `coalesce((xpath('//c/text()', query_to_xml('select count(*) as c from public.x', false, true, '')))[1]::text, 'UNREADABLE')`,
+     which resolves the relation only when the branch actually runs — while `to_regclass` still guards the branch.
+     (`//c` rather than the usual `/row/c/text()`: it is a descendant search, so it does not depend on which
+     wrapper element `tableforest` picks, and the `coalesce` keeps an empty read from printing as a blank cell.)
+     Row 15 needed this as much as row 17: it is the row that reports `MISSING (0003 is not applied ...)`, so
+     without the fix **step 5 could never have run either**. **Re-run the grid after the fix**, in both states (up
+     and post-rollback).
+   - **The rule for any future verify file: guard with `to_regclass`, but never name the object directly in the
+     same statement.** The migration files themselves are not affected — their guards sit inside `do $$` bodies,
+     where each statement is planned when it is executed, which is why `0002_multi_user.down.sql` may read
+     `public.migration_0002_saved_constraints` directly behind its step-0 guard, and why
+     `0003_budget_commitments.down.sql` may name `migration_0003_saved_rows` after creating it in step 1.
+3. **The isolation suite.** `./.venv/bin/python scripts/run_staging_tests.py`
+   - Expected: all green, including the six 0003 tests. Those are the evidence that the service-key API still
+     reads and writes its own rows with the policies **forced** on, that anon/publishable is refused, that one
+     owner cannot see, change or delete another's commitment through PostgREST, and that a paid mark naming
+     another owner's commitment is refused by the composite foreign key.
+   - If 0003 is not applied, those six skip with that reason; the rest of the suite still runs.
+   - **STOP** if any test fails. A refusal on the API's own path would mean FORCE is stopping the service key,
+     and that is a decision, not a patch.
+   - 2026-10-19: a failure here printed the staging keys once — a pasted traceback rendered the fixtures'
+     dicts in full, and the keys were rotated by the owner the same day. Two guards went in: the runner calls
+     pytest with `--tb=short` and never `-l`/`--showlocals` (scripts/run_staging_tests.py), and the `env`/
+     `service` fixtures wrap every credential-shaped value as `Secret` (tests/conftest.py), which repr()s as
+     `<redacted>`. The value — not the dict — is what must be wrapped: pytest's dict-comparison rendering
+     walks a dict's items and reprs each one separately, so a dict subclass with a redacted repr still
+     leaked (measured by the probe in tests/test_secret_redaction.py, which runs a failing test with the
+     worst-case reporting and asserts no dummy value survives). Never paste a traceback that renders locals
+     without checking this first.
+4. **Down (the destructive half).** In the staging SQL editor, in one run: first
+   `select set_config('app.allow_0003_data_loss', 'yes', false);` and then the whole of
+   `migrations/0003_budget_commitments.down.sql`.
+   - The guard refuses without that `set_config`. That is the point: the step destroys the opening balance and
+     every commitment and paid mark that was typed in. A second guard refuses with
+     `nothing to roll back: 0003 is not applied` when none of the four objects exist, so the script cannot
+     "roll back" a project that never had 0003.
+   - Expected: no error, and `public.migration_0003_saved_rows` holds **3** rows — one per 0003 table that
+     existed. On a half-applied 0003 it holds fewer, and the file's closing check requires exactly that many:
+     it remembers how many tables it found in the session setting `app.tables_0003_present` (alongside
+     `app.allow_0003_data_loss`, the other setting this file reads).
+   - `42602 invalid configuration parameter name` means a setting was spelled with a digit-led segment: an
+     older revision of this file said `app.0003_tables_present`, which Postgres refuses because a custom
+     name's segments must each be an identifier (`[A-Za-z_]` first — `0003_tables_present` is not). The
+     setting is `app.tables_0003_present`, and step 2 of the file sets it itself: nothing here is typed by
+     hand. Every `app.` name in the SQL files is pinned by tests/test_migration_sql.py.
+5. **Verify the rollback.** Run `verify_after_0003.sql` again. Expected: row 0 still reads `uuid / NO` (0003's
+   rollback must not touch `public.transactions`), rows 1–6 read `MISSING` (row 5 and 6 say a table is gone),
+   rows 7–11 read `MISSING`, row 12 reads `MISSING`, rows 13–15 read `MISSING`, row 16 (the `transactions`
+   row count) is unchanged, and row 17 reads `3 row(s), rls true/true, policies 0` (3 in a full rehearsal —
+   the number of 0003 tables that existed).
+   The script names the rolled-back state rather than erroring, which is why its lookups are wrapped.
+6. **Up again.** Repeat steps 1 and 2. This is the idempotence check: the `if not exists` statements plus the
+   named-constraint guard must land on the same grid, and the snapshot table is left where it is.
+7. **Live, later, and only by the owner.** Live follows §0's roles and §1's discipline, and it needs its own
+   `pg_dump` (step 2) taken first. 0003 is smaller than 0002 — no backfill — but it is not reversible without
+   the snapshot, so the snapshot stays until the owner signs off.
+
+**What is verified today: `0003 up` on staging, and nothing more.** *(2026-10-18: the up has now been run on the
+staging project and this grid was run against it; that run is what found the parse-time bug noted under step 2. The
+grid is fixed, so re-run it.)* The up file's `do` blocks, the view's `security_invoker`, FORCE row level security
+and the revoke are argued from the PostgreSQL and Supabase documentation and from 0002's conventions; steps 1–6 are
+what turn that into evidence. The staging tests in step 3 are written but have never been run.
+
+**One dependency worth knowing before step 2.** The up file's guard calls `has_table_privilege('anon', ...)`, and
+the down file's closing block asserts on `pg_class` and `pg_policies`. Both rely on the `anon`, `authenticated`
+and `service_role` roles existing, as they do in any Supabase project. A database without them fails the guard
+loudly rather than silently.
+
+**Rollback window.** Keep `public.migration_0003_saved_rows` until the owner signs off, exactly like
+`public.migration_0002_saved_constraints`. Dropping it is a separate, owner-approved step:
+`drop table public.migration_0003_saved_rows;`
