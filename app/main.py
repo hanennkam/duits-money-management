@@ -70,8 +70,9 @@ RECEIPT_URL_TTL = 60
 # ENVIRONMENT=production turns the interactive API docs off.
 IS_PRODUCTION = is_production()
 
-# API responses that must never be cached by a proxy, browser or CDN.
-NO_STORE_PREFIXES = ("/transactions", "/summary", "/finance", "/commitments")
+# API responses that must never be cached by a proxy, browser or CDN. `/health` is here so a
+# keep-alive probe always reaches Render instead of being answered from a cache.
+NO_STORE_PREFIXES = ("/health", "/transactions", "/summary", "/finance", "/commitments")
 
 
 @asynccontextmanager
@@ -256,8 +257,13 @@ async def apple_touch_icon_152() -> FileResponse:
 
 
 @app.get("/health")
+@app.head("/health", include_in_schema=False)
 async def health() -> dict[str, str]:
-    """Liveness probe. No auth, so Shortcuts can check the tunnel quickly."""
+    """Liveness probe: no database, no auth, no Supabase, so a monitor can poll it often and cheaply.
+
+    HEAD is answered as well as GET because UptimeRobot's free plan polls with HEAD by default. The
+    middleware's ``no-store`` keeps each probe out of any cache, so a keep-alive really reaches Render.
+    """
     return {"status": "ok"}
 
 
