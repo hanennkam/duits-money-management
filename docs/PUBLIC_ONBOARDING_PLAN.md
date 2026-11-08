@@ -79,7 +79,7 @@ Implementation notes: setup reuses the existing `/finance/settings` API for `ope
 
 ### Phase 4 — release gates
 - [x] Static source audit of JWT verification, owner-scoped DB helpers, finance/commitment routes and receipt path enforcement; findings recorded in `docs/PHASE_4_RELEASE_AUDIT.md`.
-- [ ] Full pytest suite on the exact branch head and UI harness (if available).
+- [x] Add static regression checks for signup, confirmation, resend, optional save/skip, resume and recovery preservation in `tests/test_static.py` (seven checks; execution pending).\n- [ ] Full pytest suite on the exact branch head and UI harness (if available).
 - [ ] Two-account isolation checks across all private data and receipt storage on staging.
 - [ ] End-to-end staging signup, confirmation, resend, recovery and optional onboarding.
 - [ ] Regression checks for transactions, AI receipt scanning, commitments and recovery.
