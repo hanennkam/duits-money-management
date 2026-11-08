@@ -1930,7 +1930,7 @@ def test_optional_onboarding_saves_only_entered_values_and_skip_is_financially_e
     skip = onboarding[skip_start:]
     assert 'await finishOptionalOnboarding();' in skip
     assert 'api("/finance/settings"' not in skip
-    assert 'data: { onboarding_completed: true, onboarding_version: 1 }' in onboarding
+    assert 'data: { onboarding_completed: true, onboarding_version: 1 }' in page
 
 
 def test_incomplete_onboarding_resumes_without_forcing_existing_users(client: TestClient) -> None:
