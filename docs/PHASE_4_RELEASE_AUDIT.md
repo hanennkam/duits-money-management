@@ -50,6 +50,12 @@ Reviewed `app/db.py` and the relevant routes in `app/main.py`:
 - Keep **production** sign-up closed until all staging gates pass and the owner explicitly approves the live setting change.
 - Confirm the production Auth URL allow-list and email template separately before launch; do not assume staging configuration carries over.
 
+### 6. Automated coverage gap — onboarding flow not pinned by current tests
+
+- The branch's `tests/test_static.py` contains no references to onboarding, signup, confirmation or resend.
+- `tests/test_auth.py` exercises FastAPI JWT verification and the legacy-key/throttle boundary; it does not exercise the browser's Supabase signup/confirmation flow.
+- Add focused regression tests for the onboarding state machine and auth request payload/redirect handling before treating the new public-registration UI as regression-covered. At minimum, pin signup, confirmation callback, resend, returning-user sign-in, recovery preservation, optional save/skip and incomplete-onboarding resume.
+
 ### 5. Onboarding settings write — contract reviewed, end-to-end proof pending
 
 - Optional onboarding reuses `PUT /finance/settings` for `opening_balance` and `monthly_budget`.
