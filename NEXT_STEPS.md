@@ -1874,3 +1874,369 @@ changes), safe areas, the actual OS Reduce Motion setting, 120Hz feel, and wheth
 anything about a ring that is purely visual. Real-time playback was not observed in this session — only
 the animation objects and computed values at chosen times — because the desktop window's timeline was
 throttled.
+
+## 2026-10-22 — Home's brand hero (UI only, branch `ui-revamp`, not pushed)
+
+Session 3B of the visual revamp. The brief named `docs/design/home-reference.png`, which is not in the
+repo (nothing in `git log --all`, not ignored, and no `home-reference*` anywhere under `~/Desktop`,
+`~/Downloads`, `~/Documents` or `~/Dev`). The owner confirmed **`design/new-home-ui/screen.png`** as the
+source of truth — the PNG only, not `code.html`. No Tailwind, Font Awesome, Plus Jakarta Sans or any CDN
+asset; the system stack and the single file stay.
+
+**What changed, all of it Home.** The section now wraps the shared header slot, `#homeError` and the
+balance card in a `.hero` div: full-bleed (`-16px` each side), `linear-gradient(180deg,
+var(--brand-grad-from), var(--brand-grad-to))`, `--radius-sheet` bottom corners, and a `--sat`-aware
+top so it starts under the status bar. Three soft blobs are `.hero::before` radial gradients in
+`--glass-fill` (no image, no filter, no extra element). The nav bar is a *sibling* of the screen, so it
+is not moved: on Home it turns `position: relative`, transparent, borderless and `--hero-text`, and the
+hero is pulled up behind it by the bar's own height (`calc(-51px - var(--sat))`, and the same 51+sat
+goes back into the hero's padding). It scrolls with the hero because it is no longer sticky there.
+
+Glass (`--glass-fill` / `--glass-border` / `--glass-blur`, with `-webkit-backdrop-filter`): the refresh
+button, month pill, the `--brand-grad-*` segmented, the "Personal + Business" chip and the safe panel.
+The fallbacks are `@supports not (backdrop-filter)` and `@media (prefers-reduced-transparency: reduce)`,
+both painting `--brand-grad-to`. The segmented is a variant of the existing component
+(`.hero .segmented` / `.hero .seg-btn`), not a fork: unselected is white text on the glass track,
+selected is `var(--card)` with `var(--brand)` text. "Safe to spend" and "How this is calculated" now
+share one glass panel (a `<span>`, because a `<div>` inside the card's button is not phrasing content).
+
+Income/Expenses are solid `--card` cards pulled up `-22px` over the hero's foot; their 34px icon chips
+are `--brand-soft` with a `--brand` arrow glyph (the SVG is the existing one, restyled; `order: 2` puts
+it at the end of the label row without touching markup). Budget and recent rows are unchanged solid
+cards. Home's recent list now asks `txnListHtml(..., true)`, whose rows carry `.txn-icon.is-brand`
+instead of the `tint()` category background; `tint()` itself and the Transactions page are untouched
+(the category dot stays). The tab bar keeps its blur; the FAB is now the brand gradient with a slightly
+larger soft glow, and Home adds `--space-3` of its own bottom padding under the app's 96px.
+
+**Scoping — the part that had to be proved.** `screenHeaderHtml()` is byte-identical: the hero is the
+wrapper, not a second header. Every new rule is under `.hero` or `html[data-screen="home"]`;
+`data-screen` is set on `<html>` at the start of `start()` (before the first paint, behind the splash)
+and in `showScreen()`. `theme-color` follows the screen from the same function
+(`--brand-grad-from` on Home, `--browser-chrome` elsewhere), while
+`apple-mobile-web-app-status-bar-style` stays a theme decision.
+
+**Probe** (`/tmp/duits-probe/build_3b.py`, scripts stripped, `data-theme` and `data-screen` forced;
+500×844 because headless Chrome refuses a narrower window — 390 came from the screenshot pass).
+Non-Home pass with the Home section removed, so every unscoped selector resolves elsewhere:
+**light and dark both differ in exactly 3 declarations, all `.tab-add-face`** (background-color →
+transparent, background-image → the gradient, glow 6/18 → 8/22). Nothing else moved.
+
+**Screenshots** (390×844 at 2×, frameless iframe so the layout is really 390): Transactions, Insights
+and Settings, before vs after, differ only in `x[293-486] y[1515-1687]` — the FAB and its glow
+(~26.4k px in light, ~27.1k in dark, identical on all three screens). The page itself is pixel-identical.
+
+**Contrast**, measured from the rendered boxes against the gradient/glass behind each element (light
+`#6FB1FF → #2F6BFF`, dark `#1B3F9E → #0B1F5C`; glass 18% / 8% white):
+
+| text | light | dark |
+|---|---|---|
+| Duits 17/600 | 2.32 | 9.64 |
+| Home 34/700 (large) | 2.56 | 10.33 |
+| Oct 2026 15/600 | 2.13 | 8.34 |
+| Personal (selected) | 4.50 (borderline) | 5.38 |
+| Business 15/500 | 2.30 | 8.90 |
+| Balance 15/600 | 3.03 | 11.76 |
+| Personal + Business 12/600 | 2.53 | 9.70 |
+| amount 40/800 (large) | 3.43 | 12.88 |
+| Safe to spend 14/500 | 2.95 | 11.02 |
+| safe amount 17/700 | 2.95 | 11.02 |
+| How this is calculated 13/500 | 3.17 | 11.64 |
+| negative safe amount (`--danger`) | 1.83 | 3.24 |
+
+**Dark passes AA everywhere except the negative safe-to-spend figure.** **Light fails nearly all of it**:
+the supplied `--brand-grad-from` (#6FB1FF) is too light for white text, and the reference screenshot has
+the same problem (2.9–5.1:1 measured on its own pixels). Meeting AA would mean darkening both light
+gradient tokens (the top must reach roughly #2A63F2 or darker) and giving the glass a dark fill — a
+brand decision, not taken here.
+
+**Status bar.** `apple-mobile-web-app-status-bar-style` is `black-translucent` in `<head>` and the
+pre-paint script / `applyTheme()` switch it to `default` for light and back for dark. In standalone iOS
+it is read at launch: `black-translucent` lets the page paint under the bar (white glyphs, `--sat` ≈ 59),
+`default` insets the web view (black glyphs, `--sat` 0). It is therefore not switchable per screen, and
+forcing `black-translucent` in light would put white glyphs over near-white pages. So it is unchanged;
+`theme-color` (which Safari does re-read) follows the screen instead. In light standalone the hero
+starts below an opaque status bar rather than under it. (`Handoff`/the head comment's claim that
+`viewport-fit=cover` alone makes content edge-to-edge is not true for standalone `default`.)
+
+**Not verified on a real iPhone:** the hero's actual `--sat` underlap and the standalone status bar strip,
+the glass against real wallpaper (there is none — the gradient is opaque), `prefers-reduced-transparency`
+(no iOS/macOS switch exposes it here), 120Hz, and the Home txn chips with real rows (the probe page has
+no JS, so those were checked as CSS plus the `is-brand` branch; the rendered app was checked through the
+served DOM, light and dark, with `data-screen="home"` and the right `theme-color`). `pytest -q`:
+**362 passed, 21 skipped**.
+
+## 2026-11-06 — Home hero trimmed (UI only, branch `ui-revamp`, not pushed)
+
+Follow-up to 3B. The hero held ten elements and painted them all with the same glass, so nothing stood
+out, and the income/expense cards overlapped its foot by 22px. It now holds the balance and the
+safe-to-spend panel, and nothing else.
+
+**Removed.** The shared header inside the hero (the big "Home" title and its row), the
+"Personal + Business" glass chip, the "How this is calculated" line, and the `.hero::before` blobs. The
+chip became a plain 12px line under "Balance" (`--hero-text`, weight 500, no fill, border or blur). The
+"How this is calculated" line went because the safe panel already sits inside `#balanceTap` — tapping
+it opens the same breakdown sheet; the chevron at the end of the pill stays. The hero is now a clean
+gradient with no decoration layer.
+
+**Moved.** The month pill and the Personal/Business segmented control now live in a `.home-controls`
+row between the hero and the Income/Expenses cards, on the page background, in the normal `.month-pill`
+/ `.segmented` chrome (no `.hero` variant). The row is still `screenHeaderHtml()`'s markup — the shared
+function is byte-identical and the slot keeps its classes — so `paintMonth()`, `.js-month-pick`,
+`[data-mode]` and every handler are untouched. Only `display: none` on the slot's `.large-title` is
+Home-specific. The two controls sit side by side (pill auto width, segmented `flex: 1`).
+
+**Glass.** One element keeps it: `.hero .hero-safe` (`--glass-fill`, `--glass-border`, `--glass-blur`,
+plus `-webkit-backdrop-filter`), with both solid fallbacks to `--brand-grad-to`
+(`@supports not (backdrop-filter)` and `prefers-reduced-transparency: reduce`). The refresh button is a
+translucent `--glass-fill` circle with `border: 0` and no blur. In dark the selected segment is the
+normal `--seg-selected` / `--text` pair, not the old white-on-brand thumb.
+
+**Bottom.** `.hero + .stat-row { margin-top: -22px }` is gone. The hero ends in its own
+`--radius-sheet` edge; then 16px, the controls row, 16px, the cards. Hero padding-bottom is 22px.
+
+**Probe.** CSSOM rule diff of `d055b50` vs the working tree (both served from the throwaway demo server,
+scripts live): 481 → 473 rules, 26 rule diffs, **all of them under `.hero`, `html[data-screen="home"]`
+or `.home-controls`; non-Home selectors = 0**. Screenshots at 390×844 @2× before/after: Insights and
+Settings pixel-identical; Transactions differs only in the tab-bar backdrop strip, and that same strip
+differs between two renders of the *same* file (headless backdrop-filter flake, max channel delta
+12/255), so it is not the change. Dark Home was re-checked; the safe panel still blurs and the refresh
+disc stays borderless.
+
+**Contrast** is unchanged in kind: light still fails AA for white text on `--brand-grad-from`. What is
+left in the hero is Balance 3.03, the amount 3.43 and the safe panel 2.95 (dark 11.76 / 12.88 / 11.02);
+the subtitle is now plain `--hero-text` at 12px instead of a chip, so it inherits the same ratio. Not
+fixed — the palette is a brand decision.
+
+**Not verified on a real iPhone:** the controls row on a narrow (320px) phone, the hero's `--sat`
+underlap and the standalone status-bar strip, and `prefers-reduced-transparency`. `pytest -q`:
+**362 passed, 21 skipped**.
+
+## 2026-11-06 — Home: the month beside the balance (UI only, branch `ui-revamp`, not pushed)
+
+Step 1 of the personal-only follow-up, visual only. The `.home-controls` row is gone: the month pill
+moved into the balance row, right-aligned, and Home no longer carries a Personal/Business segmented.
+The "Personal + Business" subtitle stays — `/finance/summary` still sums every mode for the balance
+(Step 0 finding), so the figure is mixed until Step 2 is approved.
+
+**Structure.** The label row had to leave `#balanceTap`, because a button cannot hold the month pill's
+button. The card is now `.hero-head` (label + pill) → `#balanceNotSet` (only with no opening balance) →
+`#balanceTap` (the 40px amount + the safe panel) → retry. The button keeps its aria-label, so its
+accessible name did not change; only the label row stopped being part of the tap target.
+
+**Pill.** Same shared markup, now inline in the hero: `month-pill js-month-pick` + `js-month-label`,
+so `paintMonth()` and `wire()` needed no change. `<div data-screen-header="Home">` is gone;
+`screenHeaderHtml()` is untouched and still serves Transactions and Insights. `.hero .month-pill` is
+`--glass-fill`, no border, no shadow, no backdrop-filter, 13px text, 34px tall, with a 44px `::after`
+hit area so the touch target stays iOS-sized.
+
+**Rest.** The wallet icon is `align-items: flex-start`, so it sits on the "Balance" line instead of
+between the two lines. The safe panel is tighter (8/9px padding, 38px pill row, 2px gap). The hero
+keeps its `--radius-sheet` bottom and gains a 16px bottom margin, so nothing overlaps the cards. The
+40px amount is untouched.
+
+**Probe.** CSSOM rule diff of `f393600` vs the working tree: 473 → 475 rules, 16 changed rules, all
+`.hero*`, `.home-controls*` (removed) or `html[data-screen="home"]`; **non-Home = 0**. The probe now
+compares each rule's `cssText`; the old per-longhand collector reported the longhands of a shorthand
+that uses `var()` as empty strings, which is why it had been silent about margin/padding/background
+edits. Screenshots at 390×844 @2×, before vs after: Transactions, Insights and Settings are
+pixel-identical (one Insights capture caught a mid-animation frame; two re-runs matched the before
+file exactly).
+
+**pytest:** 362 passed, 21 skipped.
+
+## 2026-11-07 — Personal-only mode (branch `ui-revamp`, not pushed)
+
+Step 2 of the follow-up. The app is personal-only now; the `mode` column and API field stay, and the
+three stored business rows are hidden, not deleted.
+
+**Backend.** `finance.totals()` takes the mode and skips every other mode's `transaction_totals` rows, so
+`/finance/summary` returns a personal-only `total_income`, `total_expense`, `current_balance` and
+`safe_to_spend` (safe-to-spend follows the balance minus the same unpaid commitments, which have no
+mode). `remaining_budget` was already per mode. `mode` stays a query parameter — Apple Shortcuts can
+still read business — and the DB column, index and view are untouched. A new endpoint test pins that a
+business row moves the business reply but not the personal one.
+
+**Frontend.** No screen has a mode control: `screenHeaderHtml()` lost its segmented (Transactions and
+Insights keep title + month pill); Home has no scope line; the Add sheet's `#addModeToggle`, the edit
+sheet's Mode select and the detail sheet's Mode row are gone. `state.mode`, `setMode()` and the
+`[data-mode]` handlers are removed; `monthQuery()`, the Insights query and the create/scan/text/edit
+payloads always use `mode: "personal"`. The aria-label is "Balance, …" (no "Personal and Business").
+
+**Read-only check of the real data (2026-11-07).** 3 business rows in total (2026-10-16 … 2026-10-19)
+across 2 of the 9 accounts. The main account holds 2 (income RM 375.00, expense RM 80.00); its figures
+moved by exactly RM 295.00: balance RM 901.18 → RM 606.18, safe-to-spend RM 351.18 → RM 56.18 (opening
+RM 2,124.37, unpaid commitments RM 550.00). The third row belongs to another account, so it never
+affected the main one.
+
+**Probe.** CSSOM rule diff of `0a86de6` vs the working tree: 475 → 466 rules, 9 removed — the hero scope
+chip (4 rules) and `.add-mode*` (5). Nothing else. Screenshots at 390×844 @2×: Settings pixel-identical;
+Transactions and Insights differ from y≈114 down — the header's mode segmented is gone and the content
+below moves up by its height. No other visual change.
+
+**pytest:** 363 passed, 21 skipped.
+
+## 2026-11-07 — Edge-to-edge top bar, brand nav (UI only, branch `ui-revamp`, not pushed)
+
+The standalone status bar style was switched per theme, but iOS reads that meta once at launch: a light
+launch kept `default` (black glyphs on an opaque light strip) and the Home hero never reached the top.
+`apple-mobile-web-app-status-bar-style` is now fixed at `black-translucent` in `<head>`; neither the
+pre-paint script nor `applyTheme()` touches it.
+
+**Top surface.** Light theme paints the nav bar with the brand gradient on every screen, white wordmark
+and a borderless `--glass-fill` refresh disc. Home keeps its transparent bar over the hero, so the
+hero's gradient is the bar (no seam). A fixed `body::before` strip of height `--sat` paints the inset
+from the page itself, so the clock keeps its backdrop after the bar scrolls; dark uses `--bg` there (or
+the hero's top on Home). The splash and auth screens get the same brand band for the inset, since they
+cover the app. `theme-color` follows: light always `--brand-grad-from`; dark `--brand-grad-from` on
+Home and `--browser-chrome` elsewhere. The Settings footnote now says the app paints its own colour
+under the status bar.
+
+**Contrast (white on the measured backdrop, 390x844 @2x, `--sat` 59).** `--brand-grad-from` light is
+now `#2A63F2` (was `#6FB1FF`), `--brand-grad-to` unchanged at `#2F6BFF`:
+
+| surface | measured | white contrast |
+|---|---|---|
+| clock strip (light) | `#2A63F2` | 5.04:1 |
+| nav wordmark, Home | `#2B65F5` | 4.90:1 |
+| nav wordmark, Transactions | `#2D69FC` | 4.63:1 |
+| hero amount | `#2D68FA` | 4.70:1 |
+| safe-to-spend label (on the white glass) | `#5484FD` | 3.44:1 |
+| clock strip (dark) | `#1A3D9A` | 9.64:1 |
+
+The safe panel is the one figure below AA: its text sits on `--glass-fill` (white 18%), which lightens
+the gradient under it. Meeting 4.5:1 there needs a dark glass fill in light (or dropping the white
+tint) — a brand decision, not taken here.
+
+**Probe.** 466 -> 472 CSS rules: the only changed rule is `:root` (`--brand-grad-from`), plus six new
+top-bar/strip rules (light `.topbar`, the combined refresh-disc selector, `body::before` and its two
+dark variants, the splash/auth band). No other declaration moved.
+
+**pytest:** 363 passed, 21 skipped.
+
+## 2026-11-07 — Settings sub-pages (UI only, branch `ui-revamp`, not pushed)
+
+Phase 1 of the Settings rework. The Settings home is now four inset groups — Appearance (theme, still
+inline), Budget & Finance (Opening balance, Monthly budget, Commitments, Currency), Account (email,
+Sign out), About (Version, What's new, Date format) — and the three finance rows open **full pages**
+with a Back header instead of editing inline or in a sheet.
+
+**The page shell.** `.subpage` is a fixed layer (z 15) with a `.subbar` that copies the top bar (brand
+gradient in light, the dark bar in dark), a Back button and a centred title. The tab bar and FAB are
+hidden with `body.is-subpage`, and the page body is its own scroller with `--sab` padding. z 15 keeps
+it below every overlay (z 20), so Pay's Add sheet still opens on top of the commitments page. Any tab
+tap closes the page, and a refresh lands on Settings home.
+
+**Opening balance / Monthly budget.** One input and one Save per page, disabled until the value
+changes (`moneyDirty`), with inline "Saved." / error feedback. Save uses the same
+`PUT /finance/settings` and the same field names; an empty budget saves 0 (clears it), an empty opening
+balance is not a save. Back with an edit opens a centred "Discard changes?" popup (Discard / Keep
+editing). The inline fields and their footnotes are gone; the rows show the stored values.
+
+**Commitments.** The old sheet's list, add form and Pay flow moved into a page verbatim: the same
+API calls, the same paid/Pay rules, the same delegated click handler. The overlay, its drag, its
+Done button and its scrim rule were removed.
+
+**pytest:** 363 passed, 21 skipped.
+
+## 2026-11-07 — Clean version row (branch `ui-revamp`, not pushed)
+
+**One source.** `VERSION` at the repo root, starting at `1.0.0`. `app.main.app_version()` reads it;
+`GET /` injects `{{VERSION}}` and a `{{DEBUG}}` flag (`ENVIRONMENT=production` → false), and blanks
+`{{BUILD}}` in production so no SHA reaches the page at all.
+
+**The row.** Settings → About is labelled *Version*: production reads `1.0.0`; development keeps the
+old debug string (`dev · fullscreen · black-translucent · browser/standalone`). `paintBuild()` picks
+one from `APP_DEBUG`. The About footnote (Home Screen / status bar) is still accurate and stays.
+
+**pytest:** 365 passed, 21 skipped (two new tests: production hides the debug string, and the version is
+read from the `VERSION` file).
+
+## 2026-11-08 — Settings declutter (UI only, branch `ui-revamp`, not pushed)
+
+The Settings groups are now a heading and an inset card, nothing else: the theme, account and About
+footnotes are gone, and the `.footnote` rule with them. Section order is Budget & Finance, Appearance,
+Account, About. The "Add to Home Screen" hint moved to the sign-in card as one small line, hidden when
+`navigator.standalone` is set. The finance sub-pages keep their two pieces of guidance (the opening
+balance warning and "leave it empty for no monthly budget") because both prevent mistakes.
+
+Sign out now asks first, through the same centred confirm the unsaved-edit Back uses (one
+`#confirmOverlay`, a title/message/label and a callback); the sign-out call itself is unchanged.
+
+**Production check.** Ran a second uvicorn with `ENVIRONMENT=production` on :8011: the page carried
+`var APP_DEBUG = false`, `var BUILD = ""`, `var APP_VERSION = "1.0.0"`, and the Version row read
+`1.0.0`; no `dev · fullscreen` or status-bar/standalone debug string appeared anywhere in the page.
+
+**pytest:** 368 passed, 21 skipped (three new pins: no footnotes/section order, the confirm flow, and
+the install hint on auth).
+
+## 2026-11-08 — Version row, debug behind a tap (branch `ui-revamp`, not pushed)
+
+The About row now always reads the release version from the repo's `VERSION` file, in development and
+production alike. The debug string (short SHA, "fullscreen", the status-bar style and whether the page is
+running standalone) is development-only and hidden by default: five quick taps on the row toggle it, and
+`?debug=1` opens it for inspection. `ENVIRONMENT=production` keeps `APP_DEBUG=false` and blanks
+`{{BUILD}}`, so neither path can reveal it there. `startBuildDebug()` binds the tap and reads the URL
+once; `paintBuild()` chooses the version unless both `APP_DEBUG` and `buildDebug` are true.
+
+**pytest:** 369 passed, 21 skipped (one new test pins the default and the two dev-only ways in).
+
+## 2026-11-08 — Transactions page spacing pass (UI only, branch `ui-revamp`, not pushed)
+
+The list itself already shared Home's row component, so this is a spacing/type pass on the chrome around
+it: the header, search (40 → 44px) and All/Expenses/Income filter sit as one toolbar (10px gaps), the
+"N records" line is one step smaller, and the day groups get 18px between them with an 8px label gap.
+No rule shared with Home was touched. The "Needs review" filter lives on Home and is unchanged; the
+"N records" count and each day's net stayed (both useful, not decoration).
+
+**Probe:** 489 → 491 rules; diffs are `.search-field`, `.page-meta`, `.group`, `.group-head`,
+`#screen-transactions .screen-head`, `#typeFilter` — Transactions only.
+**pytest:** 369 passed, 21 skipped.
+
+## 2026-11-08 — Insights spacing pass (UI only, branch `ui-revamp`, not pushed)
+
+No data or chart logic moved: the period row is 8px off the cards, the category subtitle and donut sit
+closer to their heading, and the highlight rows take the same 12px radius as the rest of the flat cards.
+The total-spending card remains the single primary figure at the top (40px), followed by category,
+average-by-day and highlights. Semantic colours (green/amber/accent) are untouched.
+
+**Probe:** 491 → 491 rules; diffs are `#periodToggle`, `.period-note`, `.insight-sub`, `.highlight-row`,
+`.donut` — Insights only.
+**pytest:** 369 passed, 21 skipped.
+
+## 2026-11-08 — Sheet tap targets and spacing (UI only, branch `ui-revamp`, not pushed)
+
+The Add, Edit and Detail sheets keep their layout and every field; the pass is on the chrome: the header's
+Cancel/Save are 44px tap targets (were 30px), the detail sheet's key/value rows gain a pixel of breathing,
+and the action rows sit 14px under the content. The primary buttons were already `--accent` (brand) and
+the sheet cards already read `--card-2`; nothing new was added. No flow or payload changed.
+
+**Probe:** 491 → 491 rules; diffs are `.sheet-done`, `.sheet-cancel`, `.sheet-actions`, `.kv` — sheet
+chrome only.
+**pytest:** 369 passed, 21 skipped.
+
+## 2026-11-08 — Auth screens: password reveal (UI only, branch `ui-revamp`, not pushed)
+
+Sign in, Forgot password and Set new password keep their flow and copy; each password field gained a
+44px Show/Hide control inside the field (renamed `.reveal-btn`, so the iOS 16px-field guard still reads
+only real fields), with `aria-pressed` and a Show/Hide label. Switching views resets the reveal and puts
+the field type back to password. The install line stays on the sign-in card and is still hidden in the
+standalone app; the invite-only copy is unchanged while sign-up is off.
+
+**Probe:** 491 → 495 rules; added `.auth-card .field-wrap + .form-label`, `.field-wrap`,
+`.field-wrap .field`, `.reveal-btn`, `.reveal-btn:active`; removed the old `.auth-card .field + .form-label`.
+Auth only.
+**pytest:** 370 passed, 21 skipped (one new pin for the reveal controls).
+
+## 2026-11-08 — Sign up behind a flag (branch `ui-revamp`, not pushed)
+
+`SIGNUP_ENABLED` (env, default false) is injected as `{{SIGNUP_ENABLED}}`; when off, `GET /` removes the
+whole `<!-- SIGNUP:START -->…<!-- SIGNUP:END -->` block, so the page has no Create-account link and no
+screen. When on, Sign in gains the link; the screen has email, password + confirm (both with Show/Hide),
+posts to Supabase `/auth/v1/signup`, then shows a neutral "Check your email" state with Resend
+(`/auth/v1/resend`, type=signup) and "Use a different email". `type=signup` confirmation links are handled
+like invite/recovery: read once, history replaced, then signed in with the tokens (or sent to Sign in if
+there are none). Errors are neutral about whether an address exists; 429, weak-password and network
+messages are specific. No terms checkbox yet (no URLs) — marked TODO.
+
+**Probe:** 495 → 495 rules, zero diff (the screen reuses the auth styles).
+**pytest:** 373 passed, 21 skipped (flag off/on, confirm-link and no-secrets pins added).

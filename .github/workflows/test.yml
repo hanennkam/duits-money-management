@@ -1,0 +1,46 @@
+# Run the suite on every push and every pull request.
+#
+# No secrets are needed: the suite stubs Claude and Supabase, and a real .env is never present on a
+# runner. The four required settings are deliberately fake values, because app/config.py fails fast
+# when a required NAME is missing (it never prints values). Nothing here reaches the network.
+name: tests
+
+# Quoted so YAML 1.1 parsers do not turn the key into a boolean; GitHub accepts it either way.
+"on":
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+# A new push to the same branch cancels the run it supersedes.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11" # the version the Dockerfile ships
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run pytest
+        run: python -m pytest -q
+        env:
+          API_KEY: test-api-key
+          SUPABASE_URL: https://example.supabase.co
+          SUPABASE_SERVICE_KEY: test-service-role-key
+          SUPABASE_PUBLISHABLE_KEY: pk_test_dummy
+          ANTHROPIC_API_KEY: sk-ant-test

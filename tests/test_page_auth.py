@@ -95,7 +95,7 @@ def test_the_sign_in_screen_sizes(client: TestClient) -> None:
     assert "margin: 0 0 20px" in css, "the gap under the title"
     assert "font-size: 12px; margin: 0 0 6px" in css, "the label and its 6px gap to the input"
     assert "height: 48px; min-height: 48px; border-radius: 12px; font-size: 16px" in css, "an input"
-    assert ".auth-card .field + .form-label { margin-top: 14px; }" in css, "the 14px between fields"
+    assert ".auth-card .field-wrap + .form-label { margin-top: 14px; }" in css, "the 14px between fields"
     assert "border-radius: 24px; font-size: 17px; margin-top: 18px" in css, "the Sign in button"
     assert ".auth-card .btn-ghost {\n    width: 100%; font-size: 15px; margin-top: 14px;" in css, "Forgot / Back"
     assert "font-size: 13px; color: var(--text-2)" in css and "margin: 20px 0 0" in css, "the invite note"
@@ -141,8 +141,8 @@ def test_the_sign_in_screen_is_present_in_the_page(client: TestClient) -> None:
         'id="authSubmit"', 'id="authForgot"', 'id="authBack"', 'id="accountEmail"', 'id="signOutBtn"',
     ):
         assert element in page, element + " is missing"
-    # There is no sign-up: accounts arrive by invite.
-    assert "Sign up" not in page and "sign up" not in page
+    # Sign-up is off by default: the screen and its link are not in the served page at all.
+    assert 'id="signupScreen"' not in page and ">Create account<" not in page
     assert "Duits is invite only" in page
 
 
@@ -241,7 +241,7 @@ def test_sign_out_clears_the_session_and_the_cached_rows(client: TestClient) -> 
     # The balance card's own three pieces of state go back to "nothing known yet" with the rest.
     for node in ("balanceNotSet", "balanceTap", "retryFinanceBtn"):
         assert node in body, f"clearCaches must reset {node}"
-    assert '"Balance, Personal and Business"' in body, "the wallet's accessible name is reset with its figure"
+    assert '"Balance"' in body, "the wallet's accessible name is reset with its figure"
     signout = page[page.index("async function signOut()"):page.index("async function signOut()") + 700]
     assert "writeSession(null);" in signout and "clearCaches();" in signout
 
@@ -359,3 +359,54 @@ def test_the_manual_sheet_and_its_note_ship_in_the_page_behind_the_gate(client: 
     field = page[page.index('id="addNote"') - 120:page.index('id="addNote"') + 160]
     assert 'type="text"' in field and 'maxlength="500"' in field
     assert 'note: $("addNote").value.trim() || null' in page
+
+
+def test_the_password_fields_can_be_revealed(client: TestClient) -> None:
+    """A Show/Hide control per password field: 44px, inside the field, no auth logic touched."""
+    page = client.get("/").text
+    assert 'id="authPasswordReveal"' in page and 'id="authPassword2Reveal"' in page
+    assert page.count('class="reveal-btn"') == 2
+    assert 'wirePasswordReveal("authPassword", "authPasswordReveal");' in page
+    assert 'wirePasswordReveal("authPassword2", "authPassword2Reveal");' in page
+    assert 'input.type = show ? "text" : "password";' in page
+    assert 'button.setAttribute("aria-label", (show ? "Hide" : "Show") + " password");' in page
+
+
+def test_sign_up_is_off_by_default(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The default page carries no create-account screen or link, and keeps the invite-only copy."""
+    monkeypatch.delenv("SIGNUP_ENABLED", raising=False)
+    page = client.get("/").text
+    assert "var SIGNUP_ENABLED = false" in page
+    assert 'id="signupScreen"' not in page
+    assert 'id="authSignup"' not in page and ">Create account<" not in page
+    assert "Duits is invite only" in page
+    assert "{{SIGNUP_ENABLED}}" not in page
+
+
+def test_sign_up_ui_appears_only_when_enabled(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """SIGNUP_ENABLED=true puts the screen, its link and the two Supabase calls in the page."""
+    monkeypatch.setenv("SIGNUP_ENABLED", "true")
+    page = client.get("/").text
+    assert "var SIGNUP_ENABLED = true" in page
+    assert 'id="signupScreen"' in page
+    for element in ('id="signupEmail"', 'id="signupPassword"', 'id="signupPassword2"',
+                    'id="signupSubmit"', 'id="signupResend"', 'id="signupDifferent"'):
+        assert element in page, element
+    assert 'id="authSignup"' in page and ">Create account<" in page
+    assert '"/auth/v1/signup"' in page and '"/auth/v1/resend"' in page
+    assert '$("authInvite").hidden = true;' in page
+    # The page still only carries the publishable key; the service key is server-side only.
+    assert "SUPABASE_SERVICE_KEY" not in page and "service_role" not in page
+
+
+def test_a_sign_up_confirmation_link_is_read_once_and_signs_in(client: TestClient) -> None:
+    """type=signup is accepted with the other hash links; with tokens it finishes the sign-in, without
+    them it says the address is confirmed and asks for a normal sign-in."""
+    page = client.get("/").text
+    assert 'type !== "invite" && type !== "recovery" && type !== "signup"' in page
+    assert "authRedirectType = type;" in page
+    assert 'if (authRedirectType === "signup") {' in page
+    assert "if (redirected) { await afterSignIn(redirected); return; }" in page
+    assert 'showAuth("signin", "Your email is confirmed. Sign in to continue.");' in page
+    # the hash is still wiped immediately, as for invite and recovery links
+    assert "window.history.replaceState(null, \"\", window.location.pathname + window.location.search);" in page

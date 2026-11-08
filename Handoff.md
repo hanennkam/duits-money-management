@@ -1,248 +1,169 @@
 # Handoff — Duits
 
-Current state only. Rules for agents are in `AGENTS.md`. Older session logs (with their now-removed
-features and unreproducible `/tmp` measurements) are in `docs/handoff-archive.md`.
+**A short snapshot, re-verified on 2026-10-20.** The session-by-session history is `NEXT_STEPS.md`,
+which is authoritative where the two disagree; older logs are in `docs/handoff-archive.md`. Rules for
+agents are in `AGENTS.md` (its §4 is the canonical list of iOS Safari traps).
 
-**Status: this file is secondary.** Where it conflicts with `NEXT_STEPS.md`, `NEXT_STEPS.md` is
-authoritative — parts of this file were written before the multi-user work and have not been re-checked.
+## 1. Deployed state
 
-Update this file after each coding task: keep it factual, don't paste source, and don't claim a test
-passed unless you ran it in that session.
+- **Live:** `https://duits-money-tracking.onrender.com` — Render free web service, Docker, auto-deploy
+  from GitHub `main`.
+- **Last verified deployed commit: `434cfd0`**, read from the live Build row on 2026-10-20. It carries
+  the Supabase-auth multi-user work, budget/balance/commitments, and `GET`+`HEAD /health`.
+- **The free instance sleeps when idle.** The page's splash shows "Waking up the server…" after 4s; a
+  cold start can exceed that. No keep-alive configuration lives in this repo.
+- **Supabase live is migrated through `0004`** (§4) and **sign-up is disabled**.
+- Read-only audit on 2026-10-20: 108 transactions, 19 receipt objects in 11 folders, bucket `receipts`
+  private, one ES256 signing key. (Counts rot; re-run `scripts/audit_live.py`.)
 
----
-
-## 1. Status
-
-- **Phase 1 is built and in use.** FastAPI API, Supabase storage, Claude extraction, and a single-file
-  iPhone-first web UI at `/` built from the five Stitch screens in `design/`.
-- **Deploy target: Render** (free web service, Docker, auto-deploy from GitHub `main`), URL
-  `https://duits-money-tracking.onrender.com`. Render's free instance sleeps when idle; the first
-  request after a sleep is slow (see the splash's "Waking up the server…" line).
-- Last verified commit: `8f39d7e` (working tree clean before the housekeeping pass on 2026-10-16).
-- **Multi-user steps 1-3 are on branch `multi-user`, not merged. The migration is rehearsed on STAGING, and NOT
-  applied to live.** The live run is `docs/migration-runbook.md`; staging results are in its section 9.
-  Step 2 detail follows. Every route is scoped to the caller's id from the verified Supabase JWT (`sub`). Every db helper
-  requires `user_id`. The 409 duplicate path only sees the caller's rows. Receipts live under `user_id/YYYY/MM/`,
-  and the owner is checked before any sign or delete. Before deploying to Render:
-  1. **Migration first.** The code writes `user_id`, and the live table has no such column, so every insert fails
-     until `migrations/0002_multi_user.up.sql` has run. Rehearse it on staging.
-  2. **Move existing receipts.** Old objects sit at `YYYY/MM/...`. Owner checks now refuse those paths, so
-     `receipt-url` and `DELETE` on the 16 existing receipt rows return 500 until a storage move (not written yet)
-     has run. Nothing is lost, because the delete fails before the row is removed.
-  3. **The browser has no sign-in screen yet.** `index.html` still sends `X-API-Key`. Until a login UI exists, the
-     app needs `ALLOW_LEGACY_API_KEY=true` and `LEGACY_USER_ID=<owner's id>`, and the iOS Shortcut depends on the
-     same flag. Personal access tokens for the Shortcut are not built.
-  4. **Sign-up is still open** in the live project. Close it in the Supabase dashboard before any second user exists.
-- `./.venv/bin/python -m pytest -q` — the full suite must pass; read the count from the summary it prints,
-  never from a number written in a doc (this one included).
-- **No automated UI test exists in the repo.** `tests/test_static.py` pins strings in the page; it does not
-  run the page. See §5.
-
-## 2. Architecture (current)
+## 2. Architecture
 
 ```
-app/main.py         routes, error mapping, security headers, icon routes, no-store on / and API data
-app/extractor.py    Claude calls: image or text -> Extraction (tool use, validated, one retry/fallback)
-app/db.py           Supabase client, dedupe_hash / dedupe_hashes, insert/query/update/delete, storage
-app/models.py       Pydantic models; Extraction.to_row(); account-number mask for raw_extraction
-app/auth.py         X-API-Key dependency; per-IP throttle on failed attempts (10/min, 429 + Retry-After)
-app/config.py       settings from env only; fails fast naming missing NAMEs, never values
-app/static/index.html  the whole UI: HTML + CSS + vanilla JS, served at GET / (no-store)
-app/static/logo.png, apple-touch-icon*.png  opaque white, square; served publicly
-schema.sql          transactions table, (mode, txn_date) index, dedupe index, private receipts bucket
-Dockerfile          python:3.11-slim, non-root uid 10001, CMD binds ${PORT:-8000}
-ctl.sh              local start/stop/restart/status/logs (no --reload; reports stale process)
-tests/              pytest: dedupe, models, auth, extractor, endpoints, bank screenshots, production, static
-docs/               handoff-archive.md (old session logs)
+app/main.py            routes, exception mapping, security headers, icons, Build stamp
+app/auth.py            Supabase JWT verification (ES256 via JWKS), per-IP throttle on failures
+app/config.py          settings from env only; fails fast naming missing NAMEs, never values
+app/db.py              Supabase client; every helper takes user_id and filters by it
+app/extractor.py       Claude calls: image or text -> Extraction (tool use, validated, one retry)
+app/models.py          Pydantic models; Extraction.to_row(); account-number masking
+app/static/index.html  the whole UI (HTML + CSS + vanilla JS, ~5.9k lines), served at GET /
+app/static/*.png       logo + apple-touch icons (public, cacheable for 600s)
+schema.sql             the pre-0002 base schema; later changes live in migrations/
+migrations/            0002 multi-user, 0003 budget/commitments, 0004 commitment link (+ .down.sql)
+Dockerfile             python:3.11-slim, non-root uid 10001, binds ${PORT:-8000}
+render.yaml            Render blueprint: Docker, free plan, healthCheckPath /health, PORT=10000
+ctl.sh                 local start/stop/restart/status/logs (no --reload, warns on a stale process)
+tests/                 pytest: auth, dedupe, models, extractor, endpoints, finance, isolation, static
+scripts/               live audit, receipt backup/migration, staging seed and runner
 ```
 
-**API** (all but `/health` and the icons need `X-API-Key`): `POST /transactions/scan`,
-`POST /transactions/text`, `POST /transactions`, `GET /transactions?month&mode`, `GET|PATCH|DELETE
-/transactions/{id}`, `GET /transactions/{id}/receipt-url`, `GET /summary?month&mode`, `GET /health`.
-Status codes: 400 bad file/month, 401, 409 duplicate (`{"error":"duplicate","message":"Already recorded.",...}`),
-413 over `MAX_UPLOAD_BYTES`, 422 extraction failed or bad body, 502 Claude/Storage failure.
+## 3. Auth and API
 
-**Scan flow** (`/transactions/scan`): type check → size check → sha256 of the bytes → if seen, 409 (no
-Claude call) → Claude extraction → if `document_kind == "bank_screenshot"`: **no upload**, `source =
-bank_screenshot`, `receipt_path = NULL`; else upload to `receipts` (`source = receipt_scan`) → insert →
-on any insert failure or duplicate, the uploaded object is deleted.
+Every API request except `/health` needs `Authorization: Bearer <Supabase access token>`; the page at
+`GET /` and the icons are public. The user id comes only from the JWT's `sub` claim (verified against
+the project's JWKS, audience `authenticated`, issuer `<project>/auth/v1`). A legacy `X-API-Key` is
+accepted only while `ALLOW_LEGACY_API_KEY` is on, and then acts as `LEGACY_USER_ID`.
 
-**Dedupe** (only scans dedupe; text and merchant-less rows store `dedupe_hash = NULL`, so they always insert):
-- receipt: sha256 of `txn_date|amount(2dp)|lowercased merchant`;
-- screenshot with a reference: `ref|<REFERENCE>` (uppercased, whitespace stripped), ignoring amount and time;
-- screenshot without a reference: day key plus a ten-minute window; the lookup also probes the
-  neighbouring windows (`dedupe_hashes` / `find_by_dedupe_hashes`), so 14:29 and 14:33 collide.
-- Manual `POST /transactions` goes through the same `_insert` guard, but manual rows carry no hash, so
-  two identical manual entries both insert.
-
-**Edits**: `PATCH` sets `raw_extraction.needs_review = false` and recomputes `dedupe_hash`.
-
-**Caching**: `/transactions*` and `/summary` → `Cache-Control: no-store`. `GET /` → `no-store`
-(the page is the only asset and carries its CSS/JS inline; a stale copy would be a stale app).
-Icons → `public, max-age=600` (deliberately not `immutable`). Every response: `nosniff`, `Referrer-Policy: no-referrer`.
-
-**UI structure** (`index.html`):
-- Pre-paint script in `<head>` sets `data-theme` (System/Light/Dark from `localStorage.duitstheme`), the
-  `theme-color` meta, and the status-bar style (`black-translucent` dark, `default` light).
-- Splash (first thing in `<body>`): `SPLASH_MIN_MS 1200`, "Waking up" line after `SPLASH_WAKING_MS 4000`,
-  hard backstop `SPLASH_MAX_MS 60000`, WAAPI fade `SPLASH_FADE_MS 300`. One-way per page load.
-- Shared header `screenHeaderHtml()` on Home / Transactions / Insights: title, `Oct 2026 ⌄` month pill
-  (opens our own wheel, not `<input type="month">`), Personal/Business toggle.
-- Tabs: Home, Transactions, raised `+` (Add sheet), Insights, Settings. Insights computes everything in the
-  browser from `GET /transactions` rows; Week = stitched from whole months, filtered client-side.
-- Sheets: Add, detail/edit, month wheel, key dialog. Mounted permanently, each with a `.scrim` child layer.
-  `openOverlay`/`closeOverlay` use WAAPI, a close token and a 500ms fallback. `attachSheetDrag` does swipe-to-dismiss.
-- Add sheet opens on a chooser (Manual / AI). Manual is one screen, in the Stitch order: Back + Expense/Income,
-  the amount (`RM` + caret; the number is 56-64px in a block capped at 16px of air a side, shrunk by `fitAddAmount()` for a long value), CATEGORY and
-  the chip row (no View All sheet; the chosen chip scrolls into view with
-  the previous chip peeking), a four-row card (Merchant, Date, Mode — the Mode toggle is a 32px rounded `--control`
-  track with a white selected pill, 44px tap boxes —, Note), and the keypad as the footer (fixed 58px keys, 8px gaps,
-  28px digits, 16px side inset, content-sized at 256px, 48px rows on a short sheet; hidden while Merchant or Note holds the caret).
-  The whole screen fits 390x844 and 430x932 without scrolling; 375x667 scrolls ~25px. AI is
-  Smart Entry (`POST /transactions/text`) and Scan Receipt, with no keypad. Note is `raw_extraction.note`. The
-  short-phone shrink order is container queries: the amount's air, then the keypad's chrome, then the gaps.
-- Save: `afterAdd()` waits for the sheet's close and both lists, then `flashRow(id)` highlights the row.
-- Scan Receipt: the browser downscales to 1600px, re-encodes JPEG q0.85 (strips EXIF/GPS, HEIC → JPEG), then uploads.
-- Settings → About → **Build** row: the git short hash stamped by `GET /` (`dev` locally), plus status-bar
-  style and standalone flag.
-
-## 3. Decisions that still hold
-
-- **Sheets never fade.** The dim is the `.scrim` layer; the only opacity animation inside an overlay is on
-  that layer. Animate `transform` on the sheet.
-- **Animations use WAAPI, and `replay(el, className)` restarts CSS animations.** iOS plays CSS transitions on
-  `display` changes only once.
-- **Tap guards are target-based.** A chip tap re-renders the chips row, which detaches the tapped node; a
-  `closest(".sheet")` check then wrongly reads "outside" and closes the sheet.
-- **Drag thresholds:** claim after >8px and `|dy| > |dx|`; `setPointerCapture` only at claim time; close on
-  `dy > 120px` or velocity > 0.5 px/ms; otherwise spring back in 250ms. Allow list `DRAG_SURFACES`, deny list
-  `DRAG_BLOCKERS` (inputs, buttons, chips, keypad, `.kv`, `.no-drag`…). A sheet that is scrolled keeps its gesture.
-- **One Save in the Add sheet (header).** The thumb-reach Save pill was reverted in `8f39d7e`.
-- **The iOS keyboard is measured from `visualViewport`.** Its height = `innerHeight - visualViewport.height
-  - visualViewport.offsetTop`, kept in one variable and written to `--kb`. `--kb` sets each sheet's `bottom`
-  (and every overlay's bottom padding) and clamps its `max-height`, so the sheet lifts above the keys while
-  the page behind stays scroll-locked. Sheet heights are `dvh`, never `vh`. Focusing a sheet field centres it
-  after ~300ms by moving the sheet's own `scrollTop`; the window is never scrolled.
-  `focus({ preventScroll: true })` everywhere, and `--kb` resets on close.
-- **Text inputs are ≥16px** so iOS does not zoom on focus. `touch-action: manipulation` on `html`, `body`,
-  `button`, date label. Swipe surfaces use `touch-action: none`.
-- **`--sat/--sab/--sal/--sar`** are the only `env(safe-area-inset-*)` reads.
-- **Status bar:** `black-translucent` for dark (white glyphs), `default` for light (black glyphs). Both values are
-  set before first paint. Whether iOS re-reads the meta on relaunch is unverified (§6).
-- **Icons:** `logo.png` is the flattened 180×180 master (opaque white). The original 1254px image is not in the
-  repo. Public routes; links carry `?v=2`. **Bump `?v=` when the icon art changes**, or the phone keeps the old tile.
-- **Every colour is a CSS variable**; no colour literals outside the two palette blocks.
-- **Insights Year is not built.** The API has only `?month=`; it needs a `?from=&to=` endpoint first.
-- **Unreadable amount → 422**, not a saved row with `needs_review`, because `amount` is `NOT NULL`.
-- **Screenshot images are not kept**, but `image_hash` is still stored for them. Review this if unwanted.
-- **Account-like numbers** (8+ digits, optionally grouped) in `raw_extraction` are masked before insert.
-
-## 4. Verification status
-
-| Area | Status |
+| Method | Path |
 | --- | --- |
-| API, dedupe, models, auth, extractor, production switches, bank-screenshot plumbing | `pytest` green (96) with Claude and Supabase stubbed |
-| Static page pins (strings and ordering in `index.html`) | `tests/test_static.py`, 12 tests, in pytest |
-| Layout at 375×667, 390×844, 430×932; sheet geometry; overflow; dark-mode contrast | **Measured in earlier sessions in headless Chrome.** Not reproducible now: the scripts were in `/tmp`, which is gone |
-| Taps, drag, animations, splash timing, save flash | Same: measured over CDP in earlier sessions; not reproducible from the repo |
-| Real Claude output on real receipts and bank screenshots | **Not verified.** Needs a real key and real images, which are deliberately not in the repo |
-| Anything on a real iPhone | **Not verified** (see §5) |
+| GET, HEAD | `/health` — `{"status": "ok"}`, no auth, no database, `Cache-Control: no-store` |
+| GET | `/` and the icon routes (public) |
+| POST | `/transactions/scan`, `/transactions/text`, `/transactions` |
+| GET | `/transactions?month=YYYY-MM&mode=...`, `/transactions/{id}` |
+| PATCH, DELETE | `/transactions/{id}` |
+| GET | `/transactions/{id}/receipt-url` |
+| GET | `/summary?month=YYYY-MM&mode=...` |
+| GET, PUT | `/finance/settings` |
+| GET | `/finance/summary?month=YYYY-MM&mode=...` |
+| GET, POST | `/commitments?month=YYYY-MM` |
+| PATCH, DELETE | `/commitments/{id}` |
+| POST, DELETE | `/commitments/{id}/paid` |
 
-## 5. Open issues
+`/health`, `/transactions*`, `/summary`, `/finance*` and `/commitments*` are `no-store` via one
+middleware list (`NO_STORE_PREFIXES` in `main.py`). Every response gets `nosniff` and
+`Referrer-Policy: no-referrer`.
 
-**Could not be verified on a real iPhone** (everything above was desktop Chrome, emulated touch, or stubbed):
-- Safari's own Web Animations timing, the feel of the curve, 60fps.
-- The keyboard: whether iOS leaves `100dvh` alone; the keypad being covered while typing; a double tap on keys.
-- `env(safe-area-inset-*)` values (the probes simulate 47/59/34px); the real Reduce Motion switch.
-- Whether iOS honours `maximum-scale=1` and the 16px floor (no focus zoom).
-- Pointer gestures: whether iOS delivers `pointermove` or `pointercancel` over `pan-y` regions, and whether the
-  chips row still scrolls while the sheet listens for pointers.
-- Status-bar style after a standalone relaunch; the camera/HEIC path; the native date picker inside the sheet.
-- The page-behind scale (`.app` at 0.96) on frosted bars: possible jank.
+## 4. Database state (live)
 
-**Known bugs / gaps:**
-- **A swipe that starts on a `.kv` row returns `pointercancel` in Chrome.** Cause not found. Title, amount and
-  empty space work. Candidates: a Chrome `touch-action` quirk inside an `overflow: auto` ancestor, or iOS behaviour.
-- **375×667 is a tight fit.** The sheet fits exactly after all shrink steps and has no slack; a longer label
-  would clip. The amount has a `.85em` floor, so its glyphs can paint slightly outside their box.
-- `isOutsideTap` depends on the `.scrim` element existing. Removing it silently narrows the outside-tap area.
-- Home ring: slices under ~2% draw as a minimum dot; `Other` and `Others` can both appear; a 6-figure total
-  crowds the hole.
+| Migration | What it adds | Live |
+| --- | --- | --- |
+| `0002_multi_user` | `transactions.user_id`, per-owner dedupe constraints and indexes | Applied (owner-verified 2026-10-17) |
+| `0003_budget_commitments` | `user_finance_settings`, `monthly_commitments`, `commitment_payments`, `transaction_totals` view | Applied (owner-reported 2026-10-19) |
+| `0004_commitment_link` | `transactions.commitment_id` and the view's wider `commitment_expense` column | Applied — the live schema was read on 2026-10-20 and `commitment_expense` is the view's last column (the fixed order) |
 
-**Not verified against the real model:** the bank-screenshot prompt (direction, merchant choice, `type` null
-when unclear, account masking) has only been tested with stubbed extractions.
+`0005` is **not written**: a unique partial index on `(commitment_id, month)` would close the Pay
+race, but the API does not translate the resulting `23505` into the `409` the UI expects. That is an
+owner decision, recorded in `NEXT_STEPS.md`.
 
-**Config and ops:**
-- **The Build stamp is automatic.** `GET /` fills the `{{BUILD}}` placeholder in `index.html` with the git
-  short hash injected by the server, or `dev` locally. Read `RENDER_GIT_COMMIT`; a 40-character SHA is
-  required. Do not edit the stamp by hand.
-- **`CLAUDE_FALLBACK_MODEL` default `claude-sonnet-5-5`** and **`CLAUDE_MODEL` default `claude-sonnet-4-5`**
-  are in `config.py`. Check both IDs against Anthropic's model docs (`.env.example` says the same).
-- **Render:** there is no `render.yaml`, so the service settings (Docker, branch, env vars, health check
-  `/health`) live only in the Render dashboard. Render auto-deploys on push to `main` without waiting for tests.
-- **Free instance sleep:** the first request after idle is slow. The splash shows "Waking up the server…" after
-  4s. A cold start can exceed the 4s line.
-- `X-Forwarded-For` is trusted for its first hop only (rate limit). Confirm the Render proxy's header behaviour
-  before relying on per-IP throttling.
+Rollback files sit beside each `up.sql`. Receipt paths are `user_id/YYYY/MM/<uuid>.ext`;
+`scripts/migrate_receipts.py` re-homes a legacy path. Live receipt backups and the audit queries are
+in `scripts/`.
 
-**Product decisions still open:** where notes live (`raw_extraction.note` vs a column); whether users can add
-custom categories.
+## 5. UI
 
-## 6. Next steps (priority order)
+One file, no build step, no service worker. Screens: sign-in / set-password / reset, then Home,
+Transactions, Add, Insights, Settings. Theme is System/Light/Dark stored in `localStorage`.
 
-1. **Add automated UI tests inside the repo** (plan in §7). Until then, every UI claim is unverified by CI.
-2. **Gate deploys on tests.** Run pytest in GitHub Actions on push to `main`. Render deploys do not wait for tests.
-3. **iPhone pass** on `https://duits-money-tracking.onrender.com/` (hard refresh once, then delete and re-add the
-   Home Screen shortcut so it loads the current page). Check: no zoom on the Smart Entry field; Add reachable
-   on the real keyboard; keypad double tap; chips momentum; date picker inside the sheet; safe areas; one
-   receipt scan end to end; Build row stamp matches the deployed commit.
-4. **Real-model check** of the screenshot prompt with real screenshots, kept out of the repo.
-5. **Verify the model IDs** in `config.py` and `.env.example` against Anthropic's docs.
-6. Insights Year: needs a `?from=&to=` API endpoint first (an API change; ask before starting).
-7. Optional polish: donut minimum slice, `Other`/`Others` clash, ring hole for 6-figure totals.
+- **Add** opens a Manual/AI chooser. Manual is one Stitch-style screen (amount block, category chips,
+  merchant/date/note card, keypad footer). AI is Smart Entry text or Scan Receipt; the browser
+  downscales to 1600px and re-encodes JPEG before upload.
+- **Home** opens on the brand hero: a cobalt gradient panel (`--brand-grad-*`) carrying the nav bar, the
+  balance label, the month pill (right-aligned in the same row), the 40px amount and the safe-to-spend
+  panel — Home has no Personal/Business toggle. Only the safe panel is glass; the refresh button is a
+  borderless translucent disc and the month pill is a small translucent chip. `.hero` plus
+  `html[data-screen="home"]` scope the paint, so the other screens keep the plain light chrome. Below
+  the hero: Income/Expenses, the budget bar/prompt, the recent list, and a What's New sheet shown once
+  per version per account.
+- **Personal-only.** No screen has a Personal/Business toggle, the Add sheet has no Mode row, and the
+  detail/edit sheets do not show the field. Every request sends `mode=personal`; `/finance/summary`
+  totals personal rows only, so stored `business` rows (kept in the database, readable through the
+  API) do not move the balance or safe-to-spend.
+- **Top bar / status bar.** `apple-mobile-web-app-status-bar-style` is fixed at `black-translucent` and
+  never switched (iOS reads it once at launch, so a per-theme switch left a light launch with an opaque
+  strip). White glyphs therefore need a dark strip: in light theme the nav bar is the brand gradient on
+  every screen, transparent over the hero on Home, and a fixed `body::before` of height `--sat` paints
+  the inset even after the bar scrolls; dark keeps the dark bar/hero. The splash and auth screens paint
+  the same band. `theme-color` follows (light: the brand top; dark: brand on Home, `--browser-chrome`
+  elsewhere).
+- **Sign-up (flag off).** `SIGNUP_ENABLED=true` serves the Create-account screen and link; false (the
+  default) strips both from the page and keeps the invite-only copy. The flag is read by `GET /`, which
+  also strips the `<!-- SIGNUP:START -->…<!-- SIGNUP:END -->` block when off. Sign-up posts to Supabase
+  `/auth/v1/signup`; confirmation links (`type=signup` in the hash) are read once, the URL is wiped, and
+  the user is signed in (or sent to Sign in if the link carried no tokens). The password fields gained
+  Show/Hide controls in the same pass.
+- **Pay** a commitment writes the expense and then the paid mark; a retried Pay answers 409 with the
+  existing row instead of charging twice.
+- **Settings** — grouped inset rows, headers + cards only: Budget & Finance (Opening balance, Monthly
+  budget and Commitments open full sub-pages with Back + Save; Currency is read-only), Appearance
+  (theme, inline), Account (email, Sign out — with a confirm), About (Version, What's new, Date format).
+  Sub-pages hide the tab bar/FAB and sit below every overlay, so Pay's Add sheet still stacks on top.
+  The "Add to Home Screen" line is on the sign-in screen and only when not standalone.
+- **Version row** (Settings → About) always shows the repo's `VERSION` file. In development only, five
+  quick taps on the row (or `?debug=1`) reveal the debug string (short SHA, status-bar style,
+  standalone); production sets `APP_DEBUG=false` and never shows it.
 
-## 7. Test coverage gap and proposed Playwright plan
+## 6. Verification
 
-**No automated test runs the page's behaviour.** `tests/test_static.py` only checks strings and ordering in
-the HTML. These behaviours have **no automated test** today:
+- `./.venv/bin/python -m pytest -q` → **363 passed, 21 skipped** (measured 2026-11-07). Read the number
+  from the run, never from this file.
+- **GitHub Actions:** `.github/workflows/test.yml` runs `pytest -q` on every push and pull request
+  (Python 3.11, fake env values, no secrets). The suite was checked in a copy with **no `.env`** and an
+  unresolvable `SUPABASE_URL`, so it is hermetic. **The workflow itself has not run on GitHub yet.**
+- **No automated UI test exists in the repo.** `tests/test_static.py` pins strings and ordering in the
+  page; it does not drive the page.
+- **Not verified on a real iPhone:** the newest motion batches, the centred popup, the money fade and
+  ring, the keyboard/`--kb` path, safe areas, the edge-to-edge status strip in standalone
+  (`black-translucent`, the fixed `--sat` band, white glyphs), the Home hero's underlap and glass
+  blur, the hero's pill + segmented row on a 320px phone, the real Reduce Motion switch, and a full
+  Pay flow.
+- Real Claude output on real receipts/screenshots is not verified in CI; it needs a real key and images,
+  kept out of the repo.
 
-- Sheets: open/close, close token, no stuck overlay after rapid open/close, hidden state when closed.
-- Tap guards: a chip or Edit tap does not close the sheet; a scrim tap does.
-- Swipe-to-dismiss: threshold, close vs spring-back, velocity, `pointercancel`, allow/deny lists, scroll gate.
-- Animations: no ancestor opacity during a close; reduced motion stops movement; ring draw; save flash.
-- Add sheet: keypad entry, Save disabled at zero, one POST on triple tap, 409 "Already recorded." display,
-  Smart Entry post, chip toggle.
-- Edit and delete: Edit → Save → one PATCH; Delete → confirm → one DELETE.
-- Tabs, month change and wheel, Insights math, theme switching, splash timing, 401 re-prompt, error toasts.
-- Layout: no horizontal overflow; sheet bottom at viewport; keypad visible at 375×667, 390×844, 430×932.
+## 7. Known gaps and next steps
 
-**Proposed plan, not implemented:**
+1. **Render still auto-deploys without waiting for tests.** CI now reports, but it does not gate a
+   deploy; branch protection or Render's checks would be needed.
+2. **Automated UI tests** are not implemented. A proposal exists (Python Playwright under `tests/`,
+   Chromium + WebKit, the app served by `uvicorn`, `page.route()` stubs) but was never written.
+3. **iPhone pass** on the live URL, including the Build row matching the deployed commit.
+4. **Insights Year** needs a `?from=&to=` API endpoint first.
+5. **`0005`** (Pay race) and custom categories remain product decisions.
 
-- Use **Python Playwright** under `tests/ui/`, so the repo keeps one toolchain. Add `playwright` to
-  `requirements-dev.txt`, and mark the tests (e.g. `@pytest.mark.ui`) so `pytest -m "not ui"` stays fast.
-- Run the real app (`uvicorn` on a random port) and **stub the network with `page.route()`** for `/transactions*`
-  and `/summary`. The stubs live in `tests/` as clearly fake fixtures, which AGENTS.md allows, and never reach the app.
-- Browsers: Chromium for the main run, and **WebKit** (`playwright install webkit`) as the nearest local stand-in
-  for iOS Safari. WebKit is still not an iPhone.
-- Device profiles: `iPhone SE`-like 375×667, `iPhone 12`-like 390×844, 430×932. Use `reduced_motion="reduce"`
-  for the reduced-motion path.
-- Touch: use CDP `Input.dispatchTouchEvent` in Chromium for swipe tests. WebKit mouse events are not touch, so
-  swipe tests there would be partial.
-- Animation: sample `getAnimations()` and `getComputedStyle` in `requestAnimationFrame` to assert "no ancestor opacity
-  below 1", and to wait for animations to finish instead of sleeping.
-- Start with the sheets, tap guards and save path (highest risk), then drag, then layout. Keep the suite under ~60s.
+## 8. Ops and configuration
 
-## 8. Build stamp (implemented)
+- **Render:** `render.yaml` is the blueprint (Docker, free plan, `healthCheckPath: /health`,
+  `PORT=10000`, auto-deploy on). Secrets are **not** in it; they are set in the Render dashboard. Env
+  var names: `API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `SUPABASE_PUBLISHABLE_KEY`,
+  `ANTHROPIC_API_KEY`, optional `ALLOW_LEGACY_API_KEY`, `LEGACY_USER_ID`, `CLAUDE_MODEL`,
+  `CLAUDE_FALLBACK_MODEL`, `RECEIPTS_BUCKET`, `MAX_UPLOAD_BYTES`, `ENVIRONMENT`.
+- **Keep-alive:** a monitor can poll `HEAD /health`; it is public, touches no database, and is never
+  cached. On the free plan this keeps the instance from idling into a cold start.
+- **Staging** is a separate Supabase project driven by `scripts/serve_staging.py` and
+  `scripts/run_staging_tests.py`; the rehearsal runbook is `docs/migration-runbook.md`.
 
-`GET /` reads `index.html` and replaces the `{{BUILD}}` placeholder with `<short sha> · fullscreen`, using
-Render's `RENDER_GIT_COMMIT` (full SHA, confirmed in Render's docs). When the variable is absent, or is not a
-full 40-character hex SHA, the stamp is `dev · fullscreen`. `Cache-Control: no-store` is kept. Two tests in
-`tests/test_static.py` cover both cases; a value that is not a SHA is never written into the page.
-Opening `index.html` from disk shows the raw `{{BUILD}}`; only the served page is filled in.
+## 9. Where the history lives
 
-## 9. For the orchestrator
-
-- **Build stamp automation** is done (§8): the git short hash is injected by `GET /`, `dev` locally.
-- **Approve the test plan** (§7), and decide whether pytest-in-CI is wanted before the next UI change.
-- **Keypad covered while typing** is a product trade-off. Revisit only if the iPhone pass says it is unusable.
-- **Model IDs** in `config.py` and `.env.example` need a check against Anthropic's docs before the next scan.
+- `NEXT_STEPS.md` — every pass, decision and measured result, newest last. Authoritative.
+- `docs/handoff-archive.md` — older session logs, including features since removed.
+- `docs/migration-runbook.md` — the live/staging migration and rollback steps.
+- `docs/multi-user-audit.md`, `docs/multi-user-step2.md`, `docs/CUTOVER_RUNBOOK.md` — the multi-user
+  work and cutover.

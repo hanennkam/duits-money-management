@@ -133,15 +133,37 @@ async def upstream_error_handler(_request: Request, exc: extractor.UpstreamError
 
 
 BUILD_PLACEHOLDER = "{{BUILD}}"
+VERSION_PLACEHOLDER = "{{VERSION}}"
+DEBUG_PLACEHOLDER = "{{DEBUG}}"
+SIGNUP_PLACEHOLDER = "{{SIGNUP_ENABLED}}"
 AUTH_PLACEHOLDER = "{{AUTH_CONFIG}}"
+SIGNUP_START = "<!-- SIGNUP:START -->"
+SIGNUP_END = "<!-- SIGNUP:END -->"
 COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
+VERSION_FILE = STATIC_DIR.parent.parent / "VERSION"
+
+
+def app_version() -> str:
+    """The release version, from the repo's VERSION file — the one source for the About row.
+
+    A missing or blank file reads as "0.0.0" rather than failing the page; the file is part of the repo.
+    """
+    try:
+        return VERSION_FILE.read_text(encoding="utf-8").strip() or "0.0.0"
+    except OSError:
+        return "0.0.0"
+
+
+def signup_enabled() -> bool:
+    """SIGNUP_ENABLED turns the public create-account flow on. Off by default: invite-only."""
+    return (os.environ.get("SIGNUP_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"})
 
 
 def build_stamp() -> str:
-    """The Build row's text: the short commit Render deployed, or "dev" when it is not running on Render.
+    """The development debug string: the short commit Render deployed, or "dev" locally.
 
-    RENDER_GIT_COMMIT is the full SHA, set by Render at runtime. Anything that is not a full SHA is dropped
-    rather than written into the page.
+    Only injected when ENVIRONMENT is not production. RENDER_GIT_COMMIT is the full SHA; anything that
+    is not a full SHA is dropped rather than written into the page.
     """
     commit = os.environ.get("RENDER_GIT_COMMIT", "").strip().lower()
     short = commit[:7] if COMMIT_SHA.fullmatch(commit) else "dev"
@@ -196,12 +218,22 @@ async def index(settings: Annotated[Settings, Depends(get_settings)]) -> HTMLRes
     CSS and JS inline, so a stale copy is a page with the wrong behaviour — and a Home Screen shortcut
     is exactly where one would survive. Freshness wins over the cost of re-sending the page.
 
-    Three values are filled in per request: the Build stamp, the sign-in settings, and a fresh CSP nonce
-    (the nonce is per response, so the page and its policy always agree).
+    Four values are filled in per request: the release version, the debug flag (production shows only the
+    version), the development Build stamp, the sign-in settings, and a fresh CSP nonce (the nonce is per
+    response, so the page and its policy always agree).
     """
     nonce = secrets.token_urlsafe(18)
+    debug = not is_production()
+    signup = signup_enabled()
     page = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    page = page.replace(BUILD_PLACEHOLDER, build_stamp())
+    if not signup:
+        # The whole create-account screen and its link are stripped, not just hidden: off means the
+        # page carries no sign-up UI at all.
+        page = re.sub(re.escape(SIGNUP_START) + r".*?" + re.escape(SIGNUP_END), "", page, flags=re.S)
+    page = page.replace(SIGNUP_PLACEHOLDER, "true" if signup else "false")
+    page = page.replace(VERSION_PLACEHOLDER, app_version())
+    page = page.replace(DEBUG_PLACEHOLDER, "true" if debug else "false")
+    page = page.replace(BUILD_PLACEHOLDER, build_stamp() if debug else "")
     page = page.replace(AUTH_PLACEHOLDER, auth_config(settings))
     page = page.replace("<script>", f'<script nonce="{nonce}">').replace(
         "<style>", f'<style nonce="{nonce}">'
@@ -488,12 +520,12 @@ async def finance_summary(
 ) -> FinanceSummary:
     """Balance, unpaid commitments, safe-to-spend and the remaining budget.
 
-    Scope, stated because one figure does not match the others: `total_income`, `total_expense` and
-    `current_balance` are all-time and take **every mode** into account — the balance is one real-world
-    number. `unpaid_commitments`, the month's spend and `remaining_budget` are scoped to `mode`, the same
-    rows Home is showing. `remaining_budget` is null when no budget is set (0), and it leaves the month's
-    Pay-linked expenses out — a bill the month has already paid stops eating the budget, and the bills
-    that are still due are what `unpaid_commitments` is for.
+    Everything is scoped to `mode` now: `total_income`, `total_expense` and `current_balance` are
+    all-time for that mode, and the month's spend and `remaining_budget` are that mode's month. The app
+    only ever asks for `personal`; `business` stays a valid parameter so the stored rows remain readable
+    through the API, but they no longer move the personal balance. `remaining_budget` is null when no
+    budget is set (0), and it leaves the month's Pay-linked expenses out — a bill the month has already
+    paid stops eating the budget, and the bills that are still due are what `unpaid_commitments` is for.
 
     Every figure is derived here; none of it is stored, so it cannot drift from the transactions.
     """
@@ -503,7 +535,7 @@ async def finance_summary(
     budget = finance.money(settings_row.get("monthly_budget"))
 
     totals_rows = db.transaction_totals(user_id=user_id)
-    income, expense = finance.totals(totals_rows)
+    income, expense = finance.totals(totals_rows, mode)
     month_spend = finance.month_expense(totals_rows, checked, mode)
     month_commitment_spend = finance.month_commitment_expense(totals_rows, checked, mode)
 

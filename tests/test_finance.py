@@ -221,15 +221,16 @@ def test_no_budget_means_no_remaining_budget() -> None:
     assert finance.derive(**common, monthly_budget=Decimal("300"))["remaining_budget"] == Decimal("280.00")
 
 
-def test_the_balance_covers_every_mode_and_the_budget_only_the_asked_mode() -> None:
-    """One balance, one budget spend: the mode scoping decision, pinned."""
+def test_the_balance_and_the_budget_are_both_scoped_to_the_asked_mode() -> None:
+    """One balance and one budget spend per mode: business rows stay stored but out of personal."""
     rows = [
         view_row("2026-10", "personal", income="0", expense="200.00"),
         view_row("2026-10", "business", income="0", expense="50.00"),
         view_row("2026-09", "personal", income="1000.00", expense="0"),
     ]
 
-    assert finance.totals(rows) == (Decimal("1000.00"), Decimal("250.00"))
+    assert finance.totals(rows, "personal") == (Decimal("1000.00"), Decimal("200.00"))
+    assert finance.totals(rows, "business") == (Decimal("0"), Decimal("50.00"))
     assert finance.month_expense(rows, "2026-10", "personal") == Decimal("200.00")
     assert finance.month_expense(rows, "2026-10", "business") == Decimal("50.00")
     assert finance.month_expense(rows, "2026-09", "personal") == Decimal("0")
@@ -242,7 +243,7 @@ def test_a_month_with_no_income_counts_as_zero_not_an_error() -> None:
     rows = [view_row("2026-10", "personal", income=None, expense="42.00")]
 
     assert finance.money(None) == Decimal("0")
-    assert finance.totals(rows) == (Decimal("0"), Decimal("42.00"))
+    assert finance.totals(rows, "personal") == (Decimal("0"), Decimal("42.00"))
 
 
 def test_the_balance_keeps_summarize_s_sign_convention(
@@ -266,7 +267,7 @@ def test_the_balance_keeps_summarize_s_sign_convention(
     assert summarised["total_income"] == Decimal("200")
 
     view = [view_row("2026-10", "personal", income="200", expense="50")]
-    income, expense = finance.totals(view)
+    income, expense = finance.totals(view, "personal")
     assert (income, expense) == (summarised["total_income"], summarised["total_expense"])
     assert finance.month_expense(view, "2026-10", "personal") == summarised["total_expense"]
 

@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=390, height=844, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>Duits - Home</title>
+<!-- Tailwind CSS via CDN -->
+<script src="https://cdn.tailwindcss.com"></script>
+<!-- Phosphor Icons or Lucide Icons -->
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet"/>
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=SF+Pro+Display:wght@400;500;600;700;800&display=swap');
+    
+    :root {
+      --brand-gradient: linear-gradient(145deg, #6FB1FF 0%, #2F6BFF 100%);
+      --brand-blue: #2F6BFF;
+      --brand-sky: #6FB1FF;
+      --brand-tint-bg: #F2F7FF;
+      --brand-icon-bg: #EAF2FF;
+      --card-white: #FFFFFF;
+      --text-main: #0B132B;
+      --text-muted: #64748B;
+      --income-green: #22C55E;
+      --expense-red: #EF4444;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Plus Jakarta Sans", sans-serif;
+      background-color: #F2F7FF;
+      color: #0B132B;
+      -webkit-font-smoothing: antialiased;
+      user-select: none;
+      margin: 0;
+      padding: 0;
+      overflow-x: hidden;
+    }
+
+    .hero-gradient {
+      background: linear-gradient(155deg, #68AAFF 0%, #3573FF 50%, #205DF5 100%);
+    }
+
+    .glass-panel {
+      background: rgba(255, 255, 255, 0.18);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.32);
+      box-shadow: 0 8px 24px -4px rgba(23, 62, 168, 0.18);
+    }
+
+    .card-shadow {
+      box-shadow: 0 4px 20px -2px rgba(47, 107, 255, 0.08), 0 2px 6px -1px rgba(15, 23, 42, 0.04);
+    }
+
+    .fab-shadow {
+      box-shadow: 0 8px 24px -2px rgba(47, 107, 255, 0.45);
+    }
+
+    .frosted-tab {
+      background: rgba(255, 255, 255, 0.88);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-top: 0.5px solid rgba(47, 107, 255, 0.12);
+    }
+
+    /* Hide scrollbars */
+    ::-webkit-scrollbar {
+      display: none;
+    }
+  </style>
+</head>
+<body class="bg-[#F2F7FF] flex justify-center items-center min-h-screen">
+<!-- iPhone 15 Pro Wrapper (390px x 844px) -->
+<div class="w-[390px] h-[844px] bg-[#F2F7FF] relative flex flex-col overflow-hidden shadow-2xl">
+<!-- Top Hero Section (Full width Brand Gradient) -->
+<div class="hero-gradient text-white pt-2.5 pb-5 px-5 rounded-b-[28px] relative z-10 shrink-0 shadow-lg shadow-blue-500/15 overflow-hidden w-full">
+<!-- Ambient soft light blobs for realistic frosted glass refraction -->
+<div class="absolute -top-10 -right-8 w-44 h-44 rounded-full pointer-events-none" style="background: radial-gradient(circle, rgba(127, 214, 255, 0.4) 0%, rgba(127, 214, 255, 0) 70%); filter: blur(28px);"></div>
+<div class="absolute top-20 -left-10 w-40 h-40 rounded-full pointer-events-none" style="background: radial-gradient(circle, rgba(255, 255, 255, 0.3) 0%, rgba(111, 177, 255, 0) 70%); filter: blur(32px);"></div>
+<div class="absolute bottom-2 right-12 w-32 h-32 rounded-full pointer-events-none" style="background: radial-gradient(circle, rgba(255, 255, 255, 0.22) 0%, rgba(32, 93, 245, 0) 70%); filter: blur(24px);"></div>
+<!-- Status Bar Area (Dynamic Island simulated space) -->
+<div class="h-8 flex items-center justify-between text-xs font-semibold px-1 relative z-10">
+<span class="tracking-tight text-white text-[15px]">9:41</span>
+<div class="w-28 h-5 bg-black/25 backdrop-blur-md rounded-full flex items-center justify-center">
+<div class="w-2 h-2 rounded-full bg-blue-900/60 mr-2 border border-white/20"></div>
+<div class="w-2 h-2 rounded-full bg-blue-950/80 border border-white/20"></div>
+</div>
+<div class="flex items-center space-x-1.5 text-[13px] text-white">
+<i class="fa-solid fa-signal text-[11px]"></i>
+<i class="fa-solid fa-wifi text-[11px]"></i>
+<i class="fa-solid fa-battery-full text-[13px]"></i>
+</div>
+</div>
+<!-- App Header: Logo + Refresh Icon -->
+<div class="flex items-center justify-between mt-1.5 relative z-10">
+<div class="flex items-center space-x-2">
+<img alt="Duits Logo" class="w-8 h-8 rounded-xl object-contain drop-shadow-md" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDT_QFT3FKQ9xeSzHbKD6swuUdMEkZI6_4NoXZw56N3L4pwPT3msAnQ7pqv_D58-3X7ERT0iTSbdg0_1aEnIi1KA-lrS6vK8Bokyw7Ru377DlX7irHNbU_e9tAR_clZG-tmIp42cwkGCnvlhI1lh6jtA9-GJGbcRS7K9IK7PFFFGVA5uLPsXVJmccT1S1a8-7UMd_VI1Bo8khVJQ-PSbykk39rmTvihHCQs8be-PP6xwK_bk69t52nfs8Jj3Bbz9pmI7w"/>
+<span class="text-xl font-extrabold tracking-tight text-white">Duits</span>
+</div>
+<button aria-label="Refresh" class="w-8 h-8 rounded-full flex items-center justify-center transition active:scale-95 cursor-pointer" style="background: rgba(255, 255, 255, 0.18); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid rgba(255, 255, 255, 0.35); box-shadow: inset 0 1px 1px 0 rgba(255, 255, 255, 0.45);">
+<i class="fa-solid fa-rotate-right text-white text-xs"></i>
+</button>
+</div>
+<!-- Screen Title & Frosted Month Selector -->
+<div class="flex items-center justify-between mt-2.5 relative z-10">
+<h1 class="text-2xl font-bold tracking-tight text-white">Home</h1>
+<div class="flex items-center space-x-1.5 px-3 py-1 rounded-full cursor-pointer active:scale-95 transition" style="background: rgba(255, 255, 255, 0.18); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid rgba(255, 255, 255, 0.35); box-shadow: inset 0 1px 1px 0 rgba(255, 255, 255, 0.45);">
+<span class="text-xs font-semibold text-white tracking-wide">Oct 2026</span>
+<i class="fa-solid fa-chevron-down text-[10px] text-white/90"></i>
+</div>
+</div>
+<!-- iOS Segmented Control: Personal | Business -->
+<div class="mt-2.5 bg-black/20 p-1 rounded-2xl flex backdrop-blur-md border border-white/15 relative z-10">
+<button class="flex-1 py-1 text-center text-xs font-bold rounded-xl bg-white text-[#2F6BFF] shadow-sm transition">
+      Personal
+    </button>
+<button class="flex-1 py-1 text-center text-xs font-medium text-white/80 hover:text-white transition">
+      Business
+    </button>
+</div>
+<!-- Main Balance Information inside Hero -->
+<div class="mt-3 relative z-10">
+<div class="flex items-center justify-between">
+<div class="flex items-center space-x-1.5">
+<span class="text-xs font-medium text-blue-100 uppercase tracking-wider">Total Balance</span>
+<span class="text-[11px] px-2 py-0.5 rounded-full font-semibold text-white tracking-tight" style="background: rgba(255, 255, 255, 0.22); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid rgba(255, 255, 255, 0.35); box-shadow: inset 0 1px 1px 0 rgba(255, 255, 255, 0.45);">Personal + Business</span>
+</div>
+<button class="text-white/80 hover:text-white text-xs">
+<i class="fa-solid fa-ellipsis"></i>
+</button>
+</div>
+<div class="mt-0.5 flex items-baseline space-x-1">
+<span class="text-[30px] font-extrabold tracking-tight text-white">RM 14,850.40</span>
+</div>
+<!-- Frosted-glass inner panel for 'Safe to spend' with Apple glassmorphism -->
+<div class="mt-2.5 rounded-2xl p-2.5 flex items-center justify-between transition" style="background: rgba(255, 255, 255, 0.18); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid rgba(255, 255, 255, 0.35); box-shadow: inset 0 1px 1px 0 rgba(255, 255, 255, 0.45), 0 8px 24px -4px rgba(23, 62, 168, 0.2);">
+<div class="flex items-center space-x-2.5">
+<div class="w-7 h-7 rounded-lg flex items-center justify-center text-white text-xs shrink-0" style="background: rgba(255, 255, 255, 0.25); border: 1px solid rgba(255, 255, 255, 0.3);">
+<i class="fa-solid fa-shield-halved text-white"></i>
+</div>
+<div>
+<div class="text-[10px] text-white/90 font-medium leading-tight">Safe to spend</div>
+<div class="text-sm font-bold text-white tracking-tight leading-tight">RM 4,210.00</div>
+</div>
+</div>
+<button class="text-[11px] text-white/95 hover:text-white underline font-medium flex items-center space-x-1 cursor-pointer">
+<span>How this is calculated</span>
+<i class="fa-solid fa-circle-question text-[10px] text-white/90"></i>
+</button>
+</div>
+</div>
+</div>
+<!-- Scrollable Content Container (White cards with Brand Blue accents overlapping hero) -->
+<div class="flex-1 overflow-y-auto px-4 -mt-3 pt-3 pb-28 space-y-3.5 relative z-20">
+<!-- Bento Inflow / Outflow Cards -->
+<div class="grid grid-cols-2 gap-3"><!-- Income Card (Solid pure white with subtle soft shadow) -->
+<div class="bg-white rounded-[22px] p-3.5 card-shadow flex flex-col justify-between border border-blue-50">
+<div class="flex items-center justify-between">
+<span class="text-xs font-semibold text-slate-500">Income</span>
+<div class="w-7 h-7 rounded-full bg-[#EBF3FF] flex items-center justify-center text-[#22C55E]">
+<i class="fa-solid fa-arrow-up-right text-xs"></i>
+</div>
+</div>
+<div class="mt-2.5">
+<div class="text-[17px] font-bold text-[#22C55E] tracking-tight">+RM 8,500.00</div>
+</div>
+</div>
+<!-- Expenses Card (Solid pure white with subtle soft shadow) -->
+<div class="bg-white rounded-[22px] p-3.5 card-shadow flex flex-col justify-between border border-blue-50">
+<div class="flex items-center justify-between">
+<span class="text-xs font-semibold text-slate-500">Expenses</span>
+<div class="w-7 h-7 rounded-full bg-[#EBF3FF] flex items-center justify-center text-[#EF4444]">
+<i class="fa-solid fa-arrow-down-left text-xs"></i>
+</div>
+</div>
+<div class="mt-2.5">
+<div class="text-[17px] font-bold text-[#0B132B] tracking-tight">-RM 3,240.80</div>
+</div>
+</div></div>
+<!-- Monthly Budget Limit Card -->
+<div class="bg-white rounded-[24px] p-4 card-shadow border border-blue-50">
+<div class="flex items-center justify-between">
+<div class="flex items-center space-x-2">
+<div class="w-7 h-7 rounded-xl bg-[#EAF2FF] flex items-center justify-center text-[#2F6BFF]">
+<i class="fa-solid fa-wallet text-xs"></i>
+</div>
+<span class="text-sm font-bold text-[#0B132B]">Monthly Budget Limit</span>
+</div>
+<span class="text-xs font-bold text-[#2F6BFF] bg-[#EAF2FF] px-2.5 py-1 rounded-full">64% spent</span>
+</div>
+<!-- Pill Progress Bar -->
+<div class="mt-3.5 w-full bg-[#F2F7FF] h-2.5 rounded-full overflow-hidden p-0.5 border border-blue-100/50">
+<div class="h-full rounded-full bg-gradient-to-r from-[#6FB1FF] to-[#2F6BFF]" style="width: 64%;"></div>
+</div>
+<div class="mt-2.5 flex items-center justify-between text-xs">
+<span class="font-bold text-[#0B132B]">RM 1,759.20 <span class="text-slate-400 font-normal">left to spend</span></span>
+<span class="font-semibold text-[#2F6BFF] bg-[#F2F7FF] px-2 py-0.5 rounded-md text-[11px]">7 days remaining</span>
+</div>
+</div>
+<!-- Recent Transactions Section (Strict 3 items + See All) -->
+<div class="bg-white rounded-[24px] p-4 card-shadow border border-blue-50">
+<div class="flex items-center justify-between mb-3">
+<h2 class="text-sm font-bold text-[#0B132B] tracking-tight">Recent Transactions</h2>
+<button class="text-xs font-bold text-[#2F6BFF] hover:text-[#205DF5] flex items-center space-x-1 active:opacity-75">
+<span>See All</span>
+<i class="fa-solid fa-chevron-right text-[10px]"></i>
+</button>
+</div>
+<div class="divide-y divide-slate-100">
+<!-- Item 1: Apple Store Pavilion -->
+<div class="py-2.5 flex items-center justify-between first:pt-1">
+<div class="flex items-center space-x-3">
+<!-- Single brand style: blue icon on pale blue rounded chip -->
+<div class="w-10 h-10 rounded-2xl bg-[#EAF2FF] flex items-center justify-center text-[#2F6BFF] shrink-0">
+<i class="fa-solid fa-laptop text-sm"></i>
+</div>
+<div class="truncate">
+<div class="text-[13px] font-bold text-[#0B132B] truncate">Apple Store Pavilion</div>
+<div class="text-[11px] text-slate-500 font-medium">Electronics • Today</div>
+</div>
+</div>
+<div class="text-right ml-2 shrink-0">
+<span class="text-[13px] font-bold text-[#0B132B]">-RM 449.00</span>
+</div>
+</div>
+<!-- Item 2: Village Grocer -->
+<div class="py-2.5 flex items-center justify-between">
+<div class="flex items-center space-x-3">
+<!-- Single brand style: blue icon on pale blue rounded chip -->
+<div class="w-10 h-10 rounded-2xl bg-[#EAF2FF] flex items-center justify-center text-[#2F6BFF] shrink-0">
+<i class="fa-solid fa-basket-shopping text-sm"></i>
+</div>
+<div class="truncate">
+<div class="text-[13px] font-bold text-[#0B132B] truncate">Village Grocer</div>
+<div class="text-[11px] text-slate-500 font-medium">Groceries • Today</div>
+</div>
+</div>
+<div class="text-right ml-2 shrink-0">
+<span class="text-[13px] font-bold text-[#0B132B]">-RM 182.40</span>
+</div>
+</div>
+<!-- Item 3: Client Retainer -->
+<div class="py-2.5 flex items-center justify-between last:pb-1">
+<div class="flex items-center space-x-3">
+<!-- Single brand style: blue icon on pale blue rounded chip -->
+<div class="w-10 h-10 rounded-2xl bg-[#EAF2FF] flex items-center justify-center text-[#2F6BFF] shrink-0">
+<i class="fa-solid fa-briefcase text-sm"></i>
+</div>
+<div class="truncate">
+<div class="text-[13px] font-bold text-[#0B132B] truncate">Client Retainer</div>
+<div class="text-[11px] text-slate-500 font-medium">Design Consulting • Yesterday</div>
+</div>
+</div>
+<div class="text-right ml-2 shrink-0">
+<span class="text-[13px] font-bold text-[#22C55E]">+RM 3,800.00</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Fixed Bottom Tab Bar with Center Floating Action Button (FAB +) -->
+<div class="absolute bottom-0 left-0 right-0 px-6 pt-2 pb-7 z-30 flex items-center justify-between" style="background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border-top: 1px solid rgba(255, 255, 255, 0.6); box-shadow: 0 -4px 20px -2px rgba(47, 107, 255, 0.08), inset 0 1px 1px 0 rgba(255, 255, 255, 0.7);">
+<!-- Tab 1: Home (Active with Brand Blue) -->
+<button class="flex flex-col items-center space-y-1 w-12 text-[#2F6BFF]">
+<i class="fa-solid fa-house text-[18px]"></i>
+<span class="text-[10px] font-bold tracking-tight">Home</span>
+</button>
+<!-- Tab 2: Transactions -->
+<button class="flex flex-col items-center space-y-1 w-12 text-slate-400 hover:text-[#2F6BFF] transition">
+<i class="fa-solid fa-receipt text-[18px]"></i>
+<span class="text-[10px] font-medium tracking-tight">Transactions</span>
+</button>
+<!-- Center Elevated Frosted Glass FAB (+) with high-refraction glow -->
+<div class="relative -top-5 flex justify-center">
+<button aria-label="Add Transaction" class="w-[52px] h-[52px] rounded-full text-white flex items-center justify-center cursor-pointer active:scale-95 transition-transform" style="background: linear-gradient(135deg, rgba(111, 177, 255, 0.95) 0%, rgba(47, 107, 255, 0.95) 100%); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 2.5px solid rgba(255, 255, 255, 0.65); box-shadow: 0 10px 25px -3px rgba(47, 107, 255, 0.5), inset 0 1.5px 2px 0 rgba(255, 255, 255, 0.6);">
+<i class="fa-solid fa-plus text-xl font-bold"></i>
+</button>
+</div>
+<!-- Tab 3: Insights -->
+<button class="flex flex-col items-center space-y-1 w-12 text-slate-400 hover:text-[#2F6BFF] transition">
+<i class="fa-solid fa-chart-pie text-[18px]"></i>
+<span class="text-[10px] font-medium tracking-tight">Insights</span>
+</button>
+<!-- Tab 4: Settings -->
+<button class="flex flex-col items-center space-y-1 w-12 text-slate-400 hover:text-[#2F6BFF] transition">
+<i class="fa-solid fa-gear text-[18px]"></i>
+<span class="text-[10px] font-medium tracking-tight">Settings</span>
+</button>
+<!-- iOS Home Indicator Pill -->
+<div class="absolute bottom-1.5 left-1/2 -translate-x-1/2 w-32 h-1 bg-slate-900/20 rounded-full"></div>
+</div>
+</div>
+</body></html>

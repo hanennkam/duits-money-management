@@ -12,6 +12,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 
+# The release version lives at the repo root; the About row reads it at runtime.
+COPY VERSION ./VERSION
+
 # Never run the API as root.
 RUN useradd --create-home --uid 10001 appuser
 USER appuser

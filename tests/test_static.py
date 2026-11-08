@@ -155,8 +155,8 @@ def test_the_chooser_moved_the_entry_point_and_not_the_submission(client: TestCl
     page = client.get("/").text
     for call in ('api("/transactions", {', 'api("/transactions/text", {', 'api("/transactions/scan", {'):
         assert call in page, call
-    assert "body: JSON.stringify({ text: text, mode: addMode })" in page
-    assert 'form.append("mode", addMode);' in page
+    assert 'body: JSON.stringify({ text: text, mode: "personal" })' in page
+    assert 'form.append("mode", "personal");' in page
     # the fields and rows each flow submits from still exist: they moved view, not shape
     for element in ('id="textInput"', 'id="textBtn"', 'id="scanBtn"', 'id="addMerchant"',
                     'id="addNote"', 'id="addDate"', 'id="keypadGrid"', 'id="addChips"'):
@@ -220,27 +220,73 @@ DEPLOYED_SHA = "8f39d7e4b1c2a09e6d5f4a3b2c1d0e9f8a7b6c5d"
 
 
 def test_the_build_row_shows_the_deployed_commit(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    """On Render, GET / carries the short SHA in both places the Build row reads it, and stays uncached."""
+    """In development, GET / carries the short SHA in the Build constant the row prints; uncached."""
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
     monkeypatch.setenv("RENDER_GIT_COMMIT", DEPLOYED_SHA)
     response = client.get("/")
     assert response.headers["Cache-Control"] == "no-store"
     assert response.headers["content-type"].startswith("text/html")
     page = response.text
     assert "{{BUILD}}" not in page
-    assert page.count("8f39d7e · fullscreen") == 2  # the default span and the BUILD constant
+    assert 'var BUILD = "8f39d7e · fullscreen"' in page
+    assert "var APP_DEBUG = true" in page
 
 
 def test_the_build_row_is_dev_without_render(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Local runs have no RENDER_GIT_COMMIT, so the row says dev; anything but a full SHA is never injected."""
+    """Local runs have no RENDER_GIT_COMMIT, so the debug string says dev; anything but a full SHA is dropped."""
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
     monkeypatch.delenv("RENDER_GIT_COMMIT", raising=False)
     response = client.get("/")
     assert response.headers["Cache-Control"] == "no-store"
     assert "{{BUILD}}" not in response.text
-    assert response.text.count("dev · fullscreen") == 2
+    assert 'var BUILD = "dev · fullscreen"' in response.text
+    assert "var APP_DEBUG = true" in response.text
 
     monkeypatch.setenv("RENDER_GIT_COMMIT", "<script>alert(1)</script>")
-    assert "dev · fullscreen" in client.get("/").text
+    assert 'var BUILD = "dev · fullscreen"' in client.get("/").text
     assert "<script>alert(1)" not in client.get("/").text
+
+
+def test_the_version_row_hides_debug_until_asked(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The row is the release version by default; the debug string needs five quick taps or ?debug=1,
+    and only a development page ever shows it."""
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    page = client.get("/").text
+    assert "var buildDebug = false;" in page
+    assert "if (!buildDebug || !APP_DEBUG) { row.textContent = APP_VERSION; return; }" in page
+    assert 'row.addEventListener("click", tapBuild);' in page
+    assert "if (buildTaps.count >= 5) {" in page
+    assert 'get("debug") === "1"' in page
+    # the tap and the URL shortcut are both development-only
+    assert "function tapBuild() {\n    if (!APP_DEBUG) return;" in page
+    assert "if (wanted && APP_DEBUG) buildDebug = true;" in page
+
+
+def test_production_shows_only_the_version(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """On production the About row is the release version: no SHA, no status-bar or standalone debug."""
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("RENDER_GIT_COMMIT", DEPLOYED_SHA)
+    page = client.get("/").text
+    version = (Path(__file__).resolve().parents[1] / "VERSION").read_text(encoding="utf-8").strip()
+
+    assert "var APP_DEBUG = false" in page
+    assert f'var APP_VERSION = "{version}"' in page
+    assert f'id="buildValue">{version}</span>' in page
+    assert "8f39d7e" not in page, "the SHA is development-only"
+    assert 'var BUILD = ""' in page
+    assert "{{VERSION}}" not in page and "{{DEBUG}}" not in page
+
+
+def test_the_version_comes_from_the_version_file(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The version has one source: the repo's VERSION file, swapped here to prove it is read."""
+    version_file = tmp_path / "VERSION"
+    version_file.write_text("9.9.9\n", encoding="utf-8")
+    monkeypatch.setattr("app.main.VERSION_FILE", version_file)
+    page = client.get("/").text
+    assert 'var APP_VERSION = "9.9.9"' in page
+    assert 'id="buildValue">9.9.9</span>' in page
 
 
 def test_the_sheet_tap_guards_are_target_based(client: TestClient) -> None:
@@ -340,10 +386,12 @@ def test_home_is_a_balance_hero_with_a_safe_to_spend_pill(client: TestClient) ->
     assert '$("balanceAmount").textContent = signedMoney(balance);' in page
     assert "function signedMoney(value)" in page
     assert '(number < 0 ? "\\u2212" : "") + money(Math.abs(number))' in page
-    # The month is named once, by the picker in the shared header. The hero used to repeat it as a pill;
-    # a second "Oct 2026" one line under the first read as a duplicate, so the hero has none.
-    hero = page[page.index('id="balanceCard"'):page.index('id="budgetCard"')]
-    assert "js-month-label" not in hero, "the header is the only place the month is named"
+    # The month is named once, by the pill that sits in the balance row (not by a shared header, and
+    # not twice); Home carries no Personal/Business control of its own.
+    hero = page[page.index('<div class="hero">'):page.index('id="statRow"')]
+    assert hero.count("js-month-label") == 1, "the hero has exactly one month picker"
+    assert 'class="segmented"' not in hero, "Home has no mode toggle"
+    assert hero.index('class="hero-head"') < hero.index("js-month-label") < hero.index('id="balanceAmount"')
     assert "hero-top" not in page
     # The balance keeps the heaviest weight, but its own size is the one that was measured to keep
     # "RM 2,470.00" on one line at 375px (238.33px of 306px available) and 390px. It is a block so
@@ -351,19 +399,17 @@ def test_home_is_a_balance_hero_with_a_safe_to_spend_pill(client: TestClient) ->
     assert ".hero-amount {\n    font-size: 40px; font-weight: 800" in page
     assert ".hero-balance { display: block; font-size: 40px; white-space: nowrap; }" in page
     assert 'fitText($("balanceAmount"), 40, 22);' in page
-    # The word "Balance" is the visible label now, with the scope of the figure on the small line under
-    # it; the icon carries the accessible name, and the button's own name is repainted with the figure
-    # it shows.
-    assert 'id="balanceTap" type="button" aria-label="Balance, Personal and Business. How this is calculated"' in page
+    # The word "Balance" is the visible label; the icon carries the accessible name, and the button's
+    # own name is repainted with the figure it shows. The app is personal-only, so no scope line.
+    assert 'id="balanceTap" type="button" aria-label="Balance. How this is calculated"' in page
     assert 'class="hero-balance-mark" role="img" aria-label="Balance"' in page
     assert '<span class="hero-balance-label">Balance</span>' in page
-    assert '<span class="hero-balance-unit">Personal + Business</span>' in page
     assert ">Balance<" in page, "the visible label must stay, not only the aria-label"
-    assert ">Personal + Business<" in page, "the scope of the figure is visible too"
+    assert "Personal + Business" not in page, "the balance is personal-only; no scope line"
     assert 'class="hero-balance-icon"' in page
     tap = page[page.index(".hero-tap {"):page.index("}", page.index(".hero-tap {"))]
     assert "min-height: 44px" in tap
-    assert '$("balanceTap").setAttribute("aria-label", "Balance, Personal and Business, " + signedMoney(balance)' in page
+    assert '$("balanceTap").setAttribute("aria-label", "Balance, " + signedMoney(balance)' in page
     # ...and the pill is inside it, so it is a span, not a second target
     assert '<span class="safe-pill" id="safePill">' in page
     assert 'id="safeDetailsBtn"' not in page
@@ -381,9 +427,9 @@ def test_home_is_a_balance_hero_with_a_safe_to_spend_pill(client: TestClient) ->
     # The anchor's own maths, which is what the sheet asks for: the export is not reachable from here, so
     # tests/test_static.py mirrors it in integer cents (see test_the_anchor_maths_is_integer_cents).
     assert "function toCents(value)" in page and "function openingFor(typed, income, expense)" in page
-    # the commitments sheet keeps its second way in from Settings
+    # the commitments page keeps its second way in from Settings
     assert "function showMoneySettings()" in page
-    assert 'addEventListener("click", openCommitSheet)' in page
+    assert 'addEventListener("click", openCommitmentsPage)' in page
 
 
 def mirror_cents(text: str) -> int:
@@ -514,7 +560,7 @@ def test_the_pencil_closes_the_breakdown_before_the_popup_opens(client: TestClie
     # the bare open, which is the bug itself, must not be back
     assert 'if (hit.id === "editBalanceBtn") { openMoneyField("balance"); return; }' not in page
     # the same handover the bills row already used, so the two cannot drift apart
-    assert 'closeOverlay($("balanceOverlay"), function () { openCommitSheet(); });' in page
+    assert 'closeOverlay($("balanceOverlay"), function () { openSettingsPage("commitments"); });' in page
     # and the third part of that sheet closes first too
     assert 'closeOverlay($("balanceOverlay"), function () { showMoneySettings(); });' in handler
     # Every opener either sits on no overlay (the Home card buttons) or closes its own first: the pencil
@@ -681,11 +727,11 @@ def test_the_popup_fades_and_a_sheet_still_slides(client: TestClient) -> None:
         assert "opacity" not in rule, selector
 
 
-def test_the_money_block_fades_in_once_per_month_and_mode(client: TestClient) -> None:
-    """The figures arrive with one short fade, once: first load, and a month or mode change.
+def test_the_money_block_fades_in_once_per_month(client: TestClient) -> None:
+    """The figures arrive with one short fade, once: first load and a month change.
 
     A re-read of the same month after a save must not blink the cards, so the helper remembers the
-    month|mode it last faded and the post-save refresh never calls it. The animation is opacity only,
+    month it last faded and the post-save refresh never calls it. The animation is opacity only,
     which is why it is safe to keep under Reduce Motion (it is simply shorter there).
     """
     page = client.get("/").text
@@ -693,7 +739,7 @@ def test_the_money_block_fades_in_once_per_month_and_mode(client: TestClient) ->
     assert ".is-money-fresh { animation: money-in var(--dur-page) var(--ease-ios); }" in page
     assert "@keyframes money-in { from { opacity: 0; } }" in page
     fn = page[page.index("function fadeMoneyCards()"):page.index("async function refreshFinanceCard()")]
-    assert 'var key = state.month + "|" + state.mode;' in fn
+    assert "var key = state.month;" in fn
     assert "if (key === moneyFadedFor) return;" in fn
     assert 'replay($("balanceCard"), "is-money-fresh");' in fn
     assert 'replay($("statRow"), "is-money-fresh");' in fn
@@ -831,7 +877,7 @@ def test_every_settings_row_carries_an_icon_chip(client: TestClient) -> None:
     settings = page[page.index('<section class="screen" id="screen-settings"'):page.index("<nav class=\"tabbar\">")]
     # The rows that carry a chip, and the label each one wears. The chip sits before the label, so the
     # row is the markup from the chip to the end of that row.
-    for label in ("Opening balance", "Monthly budget", "Currency", "App", "Build",
+    for label in ("Opening balance", "Monthly budget", "Currency", "Version",
                   "Date format", "What&rsquo;s new"):
         at = settings.index(">" + label + "<")
         before = settings[:at]
@@ -867,6 +913,67 @@ def test_the_expenses_figure_wears_the_full_red(client: TestClient) -> None:
     assert ".stat-amount.out { color: var(--danger); }" in page
     assert '<span class="stat-amount out" id="expenseTotal">' in page
     assert '<span class="stat-amount in" id="incomeTotal">' in page
+
+
+SPLASH_ICON_SHADOW = "0 12px 28px rgba(0, 0, 0, .22), 0 2px 6px rgba(0, 0, 0, .12)"
+
+
+def rules_outside_token_blocks(css: str) -> str:
+    """The stylesheet with every :root and [data-theme="dark"] block cut out.
+
+    A line walk rather than a regex: a token block is a brace on its own line, and counting braces is
+    the only way to know where it ends without a parser. Rules nested in @media are left alone, which
+    is why every brace counts and only a depth-0 opener starts a skip.
+    """
+    kept: list[str] = []
+    depth = 0
+    skipping = False
+    for line in css.splitlines():
+        if skipping:
+            depth += line.count("{") - line.count("}")
+            if depth <= 0:
+                skipping, depth = False, 0
+            continue
+        if line.strip() in (":root {", '[data-theme="dark"] {'):
+            skipping, depth = True, 1
+            continue
+        kept.append(line)
+        depth += line.count("{") - line.count("}")
+    return "\n".join(kept)
+
+
+def test_colours_live_in_the_token_blocks(client: TestClient) -> None:
+    """Every colour in the stylesheet comes from a token block, not from a rule.
+
+    The app has one palette per theme and both live in :root / [data-theme="dark"]; a rule that spells
+    a hex or an rgba() out is a colour that dark mode cannot reach. This test reads declaration values
+    only (never selectors, so an id like #addSheet is not mistaken for a colour) and allows exactly one
+    named exception: the splash icon's two-layer shadow, which is a shadow recipe rather than a theme
+    colour and is duplicated as --shadow-splash for the later wiring pass.
+
+    What it does NOT prove: that the token values themselves are right, or that the JS palettes
+    (CATEGORY_COLOURS, the theme-color copies in <head>) agree with the CSS. Those are separate.
+    """
+    page = client.get("/").text
+    # The server adds a CSP nonce to every <style> (and <script>), so the tag is not bare.
+    css = "\n".join(re.findall(r"<style[^>]*>(.*?)</style>", page, re.S))
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)          # a comment is not a colour
+    values = "\n".join(re.findall(r"\{([^{}]*)\}", rules_outside_token_blocks(css)))
+
+    assert SPLASH_ICON_SHADOW in values, "the one named exception must still be the only literal"
+    values = values.replace(SPLASH_ICON_SHADOW, "")
+
+    hexes = re.findall(r"#[0-9a-fA-F]{3,8}\b", values)
+    colours = re.findall(r"\brgba?\([^)]*\)", values)
+    assert not hexes, "a rule spells a colour out instead of reading a token: " + ", ".join(hexes)
+    assert not colours, "a rule spells a colour out instead of reading a token: " + ", ".join(colours)
+
+    # The chrome colour is the one token both themes must declare, and the accent reads the brand.
+    assert page.count("--browser-chrome:") == 2
+    assert page.count("--accent: var(--brand);") == 2
+    # <head> cannot read a custom property, so its copies are checked by hand: they must match the
+    # token (light theme's top colour is --brand-grad-from).
+    assert 'content="#2A63F2"' in page and 'dark ? "#000000" : "#2A63F2"' in page
 
 
 def test_the_money_icons_are_named_by_their_labels_or_by_aria_label(client: TestClient) -> None:
@@ -1089,19 +1196,22 @@ def test_a_failing_finance_read_never_blanks_home(client: TestClient) -> None:
     assert '$("expenseTotal").textContent = "\\u2014";' in home
 
 
-def test_the_commitments_sheet_is_a_registered_overlay(client: TestClient) -> None:
-    """A fourth sheet with the same parts as the other three: a scrim, a drag, a guard and a close."""
+def test_the_commitments_page_is_a_full_sub_page(client: TestClient) -> None:
+    """The old commitments sheet is now a full-height page with a Back header, not an overlay."""
     page = client.get("/").text
-    overlay = page[page.index('<div class="overlay" id="commitOverlay"'):]
-    assert '<div class="scrim" aria-hidden="true"></div>' in overlay[:600]
-    assert 'id="commitSheet"' in overlay[:600]
-    assert 'openOverlay($("commitOverlay"))' in page
-    assert 'attachSheetDrag("commitSheet", "commitOverlay", closeCommitSheet, false)' in page
-    assert 'isOutsideTap(event, $("commitOverlay"))' in page
-    # it precedes the Add overlay, so a Pay tap stacks the Add sheet on top of it and comes back
-    assert page.index('id="commitOverlay"') < page.index('id="addOverlay"')
-    # the dim is the sheet-strength scrim, and it is the only thing in this overlay that fades
-    assert "#commitOverlay .scrim { background: var(--scrim-sheet); }" in page
+    sub = page[page.index('<div class="subpage" id="settingsSubpage"'):page.index('<div class="overlay is-centre" id="confirmOverlay"')]
+    assert 'id="subCommitments"' in sub
+    for element in ('id="commitSub"', 'id="commitList"', 'id="commitName"',
+                    'id="commitAmount"', 'id="commitDay"', 'id="commitAddBtn"'):
+        assert element in sub, element
+    # the page shell: a Back button and a title, and the tabs hidden while it is up
+    assert 'id="subBackBtn"' in sub and 'id="subTitle"' in sub
+    assert "body.is-subpage .tabbar { display: none; }" in page
+    assert "body.is-subpage { overflow: hidden; }" in page
+    # it is opened from Settings, and the old overlay is gone
+    assert 'id="commitOverlay"' not in page and 'id="commitSheet"' not in page
+    assert '$("commitmentsBtn").addEventListener("click", openCommitmentsPage);' in page
+    assert 'openOverlay($("commitOverlay"))' not in page
 
 
 def test_the_commitments_sheet_reads_the_month_and_offers_pay_only(client: TestClient) -> None:
@@ -1195,33 +1305,36 @@ def test_a_pay_that_finds_the_bill_already_charged_carries_on_to_the_mark(
     assert 'showAddNotice(duplicate ? resultCard(error.transaction, true)' in save
 
 
-def test_settings_money_sits_above_account(client: TestClient) -> None:
-    """Opening balance and budget save one field at a time; commitments opens the one sheet."""
+def test_settings_money_rows_open_full_pages(client: TestClient) -> None:
+    """Budget & Finance rows open full pages with an input, a Save and a Back header."""
     page = client.get("/").text
     assert 'id="moneySection"' in page
     assert page.index('id="moneySection"') < page.index(">Account<"), "Money sits above Account"
-    for element in ('id="openingBalance"', 'id="monthlyBudget"', 'id="commitmentsBtn"',
-                    'id="commitmentsValue"'):
+    for element in ('id="openingRow"', 'id="budgetRow"', 'id="commitmentsBtn"',
+                    'id="openingValue"', 'id="budgetValue"', 'id="commitmentsValue"'):
         assert element in page, element
+    # the editors are on the sub-pages, not inline on Settings
+    sub = page[page.index('<div class="subpage" id="settingsSubpage"'):page.index('<div class="overlay is-centre" id="confirmOverlay"')]
+    for element in ('id="subOpening"', 'id="subBudget"', 'id="openingBalance"', 'id="monthlyBudget"',
+                    'id="openingSaveBtn"', 'id="budgetSaveBtn"', 'id="subBackBtn"'):
+        assert element in sub, element
     # text + inputmode: a number input brings an iOS wheel and spinners this screen does not want
     for field in ("openingBalance", "monthlyBudget"):
         tag = opening_tag(page, 'id="' + field + '"')
         assert 'type="text"' in tag and 'inputmode="decimal"' in tag, field
-    # The base rule, not the narrower one the icon rows add: the 16px floor is what stops iOS
-    # zooming the page when the field takes focus.
-    field = page[page.index("\n  .setting-field {"):page.index("}", page.index("\n  .setting-field {"))]
-    assert "font-size: 16px" in field, "below 16px iOS zooms the page on focus"
-    # saves on change, one field at a time, then re-reads the card
-    assert 'addEventListener("change", function () { saveMoneySetting("opening"); })' in page
-    assert 'addEventListener("change", function () { saveMoneySetting("budget"); })' in page
-    assert 'body[field === "budget" ? "monthly_budget" : "opening_balance"] = parsed;' in page
-    assert "refreshFinanceCard();" in page
-    # currency is info-only, and it lives in Money now rather than About
+    # The shared .field is the form control everywhere; the page's body font is 17px, over the
+    # 16px floor that stops iOS zooming the page when a field takes focus.
+    assert "font: 17px/1.35 -apple-system" in page
+    # one Save per page, wired to the existing PUT, and disabled until the value changes
+    assert '$("openingSaveBtn").addEventListener("click", function () { saveSubMoney("opening"); });' in page
+    assert '$("budgetSaveBtn").addEventListener("click", function () { saveSubMoney("budget"); });' in page
+    assert 'body[field === "budget" ? "monthly_budget" : "opening_balance"] = parsed;' not in page
+    assert 'method: "PUT"' in page and "refreshFinanceCard();" in page
+    assert 'moneyDirty(kind)' in page and ".disabled = !(usable && moneyDirty(kind));" in page
+    # currency is info-only, and it lives in Budget & Finance now rather than About
     money = page[page.index('id="moneySection"'):page.index(">Account<")]
     assert ">Currency<" in money and ">MYR<" in money
     assert ">Currency<" not in page[page.index(">About<"):]
-    # the card's Details and the Settings row open the same sheet
-    assert 'addEventListener("click", openCommitSheet)' in page
 
 
 def test_an_unreadable_month_is_never_painted_as_owing_nothing(client: TestClient) -> None:
@@ -1395,12 +1508,13 @@ def test_the_manual_sheet_is_one_screen_with_a_four_row_card(client: TestClient)
     assert 'class="add-caret"' in manual and ">Category<" in manual
     assert "Malaysian Ringgit" not in page and "add-currency" not in page, "the currency pill is gone"
     card = manual[manual.index('class="add-card"'):]
-    for label in (">Merchant<", ">Date<", ">Mode<", ">Note<"):
+    for label in (">Merchant<", ">Date<", ">Note<"):
         assert label in card, label
-    for element in ('id="addMerchant"', 'id="addDate"', 'id="addModeToggle"', 'id="addNote"'):
+    for element in ('id="addMerchant"', 'id="addDate"', 'id="addNote"'):
         assert element in card, element
     assert "Scan Receipt" not in manual, "Scan Receipt stays in the AI view"
-    assert 'data-add-mode="personal"' in manual and 'data-add-mode="business"' in manual
+    # The app is personal-only: no Mode row, and nothing to flip a row's mode from the sheet.
+    assert ">Mode<" not in card and "addModeToggle" not in manual and "data-add-mode" not in page
     # touch targets: the controls are 44px, and the inputs keep the 16px floor
     assert ".add-type .seg-btn { min-height: 44px; }" in page
     assert ".add-back-icon {\n    flex: none; width: 44px; height: 44px;" in page
@@ -1418,19 +1532,10 @@ def test_the_manual_sheet_is_one_screen_with_a_four_row_card(client: TestClient)
     assert "revealAddChip();" in page[page.index("function paintAddChips()"):page.index("function revealAddChip()")]
     reveal = page[page.index("function revealAddChip()"):page.index("function paintAddToggle(")]
     assert 'row.scrollLeft = 0;' in reveal and "row.scrollLeft +=" in reveal
-    # the Mode row keeps its height; its toggle is a rounded track whose selected segment paints a
-    # pill inside the track, while every segment's tap box stays 44px
+    # every field row keeps its 44px tap floor; the Mode row and its toggle are gone (personal-only)
     row_rule = page[page.index("  .add-row-field {"):page.index("  .add-row-field {") + 160]
-    assert "min-height: 44px" in row_rule, "the Mode row is at least 44px tall"
-    mode_rule = page[page.index("  .add-mode {"):page.index("  .add-mode {") + 240]
-    assert "height: 32px" in mode_rule, "the track reads 32px tall"
-    assert "border-radius: 9999px" in mode_rule, "the Mode control is a rounded container"
-    assert "background: var(--control)" in mode_rule, "the track uses the segmented-control fill"
-    mode_btn = page[page.index("  .add-mode .seg-btn {"):page.index("  .add-mode .seg-btn::after {")]
-    assert "min-height: 44px" in mode_btn, "each segment keeps the 44px tap floor"
-    assert ".add-mode .seg-btn.is-active { background: none; box-shadow: none; }" in page
-    assert (".add-mode .seg-btn.is-active::after { background: var(--seg-selected); "
-            "box-shadow: var(--seg-shadow); }") in page, "the selected pill paints inside the track"
+    assert "min-height: 44px" in row_rule, "each field row is at least 44px tall"
+    assert ".add-mode" not in page, "the Mode toggle is no longer in the sheet"
     # Merchant asks iOS for no underline suggestions, and stays a 16px text field
     merchant = manual[manual.index('id="addMerchant"') - 40:manual.index('id="addMerchant"') + 220]
     assert 'spellcheck="false"' in merchant and 'autocorrect="off"' in merchant
@@ -1725,8 +1830,8 @@ def test_each_whats_new_screen_has_an_action_that_opens_the_sheet_that_exists(
     run = page[page.index("function runWhatsNewAction() {"):page.index("// Shown once per version")]
     assert "openMoneyField(\"balance\")" in run
     assert "openBalanceSheet()" in run
-    assert "openCommitSheet()" in run
-    assert "toggleCommitForm($(\"commitNewBtn\"))" in run, "the add form is open when the sheet is"
+    assert 'openSettingsPage("commitments")' in run
+    assert "toggleCommitForm($(\"commitNewBtn\"))" in run, "the add form is open when the page is"
     assert "openMoneyField(\"budget\")" in run
     # The card closes before the other sheet opens, so the two are never on screen together.
     assert run.index("closeOverlay(") < run.index("openMoneyField(\"balance\")")
@@ -1740,6 +1845,49 @@ def test_each_whats_new_screen_has_an_action_that_opens_the_sheet_that_exists(
     assert "min-height: 44px" in page[page.index(".btn-secondary {"):page.index(".btn-secondary:active")]
 
 
+def test_settings_is_headers_and_rows_only(client: TestClient) -> None:
+    """No helper copy under the groups: a heading and an inset card, nothing else."""
+    page = client.get("/").text
+    start = page.index('<section class="screen" id="screen-settings"')
+    settings = page[start:page.index("</section>", start)]
+    assert 'class="footnote"' not in settings
+    for text in ("System follows your phone", "Your session stays in this browser",
+                 "Add to Home Screen"):
+        assert text not in settings, text
+
+    # Budget & Finance, Appearance, Account, About — in that order.
+    headings = [settings.index(">" + heading + "<") for heading in
+                ("Budget &amp; Finance", "Appearance", "Account", "About")]
+    assert headings == sorted(headings)
+
+
+def test_sign_out_asks_before_it_runs(client: TestClient) -> None:
+    """One centred confirm guards the two costly actions; the sign-out itself is untouched."""
+    page = client.get("/").text
+    assert ('askConfirm("Sign out?", "You will need to sign in again to continue.", '
+            '"Sign out", signOut);') in page
+    assert 'id="confirmYesBtn"' in page and 'id="confirmNoBtn"' in page
+    # the action runs once the popup has closed, and only from Confirm
+    assert "var action = confirmAction;" in page
+    assert 'closeOverlay($("confirmOverlay"), function () { if (action) action(); });' in page
+    # discard on Back uses the same popup
+    assert ('askConfirm("Discard changes?", "Your edits on this page will be lost.", '
+            '"Discard", closeSubPage);') in page
+
+
+def test_the_install_hint_lives_on_the_sign_in_screen(client: TestClient) -> None:
+    """The one-line Add to Home Screen hint moved from Settings to the sign-in card, and is
+    hidden when the app already runs standalone."""
+    page = client.get("/").text
+    assert ('<p class="auth-foot" id="authInstallHint" hidden>Add to Home Screen for the '
+            'full-screen app view.</p>') in page
+    assert "function paintInstallHint()" in page
+    assert "hint.hidden = !!(window.navigator && window.navigator.standalone);" in page
+    about = page[page.index('class="form-label settings-heading">About</h3>'):]
+    about = about[:about.index("</section>")]
+    assert "Add to Home Screen" not in about
+
+
 def test_settings_has_a_row_that_opens_the_whats_new_card_again(client: TestClient) -> None:
     """Settings > About carries a "What's new" row that opens the card whenever the user wants it.
 
@@ -1750,7 +1898,7 @@ def test_settings_has_a_row_that_opens_the_whats_new_card_again(client: TestClie
     page = client.get("/").text
     assert 'id="whatsNewBtn"' in page
     about = page[page.index('class="form-label settings-heading">About</h3>'):]
-    about = about[:about.index("</div>\n      <p class=\"footnote\">Add to Home Screen")]
+    about = about[:about.index("</section>")]
     assert 'id="whatsNewBtn"' in about, "the row is in the About section"
     assert "What&rsquo;s new" in about
     # It opens the card directly — not through the once-per-version path.
@@ -1813,34 +1961,97 @@ def test_the_safe_to_spend_pill_is_decoration_inside_the_card_button(client: Tes
 
     The whole balance card is one button that opens the "How this is calculated" sheet, so a control
     inside it would be a button inside a button (invalid HTML) and a second target for the same sheet.
-    The card says what a tap does at its foot instead, in words; the pill keeps its chevron.
+    There is no separate "How this is calculated" line any more: the panel is the door, and the
+    chevron at the end of the pill says so.
     """
     page = client.get("/").text
-    # The (i) is gone: the foot line "How this is calculated" is the card's one visible affordance.
     assert "safe-pill-info" not in page
+    assert "hero-how" not in page, "the safe panel opens the sheet; a second link is noise"
     assert 'id="balanceTap"' in page
     # The pill still reads label then figure, and keeps the chevron at its end.
     pill = page[page.index('<span class="safe-pill" id="safePill">'):page.index("</button>", page.index('id="safePill"'))]
     assert "safe-pill-label" in pill and "safe-pill-chev" in pill
     assert pill.index("safe-pill-label") < pill.index("safe-pill-amount") < pill.index("safe-pill-chev")
     # No handler of its own, and no second way into the sheet.
-    assert '<span class="hero-how">How this is calculated' in page
     assert '$("balanceTap").addEventListener("click", openBalanceSheet);' in page
 
 
-def test_the_balance_card_ends_by_saying_what_a_tap_does(client: TestClient) -> None:
-    """The foot of the card says "How this is calculated", in the accent, with a chevron.
+def test_the_safe_panel_is_the_heros_only_glass(client: TestClient) -> None:
+    """One blurred pane in the hero, and the refresh button is only a translucent disc.
 
-    The mark beside "Safe to spend" says the same thing to a reader who knows the convention; the
-    words say it to everyone, so the card's one action is visible and not only in its aria-label.
+    Glass is a scarce material: the safe-to-spend panel sits on the gradient and needs separating from
+    it, so it gets the blur plus the solid fallbacks. The refresh button is a flat translucent disc,
+    and the month pill beside the balance label is a small translucent chip with no border and no blur.
     """
     page = client.get("/").text
-    tap = page[page.index('<button class="hero-tap" id="balanceTap"'):page.index("</button>", page.index('id="balanceTap"'))]
-    assert '<span class="hero-how">How this is calculated<svg class="hero-how-chev"' in tap
-    # It is inside the card's own button, after the safe pill, so it opens the same sheet and adds no
-    # second control.
-    assert tap.index('id="safePill"') < tap.index("hero-how")
-    assert "hero-how" not in page[page.index("function wire() {"):]
-    # The link's own recipe: 13px in the accent, with the bills row's 14px chevron.
-    assert ".hero-how {" in page and "color: var(--accent);" in page[page.index(".hero-how {"):page.index("}", page.index(".hero-how {"))]
-    assert ".hero-how-chev { width: 14px; height: 14px; flex: none; }" in page
+    safe = page[page.index(".hero .hero-safe {"):page.index("}", page.index(".hero .hero-safe {"))]
+    assert "background: var(--glass-fill);" in safe
+    assert "border: 1px solid var(--glass-border);" in safe
+    assert "-webkit-backdrop-filter: blur(var(--glass-blur));" in safe
+    assert "backdrop-filter: blur(var(--glass-blur));" in safe
+    # ...and the two solid fallbacks for no support and reduced transparency.
+    assert page.count(".hero .hero-safe { background: var(--brand-grad-to); }") == 2
+    # The refresh button is a translucent circle with no border and no blur.
+    refresh = page[page.index('html[data-screen="home"] .topbar .icon-btn {'):page.index("}", page.index('html[data-screen="home"] .topbar .icon-btn {'))]
+    assert "background: var(--glass-fill);" in refresh
+    assert "border: 0;" in refresh
+    assert "backdrop-filter" not in refresh
+    # The month pill in the balance row: translucent, borderless, and not blurred.
+    pill = page[page.index(".hero .month-pill {"):page.index("}", page.index(".hero .month-pill {"))]
+    assert "background: var(--glass-fill);" in pill
+    assert "border: 0;" in pill
+    assert "backdrop-filter: none;" in pill
+    # The old glass family (month pill, mode toggle, scope chip) is no longer painted as glass.
+    assert ".hero .month-pill," not in page and ".hero .segmented," not in page
+    assert "html[data-screen=\"home\"] .topbar .icon-btn,\n" not in page
+
+
+def test_home_wears_the_brand_hero_and_no_other_screen_does(client: TestClient) -> None:
+    """The hero is opt-in: Home's own wrapper and a screen marker, not a second header.
+
+    Home does not use screenHeaderHtml(): its month pill sits inline in the balance row and it has no
+    mode toggle. The function itself is untouched, so Transactions and Insights keep one shared header.
+    The Home section carries a .hero wrapper, the <html> element carries data-screen, and every rule
+    that paints the hero is scoped to one of those two. The nav chrome (theme colour, bar paint) follows
+    the screen, which is what lets the other three pages keep the plain light bar. The tab bar's FAB is
+    the one deliberate change outside Home.
+    """
+    page = client.get("/").text
+    home = page[page.index('<section class="screen" id="screen-home"'):page.index('id="screen-transactions"')]
+    # One hero, wrapped around the existing Home content: no new copy, no second header.
+    assert home.count('<div class="hero">') == 1
+    for element in ('id="balanceCard"', 'id="safePill"', 'id="safeAmount"'):
+        assert element in home, element
+    assert home.index('<div class="hero">') < home.index('id="balanceCard"')
+    # Home carries the month pill inline, beside the balance label, and no shared header slot.
+    assert 'class="hero-head"' in home
+    assert 'data-screen-header="Home"' not in home
+    assert 'class="month-pill js-month-pick"' in home
+    assert 'class="segmented"' not in home, "Home has no Personal/Business control"
+    # The shared header is untouched: same function, same output, no hero in it.
+    header = page[page.index("function screenHeaderHtml(title) {"):page.index("function renderScreenHeaders()")]
+    assert 'class="hero' not in header and "data-screen" not in header
+    assert "segmented" not in header and "data-mode" not in header, "the app is personal-only"
+    # The paint is scoped, so no other screen can reach it.
+    assert 'html[data-screen="home"] .topbar {' in page
+    assert ".hero-head {" in page and ".hero .month-pill {" in page
+    assert ".hero .segmented" not in page, "the mode toggle is not a hero variant any more"
+    assert "linear-gradient(180deg, var(--brand-grad-from), var(--brand-grad-to))" in page
+    assert "border-radius: 0 0 var(--radius-sheet) var(--radius-sheet);" in page
+    # The bar is a sibling, so the gradient starts above it and the content is padded back below it.
+    assert "margin: calc(-51px - var(--sat)) -16px 16px;" in page
+    assert "padding: calc(51px + var(--sat) + 10px) 16px 22px;" in page
+    # No overlap at the foot: the hero ends in its own rounded edge and the next row starts after it.
+    assert ".hero + .stat-row" not in page
+    # Light theme is the brand header on every screen, so the chrome colour is always the brand top
+    # there; dark keeps the old split. The status-bar style is fixed in <head> and never switched at
+    # runtime: iOS only reads it at launch, which is what left a light strip on a light launch.
+    assert 'var value = cssColour(dark && !home ? "--browser-chrome" : "--brand-grad-from");' in page
+    assert 'status.setAttribute("content", dark ? "black-translucent" : "default");' not in page
+    assert ('<meta name="apple-mobile-web-app-status-bar-style" id="statusBarMeta" '
+            'content="black-translucent">') in page
+    # Home's list asks for the brand chips; the shared row keeps its default for Transactions.
+    assert "txnListHtml(visible.slice(0, HOME_LIST_ROWS), true)" in page
+    assert "function txnListHtml(rows, brand) {" in page
+    # Home keeps its own breath at the foot, so the floating bar never covers the last row.
+    assert "#screen-home { padding-bottom: var(--space-3); }" in page

@@ -56,15 +56,18 @@ def month_key(value: Any) -> str:
     return str(value)[:7]
 
 
-def totals(rows: Iterable[Mapping[str, Any]]) -> tuple[Decimal, Decimal]:
-    """All-time (income, expenses) over `public.transaction_totals` rows, all months and all modes.
+def totals(rows: Iterable[Mapping[str, Any]], mode: str) -> tuple[Decimal, Decimal]:
+    """All-time (income, expenses) for one mode over `public.transaction_totals` rows.
 
-    The balance is one real-world number, so every mode is included. The figures are added, never
-    abs()'d, which is exactly what db.summarize() does with one month of rows.
+    The app is personal-only: the balance is one real-world number for the rows the user is shown, so a
+    stored business row (kept in the database, hidden from the UI) no longer moves it. The figures are
+    added, never abs()'d, which is exactly what db.summarize() does with one month of rows.
     """
     income = Decimal("0")
     expense = Decimal("0")
     for row in rows:
+        if row.get("mode") != mode:
+            continue
         income += money(row.get("total_income"))
         expense += money(row.get("total_expense"))
     return income, expense
@@ -152,7 +155,7 @@ def derive(
 ) -> dict[str, Decimal | None]:
     """Balance, safe-to-spend and remaining budget from the figures above.
 
-    - `current_balance` = opening + income − expenses, over every mode and every month.
+    - `current_balance` = opening + income − expenses, over the asked mode and every month.
     - `safe_to_spend`   = balance − unpaid commitments: what is left after the bills still to come.
     - `remaining_budget`= budget − the month's spend **that is not a Pay expense**
       (`month_expense − month_commitment_expense`), and **None when no budget is set** (0 means

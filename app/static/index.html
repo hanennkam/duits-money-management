@@ -3,14 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
-<meta name="theme-color" id="themeColorMeta" content="#f2f2f7">
+<!-- The browser chrome (status bar / address bar) colour. It cannot be a CSS variable: the browser
+     reads this before the sheet applies, and the pre-paint script below runs before it is parsed. The
+     literal is the light theme's --brand-grad-from (the brand header every screen wears in light); the
+     script and paintBrowserChrome() replace it with the runtime token. -->
+<meta name="theme-color" id="themeColorMeta" content="#2A63F2">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <!-- The status bar is part of the page: black-translucent is what lets the app paint under it, which
-     is what a full-screen standalone app looks like. iOS only offers white glyphs with that value, and
-     our light theme's bar is near-white (--bar), so the pre-paint script below swaps to "default"
-     (black glyphs) when the theme is light. Content is edge-to-edge either way: viewport-fit=cover is
-     what puts it under the bar, and env(safe-area-inset-top) says how far the bar reaches. -->
+     is what a full-screen standalone app looks like. It is fixed here on purpose — iOS reads this once
+     at launch, so switching it with the theme meant a light launch kept an opaque strip until the next
+     launch. The invariant it buys: the surface behind the bar is always dark enough for white glyphs
+     (the brand nav in light, the dark bar/hero in dark). viewport-fit=cover puts content under the bar
+     and env(safe-area-inset-top) says how far the bar reaches. -->
 <meta name="apple-mobile-web-app-status-bar-style" id="statusBarMeta" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Duits">
 <meta name="robots" content="noindex">
@@ -25,13 +30,12 @@
   var dark = saved === "dark" || (saved !== "light" && prefersDark);
   var root = document.documentElement;
   root.setAttribute("data-theme", dark ? "dark" : "light");
+  // A copy of the top colour (light: --brand-grad-from, dark: #000000): this runs before the style
+  // sheet, so it cannot read the token. The app repaints this from the token on the first applyTheme().
   var colour = document.getElementById("themeColorMeta");
-  if (colour) colour.setAttribute("content", dark ? "#000000" : "#f2f2f7");
-  // The status bar style has to be decided with the theme, not after it: black-translucent means
-  // white glyphs, which is right over the dark bar and invisible over the light one, so the light
-  // theme asks for "default" (black glyphs). Both values are set before the first paint.
-  var status = document.getElementById("statusBarMeta");
-  if (status) status.setAttribute("content", dark ? "black-translucent" : "default");
+  if (colour) colour.setAttribute("content", dark ? "#000000" : "#2A63F2");
+  // apple-mobile-web-app-status-bar-style is fixed in the head: iOS reads it at launch, so a per-theme
+  // switch only took effect on the *next* launch and left a light strip behind the clock.
 })();
 </script>
 <!-- Icons. The ?v= is the cache buster: iOS keys its Home Screen icon on the URL, so bump the v
@@ -59,7 +63,7 @@
     --sab: env(safe-area-inset-bottom, 0px);
     --sal: env(safe-area-inset-left, 0px);
     --sar: env(safe-area-inset-right, 0px);
-    --bg: #f2f2f7;
+    --bg: var(--page-tint);
     --card: #ffffff;
     --card-2: #f4f3f8;
     --field: #ffffff;
@@ -69,10 +73,12 @@
     --text: #1a1b1f;
     --text-2: #414754;
     --muted: #8e8e93;
-    --accent: #007aff;
-    --accent-soft: rgba(0, 122, 255, .12);
-    --accent-ring: rgba(0, 122, 255, .25);
-    --accent-glow: rgba(0, 122, 255, .38);
+    /* The accent family is the brand hue. Each tint keeps the alpha this file has always used, so the
+       only thing that moves is the hue. --brand itself is declared in the token block below. */
+    --accent: var(--brand);
+    --accent-soft: rgba(47, 107, 255, .12);
+    --accent-ring: rgba(47, 107, 255, .25);
+    --accent-glow: rgba(47, 107, 255, .38);
     --on-accent: #ffffff;
     --on-accent-soft: rgba(255, 255, 255, .25);
     --green: #006e28;
@@ -124,10 +130,10 @@
     --text: #ffffff;
     --text-2: rgba(235, 235, 245, .6);
     --muted: #8e8e93;
-    --accent: #0a84ff;
-    --accent-soft: rgba(10, 132, 255, .18);
-    --accent-ring: rgba(10, 132, 255, .3);
-    --accent-glow: rgba(10, 132, 255, .45);
+    --accent: var(--brand);
+    --accent-soft: rgba(91, 140, 255, .18);
+    --accent-ring: rgba(91, 140, 255, .3);
+    --accent-glow: rgba(91, 140, 255, .45);
     --on-accent: #ffffff;
     --on-accent-soft: rgba(255, 255, 255, .22);
     --green: #30d158;
@@ -159,6 +165,79 @@
     --tint-alpha: .18;                      /* dimmer over a dark card, so tints do not glow */
     --shadow: 0 2px 10px rgba(0, 0, 0, .4);
     --shadow-up: 0 -4px 24px rgba(0, 0, 0, .55);
+  }
+  /* ---------- scale tokens: names for the numbers the rules already use ----------
+     Additive only: every value below is the literal a rule already carries, so declaring it here
+     changes nothing until a rule reads it. That migration is a later pass, on purpose.
+     Two things stay literal: the 44px tap floor (--tap-min documents it) and every control's 16px
+     font size. tests/test_static.py proves both by reading the rules themselves, so a var() there
+     would make the check vacuous.
+     The brand tokens at the foot are declared and read by nothing yet: --accent is still the
+     shipped iOS blue. */
+  :root {
+    /* radius */
+    --radius-pill: 9999px;          /* chips, pills, progress bars, round buttons */
+    --radius-sheet: 28px;           /* a bottom sheet's top corners */
+    --radius-icon: 12px;            /* transaction and settings icon tiles */
+    --radius-glyph: 9px;            /* category glyph tile */
+    --radius-xs: 8px;               /* the segmented control's thumb */
+    --radius-brand: 6px;            /* the app mark in the nav bar */
+    /* type */
+    --type-large-title: 34px;
+    --type-hero: 40px;              /* the balance: the one figure a screen is built around */
+    --type-sheet-amount: 34px;
+    --type-title: 22px;
+    --type-section: 20px;
+    --type-heading: 17px;
+    --type-body: 15px;
+    --type-meta: 13px;
+    --type-caption: 12px;
+    --type-tab: 10px;
+    --weight-regular: 400;
+    --weight-medium: 500;
+    --weight-semibold: 600;
+    --weight-bold: 700;
+    --weight-heavy: 800;
+    /* spacing and layout */
+    --gutter: 16px;
+    --card-gap: 14px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --content-max: 640px;
+    --tap-min: 44px;                /* documented here; the rules keep the literal, the tests read it */
+    /* elevation */
+    --shadow-splash: 0 12px 28px rgba(0, 0, 0, .22), 0 2px 6px rgba(0, 0, 0, .12);
+    --shadow-fab: 0 6px 18px var(--accent-glow), 0 0 0 5px var(--bg);
+    --focus-ring: 0 0 0 3px var(--accent-soft);
+    /* brand: declared, read by nothing yet. --accent stays the shipped iOS blue until a later pass. */
+    --brand: #2F6BFF;
+    --brand-grad-from: #2A63F2;
+    --brand-grad-to: #2F6BFF;
+    --brand-soft: rgba(47, 107, 255, .12);      /* pale tint for icon chips */
+    --page-tint: #F4F8FF;
+    --glass-fill: rgba(255, 255, 255, .18);
+    --glass-border: rgba(255, 255, 255, .35);
+    --glass-blur: 24px;
+    --hero-text: #FFFFFF;
+    /* The status bar / browser chrome, one declaration per theme. The <meta theme-color> and the
+       pre-paint script in <head> cannot read a custom property, so they hold literal copies. */
+    --browser-chrome: #F4F8FF;
+  }
+  /* Brand and chrome in the dark theme: the hero gradient deepens and the page leaves the iOS grey.
+     Its own block, after the light one above, so the dark values win on equal specificity and the
+     light :root stays exactly as it was. Brand tokens only: --card, --bg and the rest are still the
+     iOS palette, so --bg is #000000 here and --page-tint is not read by it yet. */
+  [data-theme="dark"] {
+    --brand: #5B8CFF;
+    --brand-grad-from: #1B3F9E;
+    --brand-grad-to: #0B1F5C;
+    --brand-soft: rgba(91, 140, 255, .18);
+    --page-tint: #0B1220;
+    --glass-fill: rgba(255, 255, 255, .08);
+    --glass-border: rgba(255, 255, 255, .16);
+    --hero-text: #FFFFFF;
+    --browser-chrome: #000000;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   [hidden] { display: none !important; }
@@ -290,6 +369,50 @@
   }
   .icon-btn svg { width: 18px; height: 18px; }
 
+  /* ---------- settings sub-pages ---------- */
+  /* A full page over the tabs, with its own Back header. z 15 is above the app (1) and the tab bar (10)
+     and below every overlay (20), so Pay's Add sheet still opens on top of the commitments page. */
+  .subpage { position: fixed; inset: 0; z-index: 15; display: flex; flex-direction: column; background: var(--bg); }
+  .subpage[hidden] { display: none; }
+  body.is-subpage { overflow: hidden; }
+  body.is-subpage .tabbar { display: none; }     /* and the FAB with it */
+  .subbar {
+    flex: none; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px;
+    padding: calc(8px + var(--sat)) 16px 9px;
+    background: var(--bar);
+    -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+    border-bottom: .5px solid var(--hairline);
+    color: var(--text);
+  }
+  html[data-theme="light"] .subbar {
+    background: linear-gradient(180deg, var(--brand-grad-from), var(--brand-grad-to));
+    border-bottom: 0;
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+    color: var(--hero-text);
+  }
+  .sub-back {
+    justify-self: start; display: inline-flex; align-items: center; gap: 1px;
+    min-height: 44px; padding: 0 8px 0 0; border: 0; background: none;
+    color: inherit; font: inherit; font-size: 17px; font-weight: 500;
+  }
+  .sub-back svg { width: 20px; height: 20px; }
+  .sub-title {
+    margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -.01em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .sub-end { display: block; }
+  .sub-body {
+    flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain; padding: 22px 16px calc(28px + var(--sab));
+  }
+  .sub-page[hidden] { display: none; }
+  .sub-lead { margin: 0 0 18px; font-size: 15px; line-height: 1.45; color: var(--text-2); }
+  .sub-save { display: block; width: 100%; margin-top: 16px; }
+  .sub-save:disabled { opacity: .45; }
+  .sub-status { min-height: 20px; margin: 10px 0 0; font-size: 13px; font-weight: 500; color: var(--muted); }
+  .sub-status.is-ok { color: var(--green); }
+  .sub-status.is-error { color: var(--danger); }
+
   /* ---------- cards ---------- */
   .card {
     background: var(--card);
@@ -303,8 +426,9 @@
   .card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
   .card-meta { font-size: 13px; font-weight: 500; color: var(--muted); }
 
-  /* ---------- shared screen header (Home / Transactions / Insights) ---------- */
-  /* Rendered by screenHeaderHtml(); row 1 is the title + month pill, row 2 the mode toggle. */
+  /* ---------- shared screen header (Transactions / Insights) ---------- */
+  /* Rendered by screenHeaderHtml(): the title and the month pill, on one row. Home's pill is inline in
+     its hero instead, and no screen carries a mode toggle any more. */
   .screen-head {
     display: flex; align-items: center; justify-content: space-between; gap: 10px;
     margin: 4px 0 14px;
@@ -347,8 +471,8 @@
   .wheel-fade.bottom { bottom: 0; background: linear-gradient(to top, var(--card) 22%, var(--fade)); }
   .sheet-head.has-done::after { display: none; }   /* a real Done button makes the head symmetric */
   .sheet-done {
-    justify-self: end; padding: 0; min-height: 30px; line-height: 22px;
-    font-size: 17px; font-weight: 700; color: var(--accent);
+    justify-self: end; display: inline-flex; align-items: center; min-height: 44px;
+    padding: 0 2px 0 8px; font-size: 17px; font-weight: 700; color: var(--accent);
   }
 
   /* ---------- segmented control ---------- */
@@ -390,14 +514,12 @@
      the tightest tracking at 40px. It sits on its own line under the wallet label, with room to spare
      for "RM 2,470.00" on a 375px phone (measured 238px of 306px). */
   .hero-balance { display: block; font-size: 40px; white-space: nowrap; }
-  /* The wallet sits beside the word "Balance", and the scope of the figure is the small line under it:
-     the balance counts every mode, so the line says which ones. */
+  /* The wallet sits beside the word "Balance". The figure is personal-only now, so there is no scope
+     line under it. */
   .hero-balance-head { display: flex; align-items: center; gap: 7px; color: var(--text-2); }
   .hero-balance-mark { display: inline-flex; flex: none; }
   .hero-balance-icon { width: 18px; height: 18px; }
-  .hero-balance-text { display: flex; flex-direction: column; gap: 1px; }
   .hero-balance-label { font-size: 15px; font-weight: 600; color: var(--text); line-height: 1.2; }
-  .hero-balance-unit { font-size: 12px; font-weight: 500; color: var(--muted); white-space: nowrap; }
   /* The month's two halves, side by side at half width each. They read the /summary the hero used to. */
   .stat-row { display: flex; gap: 12px; }
   .stat-card { flex: 1 1 0; min-width: 0; padding: 13px 15px 15px; }
@@ -432,15 +554,8 @@
   .safe-pill-amount.neg { color: var(--danger); }
   .safe-pill-chev { width: 14px; height: 14px; color: var(--chevron); flex: none; }
   .safe-meta { display: block; margin-top: 9px; font-size: 13px; color: var(--muted); }
-  /* The foot of the card: the words for the door, in the accent the app's links wear, with the same
-     chevron the bills row uses. It sits under the pill so the card ends by saying what a tap does. */
-  .hero-how {
-    display: inline-flex; align-items: center; gap: 4px; margin-top: 10px;
-    font-size: 13px; font-weight: 500; color: var(--accent);
-  }
-  .hero-how-chev { width: 14px; height: 14px; flex: none; }
-  /* The whole figure area is one button: label, balance, the safe pill and the line under it. It opens
-     the breakdown sheet, which is the only place the arithmetic is spelled out. 44px is a floor even
+  /* The whole figure area is one button: label, balance and the safe-to-spend panel. It opens the
+     breakdown sheet, which is the only place the arithmetic is spelled out. 44px is a floor even
      though the content is far taller, so the target is never only the number. */
   .hero-tap {
     display: block; width: 100%; min-height: 44px; padding: 0; border: 0; background: none;
@@ -451,6 +566,139 @@
      that would only say "minus everything you have ever spent". */
   .hero-setup-line { margin: 8px 0 14px; font-size: 15px; line-height: 1.45; color: var(--text-2); }
   .hero-retry { display: block; min-height: 44px; margin-top: 4px; text-align: left; }
+
+  /* ---------- home: the brand hero ----------
+     Home is the one screen with a coloured surface, and it holds only what the screen is about: the
+     balance and what is safe to spend. The month picker sits in the balance row; there is no mode
+     control anywhere. Everything here is scoped to .hero (the Home wrapper) or to
+     html[data-screen="home"], so Transactions, Insights and Settings keep the light chrome they had.
+     screenHeaderHtml() paints the two list screens' headers. */
+  html[data-screen="home"] .topbar {
+    /* The bar is part of the hero now: it scrolls with it and lets the gradient through. The bar is a
+       sibling of the screen, not a child, so the hero is pulled up behind it instead (see .hero). */
+    position: relative; z-index: 2;                 /* above the hero, which paints underneath */
+    background: none; border-bottom: 0;
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+    color: var(--hero-text);
+  }
+  .hero {
+    /* 51px is the bar's own height (8px top + the 34px button + 9px bottom); the negative margin lets the
+       gradient start at the top of the page, under the clock, and the padding puts the content back below
+       the bar. --sat is in both, so a notch or a Dynamic Island moves nothing relative to each other. */
+    position: relative; z-index: 1;
+    margin: calc(-51px - var(--sat)) -16px 16px;
+    padding: calc(51px + var(--sat) + 10px) 16px 22px;
+    background: linear-gradient(180deg, var(--brand-grad-from), var(--brand-grad-to));
+    border-radius: 0 0 var(--radius-sheet) var(--radius-sheet);
+    color: var(--hero-text);
+  }
+  /* The refresh button is not glass: a translucent disc with no border, so the gradient still shows
+     through without asking for a blur behind one 34px circle. */
+  html[data-theme="light"] .topbar .icon-btn,
+  html[data-screen="home"] .topbar .icon-btn {
+    background: var(--glass-fill); border: 0; color: var(--hero-text);
+  }
+  /* Light theme: the status-bar glyphs are white in every theme now (black-translucent is fixed in the
+     head), so the nav is the brand surface on every screen. The list screens get the whole gradient.
+     Home keeps its transparent bar over the hero, so the hero's gradient is the bar's background and
+     the two meet with no seam; the fixed strip below keeps the clock's backdrop after it scrolls. */
+  html[data-theme="light"] .topbar {
+    background: linear-gradient(180deg, var(--brand-grad-from), var(--brand-grad-to));
+    border-bottom: 0;
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+    color: var(--hero-text);
+  }
+  html[data-theme="light"][data-screen="home"] .topbar { background: none; }
+  /* The strip behind the clock is painted by the page, not only by the bar: a fixed layer above the
+     scrolling content keeps it dark when the bar scrolls away. Light is the brand top colour; dark is
+     --bg, or the hero's own top on Home. The splash and auth screens paint their own strip above this;
+     overlays (z 20) sit above it and dim it with their scrim. */
+  body::before {
+    content: ""; position: fixed; top: 0; left: 0; right: 0; height: var(--sat);
+    z-index: 4; pointer-events: none; background: var(--brand-grad-from);
+  }
+  html[data-theme="dark"] body::before { background: var(--bg); }
+  html[data-theme="dark"][data-screen="home"] body::before { background: var(--brand-grad-from); }
+  /* The splash and the auth card are fixed layers that cover the app, so they own the strip while they
+     are up: in light theme the inset gets the brand colour too, or the white clock would sit on a
+     near-white page. In a browser --sat is 0, so the band exists only in the standalone app. */
+  html[data-theme="light"] #splash::before,
+  html[data-theme="light"] .auth::before {
+    content: ""; position: fixed; top: 0; left: 0; right: 0; height: var(--sat);
+    background: var(--brand-grad-from); pointer-events: none; z-index: 2;
+  }
+  /* The row above the figure: "Balance" on the left, the month picker on the right. The picker is
+     small and translucent — no border, no blur — so the safe-to-spend panel stays the hero's only
+     glass. Its 44px hit area is a pseudo-element because the visual pill is 34px tall. */
+  .hero-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .hero .hero-balance-head { align-items: flex-start; }   /* the wallet sits on the label's line, not between both */
+  .hero .month-pill {
+    flex: none; min-height: 34px; padding: 0 11px;
+    background: var(--glass-fill); border: 0; box-shadow: none;
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+    color: var(--hero-text); font-size: 13px; font-weight: 600;
+  }
+  .hero .month-pill::after {
+    content: ""; position: absolute; left: 0; right: 0; top: 50%;
+    height: 44px; transform: translateY(-50%);
+  }
+  .hero .month-pill-icon { width: 14px; height: 14px; color: var(--hero-text); }
+  .hero .month-pill-chev { width: 12px; height: 12px; color: var(--hero-text); }
+  /* With no opening balance the prompt follows the label row on the same gradient; a gap keeps the
+     two from reading as one paragraph. */
+  .hero #balanceNotSet { margin-top: 14px; }
+  /* The balance card is not a card here: the hero is the surface, so it drops its own paper. */
+  .hero .hero-card {
+    background: none; border: 0; border-radius: 0; box-shadow: none;
+    padding: 0; margin: 0;
+  }
+  .hero .hero-balance-head,
+  .hero .hero-balance-label,
+  .hero .hero-balance-icon,
+  .hero .hero-amount,
+  .hero .hero-balance,
+  .hero .hero-tap { color: var(--hero-text); }
+  .hero .hero-label { color: var(--hero-text); }
+  .hero .hero-setup-line { color: var(--hero-text); opacity: .9; }
+  /* Only the no-balance state has a button inside the hero; white keeps it visible on the gradient. */
+  .hero .btn-primary { background: var(--card); color: var(--brand); }
+  .hero .hero-retry { color: var(--hero-text); }
+  /* Safe to spend is one panel and the only glass in the hero: the row, its bills line, and nothing
+     else. A span, because a div inside the card's button would not be phrasing content. The whole
+     figure area is one button, so the panel opens the breakdown sheet by itself — there is no separate
+     "How this is calculated" link inside it. */
+  .hero .hero-safe {
+    display: block; margin-top: 10px; padding: 8px 14px 9px; border-radius: 22px;
+    background: var(--glass-fill);
+    border: 1px solid var(--glass-border);
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    backdrop-filter: blur(var(--glass-blur));
+  }
+  /* No backdrop-filter, or the reader asked for less transparency: the panel turns solid in the deep end
+     of the gradient instead of showing a blurred slice of it. Never transparent text over a photo. */
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .hero .hero-safe { background: var(--brand-grad-to); }
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    .hero .hero-safe { background: var(--brand-grad-to); }
+  }
+  .hero .safe-pill { min-height: 38px; margin: 0; padding: 0; background: none; color: var(--hero-text); }
+  .hero .safe-pill-label { color: var(--hero-text); opacity: .9; }
+  .hero .safe-pill-amount { color: var(--hero-text); }
+  /* The one semantic colour that stays: a negative safe-to-spend is still a problem, not a figure. */
+  .hero .safe-pill-amount.neg { color: var(--danger); }
+  .hero .safe-pill-chev { color: var(--hero-text); opacity: .75; }
+  .hero .safe-meta { margin-top: 2px; color: var(--hero-text); opacity: .8; }
+  /* Home's chips: the cash halves keep their semantic figures, but the icon wears the brand, not a
+     category hue. The glyph moves to the end of the label row, like a badge, without touching markup. */
+  #screen-home .stat-label { justify-content: space-between; gap: 8px; }
+  #screen-home .stat-label .money-icon {
+    order: 2; width: 34px; height: 34px; padding: 9px;
+    border-radius: 50%; background: var(--brand-soft); color: var(--brand);
+  }
+  /* The tab bar floats over the list: Home keeps a card-gap of its own so the last row never sits under
+     the bar (the app's 96px already clears it; this is the extra breath at the foot of the screen). */
+  #screen-home { padding-bottom: var(--space-3); }
 
   /* ---------- home: monthly budget limit ---------- */
   .budget-card { padding: 16px 18px 18px; }
@@ -630,6 +878,9 @@
     display: flex; align-items: center; justify-content: center;
   }
   .txn-icon svg { width: 20px; height: 20px; }
+  /* Home's recent rows wear the brand, not the category hue: one screen, one accent. tint() and the
+     category dot are untouched everywhere else, so the Transactions page still reads by category. */
+  #screen-home .txn-icon.is-brand { background: var(--brand-soft); color: var(--brand); }
   .txn-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
   .txn-name {
     font-size: 17px; font-weight: 600; letter-spacing: -.01em;
@@ -825,28 +1076,6 @@
   .add-row-input:focus { outline: none; }
   .add-row-input::placeholder { color: var(--placeholder); }
   .add-row-field > .add-row-chev { flex: none; }
-  /* The Mode row's compact toggle, right-aligned: the same tokens as the Expense | Income control above
-     it — a --control track, a --seg-selected pill, a --seg-shadow — in a rounded pill. The track reads
-     32px tall; each segment keeps the 44px tap floor, its box spilling over the track by an equal 6px
-     above and below, so the hit target never shrinks. The selected fill paints through the button's
-     ::after, inset 8px, so the colour and its shadow hug the 28px pill the eye sees instead of the
-     taller tap box. */
-  .add-mode {
-    flex: none; min-width: 0; margin: 0 0 0 auto; padding: 0 2px; gap: 2px;
-    height: 32px; align-items: center;
-    background: var(--control); border-radius: 9999px;
-  }
-  .add-mode .seg-btn {
-    min-height: 44px; position: relative; z-index: 0; padding: 0 14px; font-size: 14px;
-  }
-  /* The pill sits at z-index -1 inside its button's own stacking context (z-index: 0 above): behind the
-     segment's text, but over the track's fill. Without that pairing the positioned ::after paints on
-     top of the label and the selected word disappears under its own pill. */
-  .add-mode .seg-btn::after {
-    content: ""; position: absolute; inset: 8px 0; z-index: -1; border-radius: 9999px;
-  }
-  .add-mode .seg-btn.is-active { background: none; box-shadow: none; }
-  .add-mode .seg-btn.is-active::after { background: var(--seg-selected); box-shadow: var(--seg-shadow); }
   /* The keypad sizes to its content and nothing else: four rows of exactly 58px with 8px gaps, so the
      panel is 4x58 + 3x8 = 256px of grid plus its own 1px frame. There is no flex-grow, no min/max on the
      rows and no max-height to stretch into, so the panel wraps the keys and never fills the sheet. The
@@ -1051,7 +1280,6 @@
   .add-notice-static { flex: none; margin: 0 0 8px; }
   .add-notice-static .card { margin: 0; }
   .add-notice-static .error-card { margin: 0; }
-  .footnote { font-size: 12px; line-height: 1.45; color: var(--muted); margin: 10px 4px 0; }
   .empty { font-size: 15px; color: var(--muted); padding: 14px; text-align: center; }
   .error-card {
     background: var(--danger-soft); color: var(--danger-ink); border-radius: var(--r-md);
@@ -1121,13 +1349,16 @@
     margin: 0; line-height: 22px; text-align: center;
     font-size: 17px; font-weight: 600; letter-spacing: -.01em;
   }
-  .sheet-cancel { justify-self: start; padding: 0; min-height: 30px; line-height: 22px; font-size: 17px; }
+  .sheet-cancel {
+    justify-self: start; display: inline-flex; align-items: center; min-height: 44px;
+    padding: 0 8px 0 2px; font-size: 17px;
+  }
   .sheet-title { margin: 0 0 2px; font-size: 22px; font-weight: 700; letter-spacing: -.02em; }
   .sheet-sub { display: flex; align-items: center; gap: 7px; font-size: 14px; color: var(--muted); margin-bottom: 14px; }
   .sheet-amount { font-size: 34px; font-weight: 800; letter-spacing: -.03em; margin-bottom: 10px; font-variant-numeric: tabular-nums; }
-  .sheet-actions { display: flex; gap: 10px; margin-top: 12px; }
+  .sheet-actions { display: flex; gap: 10px; margin-top: 14px; }
   .sheet-actions .btn-primary { flex: 1; }
-  .kv { display: flex; justify-content: space-between; gap: 12px; padding: 11px 0; border-top: .5px solid var(--hairline); font-size: 15px; }
+  .kv { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-top: .5px solid var(--hairline); font-size: 15px; }
   .kv .k { color: var(--text-2); }
   .kv .v { font-weight: 600; text-align: right; text-transform: capitalize; }
   .item-row { display: flex; justify-content: space-between; gap: 10px; padding: 9px 0; border-top: .5px solid var(--hairline); font-size: 15px; }
@@ -1140,7 +1371,6 @@
   /* A list sheet like the detail one: as tall as its content, and it may scroll. It opens over Home and,
      while a Pay flow is running, the Add sheet opens over it — which is why its markup sits before the
      Add overlay in the document (same z-index, later element paints on top). */
-  #commitOverlay .scrim { background: var(--scrim-sheet); }
   .commit-sub { margin: -2px 0 10px; font-size: 13px; color: var(--muted); }
   .commit-row {
     display: flex; align-items: center; gap: 10px;
@@ -1193,9 +1423,10 @@
   }
   .tab-add-face {
     width: 52px; height: 52px; margin-top: -20px; border-radius: 50%;
-    background: var(--accent); color: var(--on-accent);
+    background: linear-gradient(160deg, var(--brand-grad-from), var(--brand-grad-to));
+    color: var(--on-accent);
     display: flex; align-items: center; justify-content: center;
-    box-shadow: 0 6px 18px var(--accent-glow), 0 0 0 5px var(--bg);
+    box-shadow: 0 8px 22px var(--accent-glow), 0 0 0 5px var(--bg);
     transition: transform .12s ease;
   }
   .tab-add svg { width: 26px; height: 26px; }
@@ -1206,9 +1437,11 @@
     font-size: 34px; font-weight: 700; letter-spacing: -.025em; line-height: 1.15;
     margin: 6px 0 2px;
   }
+  /* Transactions: the shared header, search and type filter read as one toolbar above the day cards. */
+  #screen-transactions .screen-head { margin-bottom: 10px; }
   .search-field {
-    display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 12px;
-    margin: 2px 0 12px; border-radius: var(--r-sm);
+    display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px;
+    margin: 0 0 10px; border-radius: var(--r-sm);
     background: var(--band); color: var(--muted);
   }
   .search-field svg { width: 17px; height: 17px; flex: none; }
@@ -1218,20 +1451,21 @@
   }
   .search-field input:focus { outline: none; }
   .search-field input::-webkit-search-cancel-button { -webkit-appearance: none; display: none; }
-  .page-meta { min-height: 18px; padding: 0 4px 8px; text-align: right; }
+  #typeFilter { margin: 0 0 8px; }
+  .page-meta { min-height: 16px; padding: 0 4px 10px; text-align: right; font-size: 12px; }
 
   /* ---------- transactions: day groups ---------- */
-  .group { margin-bottom: 16px; }
+  .group { margin-bottom: 18px; }
   .group-head {
     display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
-    padding: 0 4px 7px; font-size: 13px; font-weight: 600; color: var(--muted);
+    padding: 0 4px 8px; font-size: 13px; font-weight: 600; color: var(--muted);
   }
   .group-total { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text-2); }
   .group-total.in { color: var(--green); }
 
   /* ---------- insights ---------- */
-  #periodToggle { margin: 0 0 10px; }
-  .period-note { margin: 0 0 18px; font-size: 13px; color: var(--muted); }
+  #periodToggle { margin: 0 0 8px; }
+  .period-note { margin: 0 0 16px; font-size: 13px; color: var(--muted); }
   /* the sentence under the big amount */
   .insight-note {
     display: flex; align-items: center; gap: 6px; margin: 8px 0 0;
@@ -1240,7 +1474,7 @@
   .insight-note svg { width: 15px; height: 15px; flex: none; }
   .insight-note.good svg { color: var(--green); }
   .insight-note.warn svg { color: var(--amber); }
-  .insight-sub { margin: -8px 0 14px; }
+  .insight-sub { margin: -4px 0 12px; }
   .insight-tag { color: var(--accent); font-weight: 600; }
   .insight-average {
     font-size: 26px; font-weight: 800; letter-spacing: -.02em; margin: 2px 0 4px;
@@ -1250,7 +1484,7 @@
   /* key highlights: quiet grey rows, no chrome */
   .highlight-row {
     display: flex; align-items: center; gap: 12px;
-    background: var(--card-2); border-radius: 16px; padding: 12px 14px;
+    background: var(--card-2); border-radius: var(--r-sm); padding: 12px 14px;
   }
   .highlight-row + .highlight-row { margin-top: 10px; }
   .highlight-icon {
@@ -1265,7 +1499,7 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .highlight-amount { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; flex: none; }
-  .donut { display: block; width: 176px; height: 176px; margin: 6px auto 18px; }
+  .donut { display: block; width: 176px; height: 176px; margin: 2px auto 14px; }
   .donut-track { stroke: var(--card-2); }
   .donut-cap { fill: var(--muted); font-size: 11px; font-weight: 500; }
   .donut-total { fill: var(--text); font-size: 16px; font-weight: 700; letter-spacing: -.02em; }
@@ -1357,8 +1591,8 @@
   /* Lists: rows rise in with a 30ms stagger, first eight only (--i is capped in txnRowHtml). */
   .is-fresh .txn { animation: row-in var(--dur-page) var(--ease-ios) both; animation-delay: calc(var(--i, 0) * 30ms); }
   /* The figures arrive with one short fade rather than popping into place; it is replayed by hand
-     because the cards are never re-created. Once per month and mode: a re-read after a save must not
-     blink, so fadeMoneyCards() remembers what it has already faded in. */
+     because the cards are never re-created. Once per month: a re-read after a save must not blink, so
+     fadeMoneyCards() remembers what it has already faded in. */
   .is-money-fresh { animation: money-in var(--dur-page) var(--ease-ios); }
   /* One blue ring, two seconds, once: the hand-off from a What's New button to the card it just
      described. It is a pseudo-element so nothing moves and nothing else dims; -4px keeps it clear of
@@ -1435,7 +1669,18 @@
     height: 48px; min-height: 48px; border-radius: 12px; font-size: 16px;
   }
   /* 14px between one field and the label of the next. */
-  .auth-card .field + .form-label { margin-top: 14px; }
+  .auth-card .field + .form-label,
+  .auth-card .field-wrap + .form-label { margin-top: 14px; }
+  /* The reveal control is part of the field: a 44px tap target over the field's right edge, leaving
+     enough padding that a long password never runs under it. */
+  .field-wrap { position: relative; }
+  .field-wrap .field { padding-right: 68px; }
+  .reveal-btn {
+    position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+    min-height: 44px; padding: 0 12px; border: 0; background: none;
+    color: var(--accent); font: inherit; font-size: 13px; font-weight: 600;
+  }
+  .reveal-btn:active { opacity: .6; }
   .auth-submit {
     width: 100%; height: 48px; min-height: 48px;
     border-radius: 24px; font-size: 17px; margin-top: 18px;
@@ -1449,6 +1694,7 @@
     margin: 20px 0 0; text-align: center;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
   }
+  #authInstallHint { margin-top: 6px; font-size: 12px; }
 
   .field, .chip, .btn-primary, .btn-danger, .pill { max-width: 100%; }
 </style>
@@ -1511,55 +1757,61 @@
 
     <!-- 1. Home -->
   <section class="screen" id="screen-home">
-    <!-- title + month pill + mode toggle, rendered by screenHeaderHtml() -->
-    <div data-screen-header="Home"></div>
+    <!-- The hero. Opt-in by markup, not by screenHeaderHtml(): the wrapper is the variant, so the
+         shared header keeps one implementation and the other two screens keep the plain chrome. It
+         holds the balance and the safe-to-spend panel, and nothing else. -->
+    <div class="hero">
+      <div id="homeError"></div>
 
-    <div id="homeError"></div>
-
-    <!-- Balance: the one real-world number (all time, every mode). The whole area is one button, and it
-         opens the sheet that spells out how the figure and the safe-to-spend line under it are worked
-         out. The month those bills belong to is named by the picker in the header above.
-         With no opening balance there is no balance to show, so the card asks for the one figure it
-         cannot know instead — a number here would read as a fact when it is only "minus your spending". -->
-    <div class="card hero-card" id="balanceCard">
-      <div id="balanceNotSet" hidden>
-        <span class="hero-label">Set your balance</span>
-        <p class="hero-setup-line">Tell us how much money you have right now. We keep track from there.</p>
-        <button class="btn-primary" id="setBalanceBtn" type="button">Set your balance</button>
-      </div>
-      <button class="hero-tap" id="balanceTap" type="button" aria-label="Balance, Personal and Business. How this is calculated">
-        <span class="hero-balance-head">
-          <span class="hero-balance-mark" role="img" aria-label="Balance">
-            <svg class="hero-balance-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"
-                 fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-                 stroke-linejoin="round">
-              <path d="M3.5 7.8h14.2a2.7 2.7 0 0 1 2.7 2.7v7a2.7 2.7 0 0 1-2.7 2.7H6.2a2.7 2.7 0 0 1-2.7-2.7V7.8Z" />
-              <path d="M3.5 7.8V6.6a2.1 2.1 0 0 1 2.1-2.1h10.2" />
-              <path d="M16.4 13.8h1.7" />
-            </svg>
-          </span>
-          <span class="hero-balance-text">
+      <!-- Balance: the one real-world number, all time, personal-only. The label row — "Balance" and
+           the month picker — sits above the button, because a button cannot hold another; the amount
+           and the safe-to-spend panel under it are the target that opens the breakdown sheet.
+           With no opening balance there is no balance to show, so the card asks for the one figure it
+           cannot know instead — a number here would read as a fact when it is only "minus your spending". -->
+      <div class="card hero-card" id="balanceCard">
+        <div class="hero-head">
+          <span class="hero-balance-head">
+            <span class="hero-balance-mark" role="img" aria-label="Balance">
+              <svg class="hero-balance-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"
+                   fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                   stroke-linejoin="round">
+                <path d="M3.5 7.8h14.2a2.7 2.7 0 0 1 2.7 2.7v7a2.7 2.7 0 0 1-2.7 2.7H6.2a2.7 2.7 0 0 1-2.7-2.7V7.8Z" />
+                <path d="M3.5 7.8V6.6a2.1 2.1 0 0 1 2.1-2.1h10.2" />
+                <path d="M16.4 13.8h1.7" />
+              </svg>
+            </span>
             <span class="hero-balance-label">Balance</span>
-            <span class="hero-balance-unit">Personal + Business</span>
           </span>
-        </span>
-        <span class="hero-amount hero-balance" id="balanceAmount">RM 0.00</span>
-        <span class="safe-pill" id="safePill">
-          <span class="safe-pill-label">Safe to spend</span>
-          <span class="safe-pill-amount" id="safeAmount">RM 0.00</span>
-          <svg class="safe-pill-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
-        </span>
-        <span class="safe-meta" id="safeMeta"></span>
-        <!-- The card is one button, so the line at its foot says in words what the accessible name
-             already says: the whole figure area opens the breakdown sheet. -->
-        <span class="hero-how">How this is calculated<svg class="hero-how-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></span>
-      </button>
-      <!-- The figures were unreachable: a different thing from never having set them, so the card keeps
-           its shape, says so in the line above, and offers the one read that can fix it. -->
-      <button class="btn-link hero-retry" id="retryFinanceBtn" type="button" hidden>Try again</button>
+          <!-- The shared month pill, inline: paintMonth() and wire() find it by class, so the shared
+               screenHeaderHtml() stays untouched for Transactions and Insights. -->
+          <button class="month-pill js-month-pick" type="button" aria-label="Pick a month"><svg class="month-pill-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="3.5"/><path d="M3.5 10h17M8 3.6V6.4M16 3.6V6.4"/></svg><span class="js-month-label">This month</span><svg class="month-pill-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10l5 5 5-5"/></svg></button>
+        </div>
+
+        <div id="balanceNotSet" hidden>
+          <span class="hero-label">Set your balance</span>
+          <p class="hero-setup-line">Tell us how much money you have right now. We keep track from there.</p>
+          <button class="btn-primary" id="setBalanceBtn" type="button">Set your balance</button>
+        </div>
+        <button class="hero-tap" id="balanceTap" type="button" aria-label="Balance. How this is calculated">
+          <span class="hero-amount hero-balance" id="balanceAmount">RM 0.00</span>
+          <!-- A span, not a div: this sits inside the card's button, which only takes phrasing content. -->
+          <span class="hero-safe">
+            <span class="safe-pill" id="safePill">
+              <span class="safe-pill-label">Safe to spend</span>
+              <span class="safe-pill-amount" id="safeAmount">RM 0.00</span>
+              <svg class="safe-pill-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
+            </span>
+            <span class="safe-meta" id="safeMeta"></span>
+          </span>
+        </button>
+        <!-- The figures were unreachable: a different thing from never having set them, so the card keeps
+             its shape, says so in the line above, and offers the one read that can fix it. -->
+        <button class="btn-link hero-retry" id="retryFinanceBtn" type="button" hidden>Try again</button>
+      </div>
     </div>
 
-    <!-- The viewed month, split in two. Both figures are this month and this mode, unlike the balance. -->
+    <!-- The viewed month, split in two. Both figures are this month's personal rows; the balance is
+         all-time. -->
     <div class="stat-row" id="statRow">
       <div class="card stat-card">
         <span class="stat-label"><svg class="money-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 19V5"/><path d="M6 11l6-6 6 6"/></svg>Income</span>
@@ -1686,42 +1938,26 @@
   <section class="screen" id="screen-settings" hidden>
     <h2 class="large-title">Settings</h2>
 
-    <div class="settings-section">
-      <h3 class="form-label settings-heading">Appearance</h3>
-      <div class="list-card setting-card-icon">
-        <span class="setting-icon" style="background:var(--accent-soft);color:var(--accent)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.6v2.4M12 19v2.4M2.6 12H5M19 12h2.4M5.4 5.4l1.7 1.7M16.9 16.9l1.7 1.7M18.6 5.4l-1.7 1.7M7.1 16.9l-1.7 1.7"/></svg>
-        </span>
-        <div class="segmented" id="themeToggle" role="group" aria-label="Appearance">
-          <button class="seg-btn is-active" type="button" data-theme-choice="system">System</button>
-          <button class="seg-btn" type="button" data-theme-choice="light">Light</button>
-          <button class="seg-btn" type="button" data-theme-choice="dark">Dark</button>
-        </div>
-      </div>
-      <p class="footnote">System follows your phone's Light or Dark setting.</p>
-    </div>
-
     <div class="settings-section" id="moneySection">
-      <h3 class="form-label settings-heading">Money</h3>
+      <h3 class="form-label settings-heading">Budget &amp; Finance</h3>
       <div class="list-card">
-        <div class="setting-row is-field has-icon">
+        <button class="setting-row" id="openingRow" type="button">
           <span class="setting-icon" style="background:var(--accent-soft);color:var(--accent)">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3.5 8h14.2a2.7 2.7 0 0 1 2.7 2.7v6.6a2.7 2.7 0 0 1-2.7 2.7H6.2a2.7 2.7 0 0 1-2.7-2.7V8Z"/><path d="M3.5 8V6.8a2.1 2.1 0 0 1 2.1-2.1h10.2"/><path d="M16.4 13.8h1.6"/></svg>
           </span>
-          <label class="setting-label" for="openingBalance">Opening balance</label>
-          <input class="setting-field" id="openingBalance" type="text" inputmode="decimal"
-                 placeholder="0.00" autocomplete="off" autocapitalize="none" spellcheck="false">
-        </div>
-        <p class="setting-tip">Tip: use 'Set your balance' on Home if you are not sure what to enter.</p>
+          <span class="setting-label">Opening balance</span>
+          <span class="setting-value" id="openingValue">Not set</span>
+          <svg class="setting-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
+        </button>
         <div class="row-divider"></div>
-        <div class="setting-row is-field has-icon">
+        <button class="setting-row" id="budgetRow" type="button">
           <span class="setting-icon" style="background:var(--accent-soft);color:var(--accent)">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4.5 16.5a7.5 7.5 0 1 1 15 0"/><path d="M12 15l3.6-4.2"/><circle cx="12" cy="15" r="1.2"/></svg>
           </span>
-          <label class="setting-label" for="monthlyBudget">Monthly budget</label>
-          <input class="setting-field" id="monthlyBudget" type="text" inputmode="decimal"
-                 placeholder="No budget" autocomplete="off" autocapitalize="none" spellcheck="false">
-        </div>
+          <span class="setting-label">Monthly budget</span>
+          <span class="setting-value" id="budgetValue">No budget</span>
+          <svg class="setting-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
+        </button>
         <div class="row-divider"></div>
         <button class="setting-row" id="commitmentsBtn" type="button">
           <span class="setting-icon" style="background:var(--accent-soft);color:var(--accent)">
@@ -1739,7 +1975,20 @@
           <span class="setting-label">Currency</span><span class="setting-value">MYR</span>
         </div>
       </div>
-      <p class="footnote">The opening balance is what you had before Duits — cash and accounts together. Leave the budget empty for no monthly budget.</p>
+    </div>
+
+    <div class="settings-section">
+      <h3 class="form-label settings-heading">Appearance</h3>
+      <div class="list-card setting-card-icon">
+        <span class="setting-icon" style="background:var(--accent-soft);color:var(--accent)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.6v2.4M12 19v2.4M2.6 12H5M19 12h2.4M5.4 5.4l1.7 1.7M16.9 16.9l1.7 1.7M18.6 5.4l-1.7 1.7M7.1 16.9l-1.7 1.7"/></svg>
+        </span>
+        <div class="segmented" id="themeToggle" role="group" aria-label="Appearance">
+          <button class="seg-btn is-active" type="button" data-theme-choice="system">System</button>
+          <button class="seg-btn" type="button" data-theme-choice="light">Light</button>
+          <button class="seg-btn" type="button" data-theme-choice="dark">Dark</button>
+        </div>
+      </div>
     </div>
 
     <div class="settings-section">
@@ -1760,31 +2009,16 @@
           <span class="setting-label">Sign out</span>
         </button>
       </div>
-      <p class="footnote">Your session stays in this browser until you sign out.</p>
     </div>
 
     <div class="settings-section">
       <h3 class="form-label settings-heading">About</h3>
       <div class="list-card">
-        <div class="setting-row has-icon">
-          <span class="setting-icon" style="background:var(--accent-soft);color:var(--accent)">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="6" y="2.8" width="12" height="18.4" rx="3"/><path d="M10.6 18.4h2.8"/></svg>
-          </span>
-          <span class="setting-label">App</span><span class="setting-value">Duits</span>
-        </div>
-        <div class="row-divider"></div>
-        <div class="setting-row has-icon">
+        <div class="setting-row has-icon" id="versionRow">
           <span class="setting-icon" style="background:var(--accent-soft);color:var(--accent)">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M14.6 3.4a4.6 4.6 0 0 0-5.9 5.9L3.6 14.4a1.9 1.9 0 0 0 2.7 2.7l5.1-5.1a4.6 4.6 0 0 0 5.9-5.9l-3 3-2.7-.3-.3-2.7z"/></svg>
           </span>
-          <span class="setting-label">Build</span><span class="setting-value" id="buildValue">{{BUILD}}</span>
-        </div>
-        <div class="row-divider"></div>
-        <div class="setting-row has-icon">
-          <span class="setting-icon" style="background:var(--accent-soft);color:var(--accent)">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3.5" y="5" width="17" height="15.5" rx="3.5"/><path d="M3.5 10h17M8 3.6V6.4M16 3.6V6.4"/><path d="M8.5 14h2.2M8.5 17h4.2"/></svg>
-          </span>
-          <span class="setting-label">Date format</span><span class="setting-value">DD/MM/YYYY</span>
+          <span class="setting-label">Version</span><span class="setting-value" id="buildValue">{{VERSION}}</span>
         </div>
         <div class="row-divider"></div>
         <!-- The way back into the notes, for a user who skipped them or wants to read them again. It
@@ -1797,8 +2031,14 @@
           <span class="setting-label">What&rsquo;s new</span>
           <svg class="setting-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
         </button>
+        <div class="row-divider"></div>
+        <div class="setting-row has-icon">
+          <span class="setting-icon" style="background:var(--accent-soft);color:var(--accent)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3.5" y="5" width="17" height="15.5" rx="3.5"/><path d="M3.5 10h17M8 3.6V6.4M16 3.6V6.4"/><path d="M8.5 14h2.2M8.5 17h4.2"/></svg>
+          </span>
+          <span class="setting-label">Date format</span><span class="setting-value">DD/MM/YYYY</span>
+        </div>
       </div>
-      <p class="footnote">Add to Home Screen for the full-screen app view: no Safari chrome, and the page paints behind the status bar and the home indicator.</p>
     </div>
   </section>
 </div>
@@ -1829,33 +2069,66 @@
   </div>
 </nav>
 
-  <!-- Commitments: the viewed month's fixed bills, a paid toggle each, and the inline form that adds one.
-       It precedes the Add overlay so a Pay tap stacks the Add sheet on top of this one and comes back. -->
-  <div class="overlay" id="commitOverlay" aria-hidden="true">
-    <!-- The dim is its own layer so the only animated opacity in an overlay is this one; the
-         sheet above it can never be tinted by it. -->
-    <div class="scrim" aria-hidden="true"></div>
-    <div class="sheet" id="commitSheet">
-      <div class="sheet-grab" id="commitGrab" aria-hidden="true"><span></span></div>
-      <div class="sheet-head has-done">
-        <span></span>
-        <h2 class="sheet-title">Commitments</h2>
-        <button class="btn-ghost sheet-done" id="commitDoneBtn" type="button">Done</button>
-      </div>
-      <div class="commit-sub" id="commitSub"></div>
-      <div id="commitList"></div>
-      <button class="btn-link commit-new" id="commitNewBtn" type="button" aria-expanded="false"
-              aria-controls="commitForm">+ Add commitment</button>
-      <div class="commit-form" id="commitForm" hidden>
-        <input class="add-field" id="commitName" type="text" placeholder="Name" maxlength="80"
-               autocomplete="off" autocapitalize="words">
-        <div class="commit-form-row">
-          <input class="add-field" id="commitAmount" type="text" inputmode="decimal" placeholder="RM amount"
-                 autocomplete="off" spellcheck="false">
-          <input class="add-field" id="commitDay" type="text" inputmode="numeric" placeholder="Day 1-31"
-                 autocomplete="off" spellcheck="false">
-          <button class="btn-primary" id="commitAddBtn" type="button">Add</button>
+  <!-- Settings sub-pages: full-height pages with their own Back header, not sheets. They sit above the
+       app and the tab bar (z 15) but below every overlay (20), so Pay's Add sheet still stacks on top. -->
+  <div class="subpage" id="settingsSubpage" hidden>
+    <header class="subbar">
+      <button class="sub-back" id="subBackBtn" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M15 5l-7 7 7 7"/></svg>
+        <span>Back</span>
+      </button>
+      <h2 class="sub-title" id="subTitle">Settings</h2>
+      <span class="sub-end" aria-hidden="true"></span>
+    </header>
+    <div class="sub-body" id="subBody">
+      <section class="sub-page" id="subOpening" hidden>
+        <p class="sub-lead">This is what you had before Duits &mdash; cash and accounts together. Changing it moves your overall balance.</p>
+        <label class="form-label" for="openingBalance">Opening balance (MYR)</label>
+        <input class="field" id="openingBalance" type="text" inputmode="decimal" placeholder="0.00"
+               autocomplete="off" autocapitalize="none" spellcheck="false">
+        <button class="btn-primary sub-save" id="openingSaveBtn" type="button" disabled>Save</button>
+        <p class="sub-status" id="openingStatus" role="status"></p>
+      </section>
+
+      <section class="sub-page" id="subBudget" hidden>
+        <p class="sub-lead">A limit for each month. Leave it empty for no monthly budget.</p>
+        <label class="form-label" for="monthlyBudget">Monthly budget (MYR)</label>
+        <input class="field" id="monthlyBudget" type="text" inputmode="decimal" placeholder="No budget"
+               autocomplete="off" autocapitalize="none" spellcheck="false">
+        <button class="btn-primary sub-save" id="budgetSaveBtn" type="button" disabled>Save</button>
+        <p class="sub-status" id="budgetStatus" role="status"></p>
+      </section>
+
+      <section class="sub-page" id="subCommitments" hidden>
+        <div class="commit-sub" id="commitSub"></div>
+        <div id="commitList"></div>
+        <button class="btn-link commit-new" id="commitNewBtn" type="button" aria-expanded="false"
+                aria-controls="commitForm">+ Add commitment</button>
+        <div class="commit-form" id="commitForm" hidden>
+          <input class="add-field" id="commitName" type="text" placeholder="Name" maxlength="80"
+                 autocomplete="off" autocapitalize="words">
+          <div class="commit-form-row">
+            <input class="add-field" id="commitAmount" type="text" inputmode="decimal" placeholder="RM amount"
+                   autocomplete="off" spellcheck="false">
+            <input class="add-field" id="commitDay" type="text" inputmode="numeric" placeholder="Day 1-31"
+                   autocomplete="off" spellcheck="false">
+            <button class="btn-primary" id="commitAddBtn" type="button">Add</button>
+          </div>
         </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- One centred confirm for the two actions that deserve a second look: discarding an unsaved edit and
+       signing out. The scrim, Cancel and the action are its three ways out; there is no drag. -->
+  <div class="overlay is-centre" id="confirmOverlay" aria-hidden="true">
+    <div class="scrim" aria-hidden="true"></div>
+    <div class="sheet" id="confirmSheet">
+      <h2 class="sheet-title" id="confirmTitle">Are you sure?</h2>
+      <p class="sheet-sub" id="confirmMessage"></p>
+      <div class="sheet-actions">
+        <button class="btn-danger" id="confirmYesBtn" type="button">Confirm</button>
+        <button class="btn-ghost" id="confirmNoBtn" type="button">Cancel</button>
       </div>
     </div>
   </div>
@@ -1960,8 +2233,9 @@
       </section>
 
       <!-- 2. Manual: one screen, top to bottom. Back (the chevron beside the segmented control) returns to
-           the chooser; Cancel in the header leaves the sheet; Save submits. The four-row card holds every
-           field the old Details step held (Merchant, Date, Mode, Note). Only .manual-body can scroll. -->
+           the chooser; Cancel in the header leaves the sheet; Save submits. The three-row card holds the
+           fields the old Details step held (Merchant, Date, Note); mode is not a choice any more. Only
+           .manual-body can scroll. -->
       <section id="screen-add" hidden>
         <div class="manual-body sheet-scroll" id="manualBody">
           <div class="add-type-row">
@@ -1999,14 +2273,6 @@
               <svg class="add-row-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
               <input class="add-date-input" id="addDate" type="date" aria-label="Date">
             </label>
-            <div class="add-row-field">
-              <span class="add-row-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5"/></svg></span>
-              <span class="add-row-name">Mode</span>
-              <div class="segmented add-mode" id="addModeToggle" role="group" aria-label="Mode">
-                <button class="seg-btn is-active" type="button" data-add-mode="personal">Personal</button>
-                <button class="seg-btn" type="button" data-add-mode="business">Business</button>
-              </div>
-            </div>
             <label class="add-row-field" for="addNote">
               <span class="add-row-ico is-grey"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4.5h8.5L19 9v10.5H6V4.5Z"/><path d="M14.5 4.5V9H19M9 13h6M9 16.5h4"/></svg></span>
               <span class="add-row-name">Note</span>
@@ -2091,17 +2357,65 @@
     <input class="field" id="authEmail" type="email" autocomplete="username" inputmode="email"
            enterkeyhint="next" autocapitalize="off" autocorrect="off" spellcheck="false">
     <label class="form-label" for="authPassword" id="authPasswordLabel">Password</label>
-    <input class="field" id="authPassword" type="password" autocomplete="current-password"
-           enterkeyhint="go" autocapitalize="off" autocorrect="off" spellcheck="false">
+    <div class="field-wrap" id="authPasswordWrap">
+      <input class="field" id="authPassword" type="password" autocomplete="current-password"
+             enterkeyhint="go" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <button class="reveal-btn" id="authPasswordReveal" type="button"
+              aria-label="Show password" aria-pressed="false">Show</button>
+    </div>
     <label class="form-label" for="authPassword2" id="authPassword2Label" hidden>Confirm password</label>
-    <input class="field" id="authPassword2" type="password" autocomplete="new-password"
-           enterkeyhint="go" autocapitalize="off" autocorrect="off" spellcheck="false" hidden>
+    <div class="field-wrap" id="authPassword2Wrap" hidden>
+      <input class="field" id="authPassword2" type="password" autocomplete="new-password"
+             enterkeyhint="go" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <button class="reveal-btn" id="authPassword2Reveal" type="button"
+              aria-label="Show password" aria-pressed="false">Show</button>
+    </div>
     <button class="btn-primary auth-submit" id="authSubmit" type="button">Sign in</button>
     <button class="btn-ghost" id="authForgot" type="button">Forgot password?</button>
     <button class="btn-ghost" id="authBack" type="button">Back to sign in</button>
-    <p class="auth-foot">Duits is invite only. Ask for an invite to get started.</p>
+    <!-- SIGNUP:START --><button class="btn-ghost" id="authSignup" type="button">Create account</button><!-- SIGNUP:END -->
+    <p class="auth-foot" id="authInvite">Duits is invite only. Ask for an invite to get started.</p>
+    <p class="auth-foot" id="authInstallHint" hidden>Add to Home Screen for the full-screen app view.</p>
   </div>
 </div>
+
+<!-- SIGNUP:START -->
+<div class="auth" id="signupScreen" hidden>
+  <div class="auth-card">
+    <img class="auth-logo" src="/logo.png?v=2" alt="Duits">
+    <h2 class="auth-title">Create account</h2>
+    <p class="auth-note" id="signupNote"></p>
+    <div id="signupForm">
+      <label class="form-label" for="signupEmail">Email</label>
+      <input class="field" id="signupEmail" type="email" autocomplete="email" inputmode="email"
+             enterkeyhint="next" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <label class="form-label" for="signupPassword">Password</label>
+      <div class="field-wrap">
+        <input class="field" id="signupPassword" type="password" autocomplete="new-password"
+               enterkeyhint="next" autocapitalize="off" autocorrect="off" spellcheck="false">
+        <button class="reveal-btn" id="signupPasswordReveal" type="button"
+                aria-label="Show password" aria-pressed="false">Show</button>
+      </div>
+      <label class="form-label" for="signupPassword2">Confirm password</label>
+      <div class="field-wrap">
+        <input class="field" id="signupPassword2" type="password" autocomplete="new-password"
+               enterkeyhint="go" autocapitalize="off" autocorrect="off" spellcheck="false">
+        <button class="reveal-btn" id="signupPassword2Reveal" type="button"
+                aria-label="Show password" aria-pressed="false">Show</button>
+      </div>
+      <!-- TODO(launch): terms + privacy acceptance goes here once the URLs exist. -->
+      <button class="btn-primary auth-submit" id="signupSubmit" type="button">Create account</button>
+    </div>
+    <div id="signupDone" hidden>
+      <p class="auth-note" id="signupDoneNote"></p>
+      <button class="btn-primary auth-submit" id="signupResend" type="button">Resend email</button>
+      <button class="btn-ghost" id="signupDifferent" type="button">Use a different email</button>
+    </div>
+    <button class="btn-ghost" id="signupBack" type="button">Back to sign in</button>
+    <p class="auth-foot">We never say whether an address already has an account.</p>
+  </div>
+</div>
+<!-- SIGNUP:END -->
 
 <div class="overlay" id="monthOverlay" aria-hidden="true">
   <!-- The dim is its own layer so the only animated opacity in an overlay is this one; the
@@ -2135,8 +2449,9 @@
   // Sign-in settings, filled in by the server at serve time (see GET /). The service key never reaches
   // this file; `key` is the public publishable key.
   var AUTH = {{AUTH_CONFIG}};
+  var SIGNUP_ENABLED = {{SIGNUP_ENABLED}};
   var SESSION_SLOT = "duits.session";
-  var state = { month: "", mode: "personal", screen: "home", rows: [], reviewOnly: false,
+  var state = { month: "", screen: "home", rows: [], reviewOnly: false,
     search: "", filter: "all", summary: null,
     period: "month", insightCatsExpanded: false, insightCategoryCount: 0,
     earliestYear: null };   // oldest year seen in a reply; the month wheel cannot offer less
@@ -2288,7 +2603,9 @@
   }
 
   function monthQuery() {
-    return "?month=" + encodeURIComponent(state.month) + "&mode=" + encodeURIComponent(state.mode);
+    // The app is personal-only: every read asks for personal rows explicitly. The API still accepts
+    // `mode` (Apple Shortcuts may send business), but the UI never sends anything else.
+    return "?month=" + encodeURIComponent(state.month) + "&mode=personal";
   }
 
   function options(values, selected) {
@@ -2534,7 +2851,6 @@
   /* ---------- theme ---------- */
 
   var THEME_SLOT = "duitstheme";   // "system" | "light" | "dark"
-  var THEME_META = { light: "#f2f2f7", dark: "#000000" };
   var themeChoice = "system";
   var themeQuery = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
 
@@ -2565,12 +2881,25 @@
     themeChoice = choice === "dark" || choice === "light" ? choice : "system";
     var dark = effectiveTheme(themeChoice) === "dark";
     document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
-    var meta = $("themeColorMeta");
-    if (meta) meta.setAttribute("content", dark ? THEME_META.dark : THEME_META.light);
-    var status = $("statusBarMeta");
-    if (status) status.setAttribute("content", dark ? "black-translucent" : "default");
+    // The chrome colour follows the screen as well as the theme (Home's hero is cobalt), so it is
+    // painted by one function both callers share. The status-bar style itself is fixed in the head.
+    paintBrowserChrome();
     paintBuild();                     // the Build row reports this value, so it moves with it
     paintAddToggle("themeToggle", "themeChoice", themeChoice);
+  }
+
+  // The status bar / browser chrome colour. Light theme paints the brand header on every screen, so
+  // the top colour is always --brand-grad-from; in dark, Home's hero still starts at the gradient's
+  // light end and the other screens keep --browser-chrome. <head> holds literal copies for the frames
+  // before the style sheet applies; this is the runtime source of truth after that.
+  function paintBrowserChrome() {
+    var meta = $("themeColorMeta");
+    if (!meta) return;
+    var root = document.documentElement;
+    var dark = root.getAttribute("data-theme") === "dark";
+    var home = root.getAttribute("data-screen") === "home";
+    var value = cssColour(dark && !home ? "--browser-chrome" : "--brand-grad-from");
+    if (value) meta.setAttribute("content", value);
   }
 
   function chooseTheme(choice) {
@@ -2578,19 +2907,47 @@
     applyTheme(choice);
   }
 
-  // The Build row is the one place a phone can be asked what it actually loaded: the stamp, the status
-  // bar style the meta ended up with (black-translucent means this page is painting behind the status
-  // bar) and whether it is running as a Home Screen app rather than in Safari. Bump BUILD on any
-  // change to the shell that a device should be able to confirm.
+  // The About row always shows the release version (the repo's VERSION file). The debug string — the
+  // commit, the status-bar style and whether this is a Home Screen app — is for development only and
+  // stays hidden until it is asked for: five quick taps on the row, or ?debug=1. Production ignores
+  // both, because APP_DEBUG is false there and GET / leaves BUILD empty. Bump VERSION on a release.
   var BUILD = "{{BUILD}}";
+  var APP_VERSION = "{{VERSION}}";
+  var APP_DEBUG = {{DEBUG}};
+  var buildDebug = false;
 
   function paintBuild() {
     var row = $("buildValue");
     if (!row) return;
+    if (!buildDebug || !APP_DEBUG) { row.textContent = APP_VERSION; return; }
     var meta = $("statusBarMeta");
     var style = meta ? meta.getAttribute("content") : "?";
     var standalone = (window.navigator && window.navigator.standalone) ? "standalone" : "browser";
     row.textContent = BUILD + " · " + style + " · " + standalone;
+  }
+
+  // Five taps inside two seconds toggle the debug string, but only when this is a development page.
+  var buildTaps = { count: 0, last: 0 };
+  function tapBuild() {
+    if (!APP_DEBUG) return;
+    var now = Date.now();
+    buildTaps = now - buildTaps.last > 2000 ? { count: 1, last: now } : { count: buildTaps.count + 1, last: now };
+    if (buildTaps.count >= 5) {
+      buildTaps.count = 0;
+      buildDebug = !buildDebug;
+      paintBuild();
+    }
+  }
+
+  function startBuildDebug() {
+    // ?debug=1 is the other way in, for a page that is being inspected rather than tapped. It is a
+    // development-only shortcut too; production never reaches either branch.
+    var wanted = false;
+    try { wanted = new URLSearchParams(window.location.search).get("debug") === "1"; } catch (error) { /* old engine */ }
+    if (wanted && APP_DEBUG) buildDebug = true;
+    var row = $("versionRow");
+    if (row) row.addEventListener("click", tapBuild);
+    paintBuild();
   }
 
   function wireTheme() {
@@ -2667,13 +3024,16 @@
       $("balanceTap").hidden = false;
       $("balanceTap").disabled = false;
       $("retryFinanceBtn").hidden = true;
-      $("balanceTap").setAttribute("aria-label", "Balance, Personal and Business");
+      $("balanceTap").setAttribute("aria-label", "Balance");
       hideBudget();
       $("commitSub").textContent = "";
       $("commitList").innerHTML = "";
       $("commitmentsValue").textContent = "None";
       $("openingBalance").value = "";
       $("monthlyBudget").value = "";
+      $("openingValue").textContent = "Not set";
+      $("budgetValue").textContent = "No budget";
+      closeSubPage();
     }
   }
 
@@ -2808,12 +3168,45 @@
   // recovery link. There is no sign-up: accounts arrive by invite.
 
   var authView = "signin";
+  var authRedirectType = ""; // "invite", "recovery" or "signup", read once from the link
   var pendingToken = null;   // the token an invite/recovery link hands us, used once to set the password
 
   function renderAccount() {
     var session = readSession();
     var email = $("accountEmail");
     if (email) email.textContent = (session && session.email) || "Not signed in";
+  }
+
+  // The install hint belongs to the sign-in screen, which a browser user always sees; a Home Screen app
+  // is already full screen, so the line is not shown there.
+  function paintInstallHint() {
+    var hint = $("authInstallHint");
+    if (!hint) return;
+    hint.hidden = !!(window.navigator && window.navigator.standalone);
+  }
+
+  function resetReveal(inputId, buttonId) {
+    var input = $(inputId);
+    var button = $(buttonId);
+    if (!input || !button) return;
+    input.type = "password";
+    button.textContent = "Show";
+    button.setAttribute("aria-label", "Show password");
+    button.setAttribute("aria-pressed", "false");
+  }
+
+  function wirePasswordReveal(inputId, buttonId) {
+    var input = $(inputId);
+    var button = $(buttonId);
+    if (!input || !button) return;
+    button.addEventListener("click", function () {
+      var show = input.type === "password";
+      input.type = show ? "text" : "password";
+      button.textContent = show ? "Hide" : "Show";
+      button.setAttribute("aria-label", (show ? "Hide" : "Show") + " password");
+      button.setAttribute("aria-pressed", show ? "true" : "false");
+      focusWithoutScroll(input);
+    });
   }
 
   function setAuthView(view, note) {
@@ -2824,10 +3217,12 @@
       ? "Enter your email and we'll send a link to set a new one." : "");
     var settingPassword = view === "setpassword";
     var emailOnly = view === "forgot";
-    $("authPassword2").hidden = !settingPassword;
+    $("authPassword2Wrap").hidden = !settingPassword;
     $("authPassword2Label").hidden = !settingPassword;
-    $("authPassword").hidden = emailOnly;
+    $("authPasswordWrap").hidden = emailOnly;
     $("authPasswordLabel").hidden = emailOnly;
+    resetReveal("authPassword", "authPasswordReveal");
+    resetReveal("authPassword2", "authPassword2Reveal");
     // The link already proved who they are, so the address is not editable on that screen.
     $("authEmail").disabled = settingPassword;
     $("authSubmit").textContent = settingPassword ? "Save password"
@@ -2897,7 +3292,8 @@
       params[decodeURIComponent(bits[0] || "")] = decodeURIComponent((bits[1] || "").replace(/\+/g, " "));
     });
     var type = params.type || "";
-    if (type !== "invite" && type !== "recovery") return false;
+    if (type !== "invite" && type !== "recovery" && type !== "signup") return false;
+    authRedirectType = type;
     pendingToken = params.access_token || null;
     if (params.access_token && params.refresh_token) {
       var session = {
@@ -3005,6 +3401,103 @@
     showAuth("signin");
   }
 
+  /* ---------- sign up (SIGNUP_ENABLED) ---------- */
+  // GET / strips the screen and the link when the flag is off; these guards keep the code inert if a
+  // cached document ever lacks them.
+  var signupEmailValue = "";
+
+  function showSignup() {
+    if (!SIGNUP_ENABLED || !$("signupScreen")) return;
+    $("signupForm").hidden = false;
+    $("signupDone").hidden = true;
+    $("signupNote").textContent = "";
+    $("signupScreen").hidden = false;
+    $("signupScreen").setAttribute("aria-hidden", "false");
+    focusWithoutScroll($("signupEmail"));
+  }
+
+  function hideSignup() {
+    if (!SIGNUP_ENABLED || !$("signupScreen")) return;
+    $("signupScreen").hidden = true;
+    $("signupScreen").setAttribute("aria-hidden", "true");
+    $("signupPassword").value = "";
+    $("signupPassword2").value = "";
+    resetReveal("signupPassword", "signupPasswordReveal");
+    resetReveal("signupPassword2", "signupPassword2Reveal");
+  }
+
+  function showSignupDone(email) {
+    signupEmailValue = email;
+    $("signupForm").hidden = true;
+    $("signupDone").hidden = false;
+    $("signupNote").textContent = "";
+    $("signupDoneNote").textContent = "Check your email. We sent a confirmation link to " + email + ".";
+  }
+
+  async function submitSignup() {
+    if (!SIGNUP_ENABLED) return;
+    var email = $("signupEmail").value.trim();
+    var password = $("signupPassword").value;
+    var note = $("signupNote");
+    if (!email) { note.textContent = "Enter your email."; return; }
+    if (password.length < 8) { note.textContent = "Use at least 8 characters."; return; }
+    if (password !== $("signupPassword2").value) {
+      note.textContent = "Those two passwords do not match.";
+      return;
+    }
+    var button = $("signupSubmit");
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    try {
+      var result = await authRequest("POST", "/auth/v1/signup", { email: email, password: password });
+      if (result.ok) { showSignupDone(email); return; }
+      if (result.status === 429) {
+        note.textContent = "Too many attempts. Wait a minute and try again.";
+        return;
+      }
+      var body = result.body || {};
+      var message = String(body.msg || body.error_description || body.message || "");
+      // Neutral on purpose: the answer never says whether the address already has an account. Only a
+      // password complaint is specific, because the user can act on it.
+      note.textContent = /password/i.test(message)
+        ? "That password is not strong enough. Use at least 8 characters."
+        : "Could not create the account. Try again.";
+    } catch (error) {
+      note.textContent = "Can't reach the sign-in service. Check your connection and try again.";
+    } finally {
+      button.disabled = false;
+      button.removeAttribute("aria-busy");
+    }
+  }
+
+  async function resendSignup() {
+    if (!SIGNUP_ENABLED) return;
+    var email = signupEmailValue || $("signupEmail").value.trim();
+    if (!email) { $("signupDoneNote").textContent = "Enter your email again."; return; }
+    var button = $("signupResend");
+    button.disabled = true;
+    try {
+      var result = await authRequest("POST", "/auth/v1/resend", { type: "signup", email: email });
+      $("signupDoneNote").textContent = result.ok
+        ? "Sent again to " + email + "."
+        : (result.status === 429
+          ? "Too many attempts. Wait a minute and try again."
+          : "Could not resend the email. Try again.");
+    } catch (error) {
+      $("signupDoneNote").textContent = "Can't reach the sign-in service. Check your connection and try again.";
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  function differentSignupEmail() {
+    if (!SIGNUP_ENABLED) return;
+    $("signupDone").hidden = true;
+    $("signupForm").hidden = false;
+    $("signupNote").textContent = "";
+    focusWithoutScroll($("signupEmail"));
+  }
+
   /* ---- the keyboard, on the sign-in screen only ---- */
   // This is the one place that reacts to the keyboard. The Add sheet deliberately does not (see the
   // sheet rules in AGENTS.md): that sheet must never resize. The login form is a scrolling page and
@@ -3086,8 +3579,8 @@
     if (text) text.textContent = expanded ? openText : closedText;
   }
 
-  // The viewed month's two halves, from the same /summary the old hero carried. Both are this month and
-  // this mode, unlike the balance above them.
+  // The viewed month's two halves, from the same /summary the old hero carried. Both are this month's
+  // personal rows; the balance above them is all time.
   function renderSummary(summary) {
     state.summary = summary; // kept for the month's figures; the balance comes from /finance/summary
     $("incomeTotal").textContent = "+" + money(Number(summary.total_income) || 0);
@@ -3150,7 +3643,7 @@
     $("safeAmount").classList.toggle("neg", safe < 0);
     $("safeMeta").textContent = unmet > 0 ? money(unmet) + " still due this month" : "";
     // The whole area is one button, so its accessible name has to carry the figure the eye reads first.
-    $("balanceTap").setAttribute("aria-label", "Balance, Personal and Business, " + signedMoney(balance) + ". How this is calculated");
+    $("balanceTap").setAttribute("aria-label", "Balance, " + signedMoney(balance) + ". How this is calculated");
     fitText($("balanceAmount"), 40, 22);
     fitText($("safeAmount"), 17, 12);
     paintBudget(summary);
@@ -3235,7 +3728,7 @@
     $("safeAmount").textContent = "\u2014";
     $("safeAmount").classList.remove("neg");
     $("safeMeta").textContent = "Not available right now.";
-    $("balanceTap").setAttribute("aria-label", "Balance, Personal and Business, unavailable.");
+    $("balanceTap").setAttribute("aria-label", "Balance, unavailable.");
     hideBudget();                       // no figures to draw a budget from
   }
 
@@ -3301,7 +3794,7 @@
 
   // Close first, then open: the list of bills comes back to a clean page rather than a stack of two.
   function openBillsFromBalance() {
-    closeOverlay($("balanceOverlay"), function () { openCommitSheet(); });
+    closeOverlay($("balanceOverlay"), function () { openSettingsPage("commitments"); });
   }
 
   // One handler for the sheet's parts, because the rows are replaced by every render.
@@ -3549,8 +4042,8 @@
         return;
       }
       if (action === "commitment") {
-        openCommitSheet();
-        toggleCommitForm($("commitNewBtn"));   // the sheet opens with the add form ready
+        openSettingsPage("commitments");
+        toggleCommitForm($("commitNewBtn"));   // the page opens with the add form ready
         return;
       }
       openMoneyField("budget");
@@ -3623,8 +4116,10 @@
     openWhatsNew();
   }
 
-  // One row shape, shared by Home and the Transactions page so they cannot drift apart.
-  function txnRowHtml(row, index) {
+  // One row shape, shared by Home and the Transactions page so they cannot drift apart. Home passes
+  // brand = true: its list wears the brand tint (one screen, one accent), while every other list keeps
+  // the category hue and the tint() alpha it has always used.
+  function txnRowHtml(row, index, brand) {
     var income = row.type === "income";
     var name = row.merchant || capitalise(row.category || "uncategorised");
     var colour = categoryColour(row.category);
@@ -3632,8 +4127,10 @@
     // after the list re-renders (see flashRow), so it is never wiped by a fresh innerHTML.
     return '<button class="txn" type="button" style="--i:' + Math.min(index || 0, 7) +
       '" data-id="' + escapeHtml(row.id) + '">' +
-      '<span class="txn-icon" style="--cat:' + colour + ";background:" + tint(colour) + '">' +
-      categoryIcon(row.category) + "</span>" +
+      (brand
+        ? '<span class="txn-icon is-brand">' + categoryIcon(row.category) + "</span>"
+        : '<span class="txn-icon" style="--cat:' + colour + ";background:" + tint(colour) + '">' +
+          categoryIcon(row.category) + "</span>") +
       '<span class="txn-main">' +
       '<span class="txn-name">' + escapeHtml(name) + "</span>" +
       '<span class="txn-meta">' + categoryDot(row.category) +
@@ -3648,9 +4145,9 @@
       "</button>";
   }
 
-  function txnListHtml(rows) {
+  function txnListHtml(rows, brand) {
     return rows.map(function (row, index) {
-      return (index ? '<div class="divider"></div>' : "") + txnRowHtml(row, index);
+      return (index ? '<div class="divider"></div>' : "") + txnRowHtml(row, index, brand);
     }).join("");
   }
 
@@ -3672,7 +4169,7 @@
       return;
     }
     // Home is a glance at the newest few; the rest of the month is behind "See All".
-    $("txnList").innerHTML = txnListHtml(visible.slice(0, HOME_LIST_ROWS));
+    $("txnList").innerHTML = txnListHtml(visible.slice(0, HOME_LIST_ROWS), true);
     replay($("txnList"), "is-fresh");
     slideScreen();
   }
@@ -3727,12 +4224,12 @@
   }
 
   async function loadTransactions() {
-    var requested = state.month + "|" + state.mode; // a newer request wins over a slow reply
+    var requested = state.month; // a newer request wins over a slow reply
     $("txnError").innerHTML = "";
     $("txnGroups").innerHTML = '<div class="empty">Loading\u2026</div>';
     try {
       var rows = await api("/transactions" + monthQuery());
-      if (requested !== state.month + "|" + state.mode) return;
+      if (requested !== state.month) return;
       state.rows = rows;
       trackEarliestYear(rows);
       renderTransactionsPage(rows);
@@ -3745,7 +4242,7 @@
   }
 
   async function loadHome() {
-    var requested = state.month + "|" + state.mode; // a newer request wins over a slow reply
+    var requested = state.month; // a newer request wins over a slow reply
     $("homeError").innerHTML = "";
     $("txnList").innerHTML = '<div class="empty">Loading\u2026</div>';
     try {
@@ -3758,7 +4255,7 @@
         // answered 200 with rows.
         api("/finance/summary" + monthQuery()).catch(function () { return null; })
       ]);
-      if (requested !== state.month + "|" + state.mode) return;
+      if (requested !== state.month) return;
       state.rows = loaded[1];
       trackEarliestYear(loaded[1]);
       renderSummary(loaded[0]);
@@ -3778,13 +4275,12 @@
 
   // The figures land after the skeleton does. One short fade says "this was just filled in" rather than
   // letting the numbers pop into place, and it is replayed by hand because the cards are never
-  // re-created. Once per month and mode: the same month re-read after a save must not blink, so the key
-  // remembers what has already been faded in. A failed read leaves the key alone, so the next good one
-  // still fades.
+  // re-created. Once per month: the same month re-read after a save must not blink, so the key remembers
+  // what has already been faded in. A failed read leaves the key alone, so the next good one still fades.
   var moneyFadedFor = "";
 
   function fadeMoneyCards() {
-    var key = state.month + "|" + state.mode;
+    var key = state.month;
     if (key === moneyFadedFor) return;
     moneyFadedFor = key;
     replay($("balanceCard"), "is-money-fresh");
@@ -3797,17 +4293,17 @@
   // Re-read only the money figures: a paid mark or a settings save moves the balance and the budget,
   // not the rows.
   async function refreshFinanceCard() {
-    var requested = state.month + "|" + state.mode;
+    var requested = state.month;
     try {
       var summary = await api("/finance/summary" + monthQuery());
-      if (requested !== state.month + "|" + state.mode) return;
+      if (requested !== state.month) return;
       paintFinance(summary);
     } catch (error) {
       paintFinanceError();
     }
   }
 
-  /* ---------- shared screen header: title + month pill + mode toggle ---------- */
+  /* ---------- shared screen header: title + month pill ---------- */
 
   var CALENDAR_ICON = '<svg class="month-pill-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
     'stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" ' +
@@ -3816,17 +4312,14 @@
     'stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">' +
     '<path d="M7 10l5 5 5-5"/></svg>';
 
-  // ONE header for Home, Transactions and Insights: large title + month pill, then the mode row.
-  // The sections only carry <div data-screen-header="Home">, so the three cannot drift apart.
+  // ONE header for Transactions and Insights: large title + month pill. Home does not use it any more
+  // (its hero carries the pill inline, beside the balance label). There is no mode row: the app is
+  // personal-only, so the screen has one set of rows and the header no longer offers a filter.
   function screenHeaderHtml(title) {
     return '<div class="screen-head">' +
       '<h2 class="large-title">' + escapeHtml(title) + "</h2>" +
       '<button class="month-pill js-month-pick" type="button" aria-label="Pick a month">' +
       CALENDAR_ICON + '<span class="js-month-label">This month</span>' + CHEVRON_DOWN_ICON + "</button>" +
-      "</div>" +
-      '<div class="segmented" role="group" aria-label="Mode">' +
-      '<button class="seg-btn" type="button" data-mode="personal">Personal</button>' +
-      '<button class="seg-btn" type="button" data-mode="business">Business</button>' +
       "</div>";
   }
 
@@ -4035,8 +4528,7 @@
       escapeHtml(transaction.merchant || capitalise(transaction.category || "Uncategorised")) + "</div>" +
       '<div class="result-amount">' + escapeHtml(money(transaction.amount)) + "</div>" +
       '<div class="result-meta">' + escapeHtml(isoDate(transaction.txn_date)) + " \u00b7 " +
-      escapeHtml(capitalise(transaction.category || "uncategorised")) + " \u00b7 " +
-      escapeHtml(transaction.mode || state.mode) + "</div>" +
+      escapeHtml(capitalise(transaction.category || "uncategorised")) + "</div>" +
       "</div>";
   }
 
@@ -4108,7 +4600,6 @@
   var addAmount = "";        // what the keypad has typed: digits and at most one "."
   var addCategory = null;    // null until a chip is tapped; tapping it again clears it
   var addType = "expense";
-  var addMode = "personal";
   var addSaving = false;     // one save at a time, however fast Save is tapped
   var addSheetClosing = null; // the sheet's close promise, so a save can wait for it
 
@@ -4289,11 +4780,6 @@
     paintAddToggle("addTypeToggle", "addType", addType);
   }
 
-  function setAddMode(value) {
-    addMode = value === "business" ? "business" : "personal";
-    paintAddToggle("addModeToggle", "addMode", addMode);
-  }
-
   // focus() always asks iOS not to pan the page to "help": the sheet lifts for the keyboard instead, and
   // the field is centred inside the sheet's own box afterwards.
   function focusWithoutScroll(field) {
@@ -4381,7 +4867,7 @@
           merchant: $("addMerchant").value.trim() || null,
           category: addCategory,          // nothing tapped means null, not ""
           type: addType,
-          mode: addMode,
+          mode: "personal",
           note: $("addNote").value.trim() || null,
           commitment_id: paying ? paying.id : null   // the Pay flow's link (0004); a plain save sends none
         })
@@ -4459,7 +4945,6 @@
       kv("Date", isoDate(row.txn_date)) +
       kv("Category", row.category || "uncategorised") +
       kv("Type", row.type) +
-      kv("Mode", row.mode) +
       (items ? '<div class="card-title" style="margin-top:16px">Items</div>' + items : "") +
       '<div class="card-title" style="margin-top:16px">Receipt</div>' +
       '<div class="empty" id="receiptNote">Loading photo\u2026</div>' +
@@ -4484,8 +4969,6 @@
       '<select class="field" id="editCategory">' + options(CATEGORIES, row.category) + "</select></div>" +
       '<div class="form-row"><label class="form-label" for="editType">Type</label>' +
       '<select class="field" id="editType">' + options(["expense", "income"], row.type) + "</select></div>" +
-      '<div class="form-row"><label class="form-label" for="editMode">Mode</label>' +
-      '<select class="field" id="editMode">' + options(["personal", "business"], row.mode) + "</select></div>" +
       '<div class="sheet-actions"><button class="btn-primary" id="saveBtn" type="button">Save</button>' +
       '<button class="btn-ghost" id="cancelEditBtn" type="button">Cancel</button></div>';
   }
@@ -4540,7 +5023,7 @@
           merchant: $("editMerchant").value.trim(),
           category: $("editCategory").value,
           type: $("editType").value,
-          mode: $("editMode").value
+          mode: "personal"
         })
       });
       closeSheet();
@@ -4589,7 +5072,7 @@
       var blob = await shrinkImage(file, 1600, 0.85);
       var form = new FormData();
       form.append("file", blob, "receipt.jpg");
-      form.append("mode", addMode);
+      form.append("mode", "personal");
       var transaction = await api("/transactions/scan", { method: "POST", body: form });
       closeAddSheet(); // the new row is on the list behind the sheet, with a toast to confirm
       afterAdd(transaction, savedMessage(transaction));   // e.g. "TNG · RM 12.50"
@@ -4630,7 +5113,7 @@
       var transaction = await api("/transactions/text", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: text, mode: addMode })
+        body: JSON.stringify({ text: text, mode: "personal" })
       });
       $("textInput").value = "";
       closeAddSheet(); // the new row is on the list behind the sheet, with a toast to confirm
@@ -5021,7 +5504,7 @@
 
   async function loadInsights() {
     var plan = periodPlan();
-    var requested = plan.period + "|" + state.month + "|" + state.mode;
+    var requested = plan.period + "|" + state.month;
     $("insightError").innerHTML = "";
     $("insightTotal").textContent = money(0);
     $("insightPeriodTag").textContent = "";
@@ -5035,10 +5518,9 @@
     try {
       // One call per month the period touches; the day-level maths happens in the browser.
       var batches = await Promise.all(plan.months.map(function (month) {
-        return api("/transactions?month=" + encodeURIComponent(month) +
-          "&mode=" + encodeURIComponent(state.mode));
+        return api("/transactions?month=" + encodeURIComponent(month) + "&mode=personal");
       }));
-      if (requested !== plan.period + "|" + state.month + "|" + state.mode) return;
+      if (requested !== plan.period + "|" + state.month) return;
       var all = batches.reduce(function (rows, batch) { return rows.concat(batch); }, []);
       trackEarliestYear(all);
       renderInsights(plan,
@@ -5158,18 +5640,8 @@
     paintCommitmentsSetting();
   }
 
-  function openCommitSheet() {
-    if (commitMonth !== state.month) commitRows = null;   // never show another month's rows
-    commitMonth = state.month;
-    commitError = null;
-    renderCommitments();          // cached rows at once, or "Loading…" until the reply lands
-    $("commitSheet").scrollTop = 0;
-    openOverlay($("commitOverlay"));
-    loadCommitments();
-  }
-
-  function closeCommitSheet(fromOffset) {
-    closeOverlay($("commitOverlay"), null, fromOffset);
+  function openCommitmentsPage() {
+    openSettingsPage("commitments");
   }
 
   // Pay is the transaction, not the mark: the Add sheet opens prefilled on Manual, and the paid mark is
@@ -5201,7 +5673,7 @@
       toast("Transaction saved, but marking it paid failed.", "warn");
     }
     refreshFinanceCard();
-    if ($("commitOverlay").classList.contains("open")) loadCommitments();
+    if (subPage === "commitments") loadCommitments();
   }
 
   async function addCommitment(button) {
@@ -5270,6 +5742,144 @@
     value.textContent = active ? active + " monthly" : "None";
   }
 
+  /* ---------- settings sub-pages ---------- */
+  // A full page over the tabs with its own Back header. Settings home is still the screen behind it, so
+  // Back (and any tab tap) lands there. The commitment page is the old sheet's content, with the same
+  // list, add form and Pay flow.
+
+  var subPage = null;   // "opening" | "budget" | "commitments"; null on Settings home
+
+  function moneyInput(kind) { return $(kind === "budget" ? "monthlyBudget" : "openingBalance"); }
+
+  // An empty budget means "no budget" (0), which is a real change. An empty opening balance means
+  // "nothing to save": the field starts blank when the stored value is 0.
+  function moneyDirty(kind) {
+    if (!financeSettings) return false;
+    var typed = parseMoneyInput(moneyInput(kind).value);
+    var stored = kind === "budget"
+      ? (Number(financeSettings.monthly_budget) || 0)
+      : (Number(financeSettings.opening_balance) || 0);
+    if (kind === "budget") return (typed === null ? 0 : typed) !== stored;
+    return typed !== null && typed !== stored;
+  }
+
+  function setSubStatus(kind, message, tone) {
+    var node = $(kind === "budget" ? "budgetStatus" : "openingStatus");
+    node.textContent = message || "";
+    node.classList.toggle("is-ok", tone === "ok");
+    node.classList.toggle("is-error", tone === "error");
+  }
+
+  function paintSubSave(kind) {
+    var typed = parseMoneyInput(moneyInput(kind).value);
+    var usable = kind === "budget"
+      ? (typed === null || (isFinite(typed) && typed >= 0))
+      : (typed !== null && isFinite(typed));
+    $(kind === "budget" ? "budgetSaveBtn" : "openingSaveBtn").disabled = !(usable && moneyDirty(kind));
+  }
+
+  async function saveSubMoney(kind) {
+    var typed = parseMoneyInput(moneyInput(kind).value);
+    var body = {};
+    if (kind === "budget") {
+      if (typed !== null && (!isFinite(typed) || typed < 0)) {
+        setSubStatus(kind, "Enter 0 or more, or leave it empty.", "error");
+        return;
+      }
+      body.monthly_budget = typed === null ? 0 : typed;   // empty clears the budget
+    } else {
+      if (typed === null || !isFinite(typed)) {
+        setSubStatus(kind, "Enter an amount like 1250.00.", "error");
+        return;
+      }
+      body.opening_balance = typed;
+    }
+    var button = $(kind === "budget" ? "budgetSaveBtn" : "openingSaveBtn");
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    try {
+      financeSettings = await api("/finance/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      paintMoneySettings();              // normalises the field and the two Settings rows
+      paintSubSave(kind);
+      setSubStatus(kind, "Saved.", "ok");
+      refreshFinanceCard();
+    } catch (error) {
+      setSubStatus(kind, friendly(error), "error");
+      paintSubSave(kind);
+    } finally {
+      button.removeAttribute("aria-busy");
+    }
+  }
+
+  function openSubPage(name) {
+    subPage = name;
+    $("subOpening").hidden = name !== "opening";
+    $("subBudget").hidden = name !== "budget";
+    $("subCommitments").hidden = name !== "commitments";
+    $("subTitle").textContent = name === "opening" ? "Opening balance"
+      : name === "budget" ? "Monthly budget" : "Commitments";
+    $("settingsSubpage").hidden = false;
+    document.body.classList.add("is-subpage");
+    $("subBody").scrollTop = 0;
+    if (name === "opening" || name === "budget") {
+      paintMoneySettings();
+      setSubStatus(name, "");
+      paintSubSave(name);
+      if (!financeSettings) loadMoneySettings();
+    }
+    if (name === "commitments") {
+      if (commitMonth !== state.month) commitRows = null;   // never show another month's rows
+      commitMonth = state.month;
+      commitError = null;
+      renderCommitments();          // cached rows at once, or "Loading…" until the reply lands
+      loadCommitments();
+    }
+  }
+
+  // Every way into a page starts here: the tab behind it is Settings, so Back lands on Settings home.
+  function openSettingsPage(name) {
+    if (state.screen !== "settings") showScreen("settings");
+    openSubPage(name);
+  }
+
+  function closeSubPage() {
+    if (!subPage) return;
+    subPage = null;
+    $("settingsSubpage").hidden = true;
+    document.body.classList.remove("is-subpage");
+    $("subBody").scrollTop = 0;
+  }
+
+  // Back: the two finance pages ask before throwing an edit away; the commitments page just leaves.
+  function leaveSubPage() {
+    if ((subPage === "opening" || subPage === "budget") && moneyDirty(subPage)) {
+      askConfirm("Discard changes?", "Your edits on this page will be lost.", "Discard", closeSubPage);
+      return;
+    }
+    closeSubPage();
+  }
+
+  // One centred confirm, two actions. The action is captured when it is answered, so closing the popup
+  // and running it happen in that order and a second tap cannot run it twice.
+  var confirmAction = null;
+
+  function askConfirm(title, message, label, action) {
+    $("confirmTitle").textContent = title;
+    $("confirmMessage").textContent = message;
+    $("confirmYesBtn").textContent = label;
+    confirmAction = action;
+    openOverlay($("confirmOverlay"));
+  }
+
+  function closeConfirm() {
+    confirmAction = null;
+    closeOverlay($("confirmOverlay"));
+  }
+
   /* ---------- settings: money ---------- */
 
   var financeSettings = null;   // the last /finance/settings reply; the two inputs are painted from it
@@ -5289,6 +5899,9 @@
     var budget = Number(financeSettings.monthly_budget) || 0;
     $("openingBalance").value = opening ? opening.toFixed(2) : "";
     $("monthlyBudget").value = budget ? budget.toFixed(2) : "";   // 0 is "no budget": show the placeholder
+    $("openingValue").textContent = opening ? money(opening) : "Not set";
+    $("budgetValue").textContent = budget ? money(budget) : "No budget";
+    if (subPage === "opening" || subPage === "budget") paintSubSave(subPage);
   }
 
   async function loadMoneySettings() {
@@ -5301,44 +5914,10 @@
     await loadCommitments();       // also paints the Commitments row's count
   }
 
-  // One field per save: the API keeps whatever the request omits, and `change` fires once focus leaves.
-  async function saveMoneySetting(field) {
-    var input = $(field === "budget" ? "monthlyBudget" : "openingBalance");
-    var parsed = parseMoneyInput(input.value);
-    if (parsed === null) { paintMoneySettings(); return; }      // an empty field is not a change
-    if (!isFinite(parsed)) {
-      toast("Enter an amount like 1250.00.", "warn");
-      paintMoneySettings();
-      return;
-    }
-    if (field === "budget" && parsed < 0) {
-      toast("A budget cannot be negative.", "warn");
-      paintMoneySettings();
-      return;
-    }
-    var body = {};
-    body[field === "budget" ? "monthly_budget" : "opening_balance"] = parsed;
-    try {
-      financeSettings = await api("/finance/settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
-      });
-      input.value = parsed ? parsed.toFixed(2) : "";   // tidy only once the answer is in, never mid-typing
-      toast("Saved.");
-      refreshFinanceCard();
-    } catch (error) {
-      toast(friendly(error), "error");
-      paintMoneySettings();
-    }
-  }
-
   // The card's setup state is a dead end without this: Settings is a tab away, and the Money section is
   // what the message asks for, so go there and put it on screen.
   function showMoneySettings() {
-    showScreen("settings");
-    var section = $("moneySection");
-    if (section && section.scrollIntoView) section.scrollIntoView({ block: "start", behavior: "smooth" });
+    openSettingsPage("opening");
   }
 
   /* ---------- shell ---------- */
@@ -5362,7 +5941,6 @@
     $("keypadGrid").innerHTML = keypadHtml();
     setScanBusy(false);
     hideAddNotice();
-    setAddMode(state.mode);           // starts on the mode of the tab behind it
     paintAddDate();
     paintAddAmount();
     paintAddChips();
@@ -5409,7 +5987,11 @@
 
   function showScreen(name) {
     if (name === "add") { openAddSheet(); return; } // the "+" button opens the Add sheet
+    closeSubPage();          // a tab switch always lands on Settings home
     state.screen = name;
+    // Which screen is up decides the nav chrome: Home's hero is cobalt, the rest keep --browser-chrome.
+    document.documentElement.setAttribute("data-screen", name);
+    paintBrowserChrome();
     SCREENS.forEach(function (screen) { $("screen-" + screen).hidden = screen !== name; });
     replay($("screen-" + name), "is-entering");    // the page fade plays on every switch, not once
     Array.prototype.forEach.call(document.querySelectorAll(".tab"), function (tab) {
@@ -5418,13 +6000,6 @@
     closeAddSheet();
     window.scrollTo(0, 0);
     reloadScreen();
-  }
-
-  function setMode(mode) {
-    state.mode = mode === "business" ? "business" : "personal";
-    Array.prototype.forEach.call(document.querySelectorAll(".seg-btn[data-mode]"), function (button) {
-      button.classList.toggle("is-active", button.dataset.mode === state.mode);
-    });
   }
 
   function setFilter(filter) {
@@ -5603,9 +6178,6 @@
     Array.prototype.forEach.call(document.querySelectorAll(".tab"), function (tab) {
       tab.addEventListener("click", function () { showScreen(tab.dataset.screen); });
     });
-    Array.prototype.forEach.call(document.querySelectorAll(".seg-btn[data-mode]"), function (button) {
-      button.addEventListener("click", function () { setMode(button.dataset.mode); reloadScreen(); });
-    });
     Array.prototype.forEach.call(document.querySelectorAll(".seg-btn[data-filter]"), function (button) {
       button.addEventListener("click", function () { setFilter(button.dataset.filter); });
     });
@@ -5625,12 +6197,30 @@
     $("monthOverlay").addEventListener("click", function (event) {
       if (isOutsideTap(event, $("monthOverlay"))) closeMonthSheet();
     });
-    $("commitDoneBtn").addEventListener("click", closeCommitSheet);
-    $("commitSheet").addEventListener("click", handleCommitClick);
-    $("commitOverlay").addEventListener("click", function (event) {
-      if (isOutsideTap(event, $("commitOverlay"))) closeCommitSheet();
+    $("subCommitments").addEventListener("click", handleCommitClick);
+    $("commitmentsBtn").addEventListener("click", openCommitmentsPage);
+    $("openingRow").addEventListener("click", function () { openSettingsPage("opening"); });
+    $("budgetRow").addEventListener("click", function () { openSettingsPage("budget"); });
+    $("subBackBtn").addEventListener("click", leaveSubPage);
+    $("openingBalance").addEventListener("input", function () {
+      setSubStatus("opening", "");
+      paintSubSave("opening");
     });
-    attachSheetDrag("commitSheet", "commitOverlay", closeCommitSheet, false);
+    $("monthlyBudget").addEventListener("input", function () {
+      setSubStatus("budget", "");
+      paintSubSave("budget");
+    });
+    $("openingSaveBtn").addEventListener("click", function () { saveSubMoney("opening"); });
+    $("budgetSaveBtn").addEventListener("click", function () { saveSubMoney("budget"); });
+    $("confirmYesBtn").addEventListener("click", function () {
+      var action = confirmAction;
+      confirmAction = null;
+      closeOverlay($("confirmOverlay"), function () { if (action) action(); });
+    });
+    $("confirmNoBtn").addEventListener("click", closeConfirm);
+    $("confirmOverlay").addEventListener("click", function (event) {
+      if (isOutsideTap(event, $("confirmOverlay"))) closeConfirm();
+    });
     // What's New: Skip in the head, Next (then Got it) at the foot, and the scrim and the drag close
     // it too — all three ways out write the version, so the sheet never comes back for this version.
     $("whatsNewSkipBtn").addEventListener("click", closeWhatsNew);
@@ -5688,7 +6278,6 @@
       if (isOutsideTap(event, $("moneyFieldOverlay"))) closeMoneyField();
     });
     // No attachSheetDrag: the popup is centred and has no swipe. The scrim, Cancel and Save close it.
-    $("commitmentsBtn").addEventListener("click", openCommitSheet);
     // The way back into the notes. It opens the card even when the stored version says the user has
     // read it — this is a deliberate request, and it must not write the version on the way in.
     $("whatsNewBtn").addEventListener("click", function () { openWhatsNew(); });
@@ -5722,10 +6311,6 @@
     $("textBtn").addEventListener("click", submitText);
     $("textInput").addEventListener("keydown", function (event) {
       if (event.key === "Enter") { event.preventDefault(); submitText(); }
-    });
-    $("addModeToggle").addEventListener("click", function (event) {
-      var hit = event.target.closest ? event.target.closest("[data-add-mode]") : null;
-      if (hit) setAddMode(hit.dataset.addMode);
     });
     // The keys are for the amount: while Merchant or Note holds the caret the real keyboard is up, so the
     // keypad hides. It is derived from these two flags, never remembered.
@@ -5765,12 +6350,24 @@
       centreFocusedFieldSoon();
     });
     watchKeyboard();
+    wirePasswordReveal("authPassword", "authPasswordReveal");
+    wirePasswordReveal("authPassword2", "authPassword2Reveal");
     $("authSubmit").addEventListener("click", submitAuth);
     $("authForgot").addEventListener("click", function () { setAuthView("forgot"); });
     $("authBack").addEventListener("click", function () { setAuthView("signin"); });
-    $("signOutBtn").addEventListener("click", signOut);
-    $("openingBalance").addEventListener("change", function () { saveMoneySetting("opening"); });
-    $("monthlyBudget").addEventListener("change", function () { saveMoneySetting("budget"); });
+    if (SIGNUP_ENABLED) {
+      if ($("authInvite")) $("authInvite").hidden = true;
+      $("authSignup").addEventListener("click", showSignup);
+      $("signupBack").addEventListener("click", hideSignup);
+      $("signupSubmit").addEventListener("click", submitSignup);
+      $("signupResend").addEventListener("click", resendSignup);
+      $("signupDifferent").addEventListener("click", differentSignupEmail);
+      wirePasswordReveal("signupPassword", "signupPasswordReveal");
+      wirePasswordReveal("signupPassword2", "signupPassword2Reveal");
+    }
+    $("signOutBtn").addEventListener("click", function () {
+      askConfirm("Sign out?", "You will need to sign in again to continue.", "Sign out", signOut);
+    });
     AUTH_FIELDS.forEach(function (id) {
       var input = $(id);
       input.addEventListener("focus", function () { revealAuthField(input); });
@@ -5875,13 +6472,17 @@
   var splashSettled = startSplash();
 
   async function start() {
+    // Before the first paint: the app opens on Home, and Home's hero is the screen whose chrome is
+    // cobalt. A server-rendered default would flash the light bar for one frame.
+    document.documentElement.setAttribute("data-screen", state.screen);
     renderScreenHeaders(); // before wire(), so the shared pills exist to bind and paint
     wire();
-    setMode("personal");
     state.month = currentMonth();
     paintMonth();
     setScanBusy(false); // paints the camera icon on the scan row
     renderAccount();
+    paintInstallHint();
+    startBuildDebug();
     await restoreSession();   // the session check the splash waits for
     splashSettled();
   }
@@ -5889,7 +6490,18 @@
   // The splash stays up until this has settled, then the user sees either the sign-in card or their own
   // data. An invite or recovery link wins over a stored session: it is there to set a password.
   async function restoreSession() {
-    if (readAuthRedirect()) { showAuth("setpassword"); return; }
+    if (readAuthRedirect()) {
+      var redirected = readSession();
+      if (authRedirectType === "signup") {
+        // The confirmation link carries a session: finish sign-in with it. If it carried no tokens,
+        // the address is confirmed and the user simply signs in.
+        if (redirected) { await afterSignIn(redirected); return; }
+        showAuth("signin", "Your email is confirmed. Sign in to continue.");
+        return;
+      }
+      showAuth("setpassword");
+      return;
+    }
     var session = readSession();
     if (!session) { showAuth("signin"); return; }
     if (sessionExpired(session)) {

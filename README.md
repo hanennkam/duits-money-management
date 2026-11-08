@@ -129,6 +129,7 @@ store); never commit them, never bake them into the image or pass them as build 
 | `RECEIPTS_BUCKET` | no | defaults to `receipts` |
 | `MAX_UPLOAD_BYTES` | no | defaults to `10485760` (10 MB) |
 | `ENVIRONMENT` | no | set to `production` to switch `/docs`, `/redoc` and `/openapi.json` off |
+| `SIGNUP_ENABLED` | no | **off by default** (invite-only). Set to `true` to serve the Create-account screen and sign up through Supabase; see *Signing in* and the Supabase dashboard settings it needs |
 | `PORT` | no | port uvicorn binds inside the container. `render.yaml` sets it to `10000`; the `Dockerfile` default is `8000` |
 
 If a required variable is missing or blank, startup aborts with a message naming exactly which
@@ -216,8 +217,8 @@ Settings keeps the large title alone.
   switching to the Transactions tab. A small amber dot marks rows whose
   `raw_extraction.needs_review` is true, and the "Needs review" chip only appears while at least one
   row is flagged.
-- **Transactions** — the same month and mode controls, plus a client-side search over merchant
-  and category and an All/Expenses/Income filter. Rows are grouped by day ("Today", "Yesterday",
+- **Transactions** — the month pill (the app is personal-only, so there is no mode control), plus a
+  client-side search over merchant and category and an All/Expenses/Income filter. Rows are grouped by day ("Today", "Yesterday",
   then `DD/MM/YYYY`) with that day's net total on the right; tapping a row opens the same
   detail/edit sheet as Home.
 - **Insights** — the shared header with its own **Week** / **Month** row under it (the seven days
@@ -283,11 +284,10 @@ Settings keeps the large title alone.
     on 932); nothing in Manual scrolls. A 375×667 box is tight enough to scroll a little. The chosen chip scrolls into
     view with part of the previous chip showing when the
     sheet opens or a chip is picked; with nothing chosen the row starts at 0.
-  - **Mode** is the row's compact toggle, right-aligned, in the Expense | Income control's style: a
-    rounded pill track on `--control`, 32px tall, whose selected segment paints a `--seg-selected`
-    pill with a `--seg-shadow` (14px text, semibold when selected). Each segment's tap box stays 44px:
-    it spills over the track symmetrically, and the pill paints behind the label through the button's
-    `::after`. It starts on the Home tab's mode.
+  - **Mode** is not a choice any more: the app is personal-only, so the card has no Mode row and every
+    new row is saved as `personal`. The API still accepts `mode`, and rows already stored as `business`
+    stay in the database — out of the lists, the totals and the balance — with no way to delete them
+    from the UI.
   - **Note** is the `raw_extraction.note` of the row: the API has no column for it, and the payload's keys
     are the same whether or not a note is typed (`note` is `null` when blank). A row opened from Pay
     carries the commitment's name as the merchant, the amount, the bills category, an expense, and the
@@ -309,15 +309,15 @@ Settings keeps the large title alone.
   server's `405` once looked like a dead Save button). A `409` leaves the sheet open and shows
   "Already recorded" with the existing transaction, so nothing typed is lost. Swipe down from almost
   anywhere — the header, the amount, any empty space (or tap outside, or Cancel) — to dismiss.
-- **Settings** — iOS inset groups: *Appearance* holds the System/Light/Dark segmented control,
-  *Security* holds one tappable row (blue key icon, "API key",
-  live "Saved on this device" / "Not set" value) that opens the change-key sheet, and *About*
-  lists App, **Build**, Currency and Date format as plain read-only rows. The Build row is the one
-  way to see *on the phone* whether the Home Screen app is running the current page: it prints the
-  stamp (the git short hash, injected by `GET /`, or `dev` locally) plus the status bar style the meta
-  ended up with and whether it is running standalone. If the shortcut shows an older stamp it is
-  serving a cached document.
-  There is no service worker here — the page is the only asset, with its CSS and JS inline.
+- **Settings** — iOS inset groups, headers and cards only (no helper copy under the rows), in this
+  order: *Budget & Finance* (Opening balance, Monthly budget, Commitments, Currency), *Appearance*
+  (the System/Light/Dark segmented control, inline), *Account* (signed-in email, Sign out) and *About*
+  (Version, What's new, Date format). The first three finance rows open **full sub-pages** with a Back
+  header and the tab bar/FAB hidden; Opening balance and Monthly budget have one input and a Save that
+  stays disabled until the value changes (Back with an edit asks before discarding), and Commitments is
+  the old sheet's list, add form and Pay flow. Sign out asks first. The one-line "Add to Home Screen"
+  hint lives on the sign-in screen and is hidden when the app already runs standalone. There is no
+  service worker here — the page is the only asset, with its CSS and JS inline.
 
   Opening `app/static/index.html` from disk shows `{{BUILD}}`; only the served page is filled in.
 
@@ -368,12 +368,18 @@ The standalone app is edge to edge, in both themes:
 - `<meta name="viewport">` carries `viewport-fit=cover`, which is what lets the page reach under the
   status bar and the home indicator; `apple-mobile-web-app-capable=yes` plus
   `apple-mobile-web-app-title` make the shortcut launch as an app rather than a Safari tab.
-- **`html` paints the whole screen** (`background: var(--bg)`), so the strip behind the status bar and
-  the one behind the home indicator are the theme's own background, never a band of another colour.
-  `theme-color` is kept in step (#F2F2F7 light / #000000 dark) for the surfaces iOS paints itself.
-- The nav bar's safe-area inset is **padding, not a margin**, so its frosted background extends up
-  behind the clock while its content (the `Duits` mark and the refresh button) starts below it.
-  The tab bar pads its bottom the same way, so its last row clears the home indicator.
+- **`html` paints the whole screen** (`background: var(--bg)`), so the strip behind the home indicator
+  is the theme's own background. The strip behind the status bar is painted by `body::before`, a fixed
+  layer of height `--sat`: light is `--brand-grad-from`, dark is `var(--bg)` — or the hero's own top on
+  Home. The splash and auth screens cover the app, so they paint their own brand band for the inset.
+  `theme-color` follows the top surface: light is always `--brand-grad-from`; dark is
+  `--brand-grad-from` on Home and `--browser-chrome` elsewhere, matching the bar.
+- The nav bar's safe-area inset is **padding, not a margin**, so its background extends up behind the
+  clock while its content (the `Duits` mark and the refresh button) starts below it. In light theme the
+  bar is the brand gradient on every screen, with a white wordmark and a borderless translucent refresh
+  disc; on Home it stays transparent over the hero, so the hero's gradient *is* the bar and there is no
+  seam. Dark keeps the frosted `--bar` (and the transparent Home variant). The tab bar pads its bottom
+  the same way, so its last row clears the home indicator.
 - Every inset has one name — `--sat`, `--sab`, `--sal`, `--sar`, each resolved once from `env()`
   at `:root` — so a probe (or a device without a notch) has a single place to simulate them. Nothing
   else in the file calls `env()` directly.
@@ -389,18 +395,15 @@ The standalone app is edge to edge, in both themes:
   then the gaps. A tall phone trips none of them (844 and
   932 give boxes of 760 and 830) and keeps every size it was tuned with. (That was the old 65% Manual;
   the Stitch layout is the full sheet. See the Add section.)
-- **The status bar style is theme-aware, and that is the honest answer.** `black-translucent` is what
-  the page ships (it is what lets the page paint under the bar), but iOS gives it **white** glyphs,
-  and the light theme's bar is `rgba(249, 249, 249, .85)` — white on near-white is unreadable. So the
-  pre-paint script (and the theme switch) keep `black-translucent` for dark and ask for `default`
-  (black glyphs) for light: the only two glyph colours iOS offers, chosen by the theme that is already
-  decided before the first paint. Full-screen-ness is unaffected, because `viewport-fit=cover` and the
-  safe-area padding are what put content under the bar; whatever iOS decides, `env()` reports the truth
-  and the layout follows it. The alternative — `black-translucent` in both themes — needs the light
-  theme's top strip darkened to a band, which is the colour hack this deliberately avoids.
-- The **Build** row in Settings prints the stamp (the git short hash, injected by `GET /`, or `dev`
-  locally), the status bar style the meta ended up with and whether it is running standalone, so a
-  phone can be asked what it actually loaded.
+- **The status bar style is fixed at `black-translucent`.** iOS reads it at launch, not when the theme
+  changes, so switching it per theme left a light launch with an opaque strip (and the Home hero not
+  reaching the top) until the next launch. White glyphs now always have a dark surface: the brand top
+  in light, the dark bar/hero in dark. `viewport-fit=cover` plus the safe-area padding still put the
+  content under the bar, and `env()` still reports the real inset.
+- The **Version** row in Settings is a clean release version in production, read from the repo's
+  `VERSION` file; in development it is the debug string instead (the git short hash, the status-bar
+  style and whether it is running standalone), so a phone can still be asked what it actually loaded.
+  `GET /` picks one or the other from `ENVIRONMENT`.
 
 ### Splash
 
@@ -665,11 +668,11 @@ next to the palette: `--ease-ios: cubic-bezier(0.32, 0.72, 0, 1)`, with `--dur-s
   under the sheet) and that is the only other thing in an overlay that animates opacity. A downward
   drag cancels whatever animation is running, hands the transform to the finger and releases into the
   same exit (see *Swipe to dismiss* below).
-- **The money block fades in once per month and mode.** `fadeMoneyCards()` is called by `loadHome()`
-  when `/finance/summary` answers and replays `.is-money-fresh` on the balance card, the
-  income/expense row and whichever budget card is on screen. `money-in` is opacity only, so Reduce
-  Motion keeps it (just shorter). It remembers the `month|mode` it last faded, so a re-read after a
-  save (`refreshFinanceCard`) never blinks the figures, and coming back to Home does not repeat it.
+- **The money block fades in once per month.** `fadeMoneyCards()` is called by `loadHome()` when
+  `/finance/summary` answers and replays `.is-money-fresh` on the balance card, the income/expense row
+  and whichever budget card is on screen. `money-in` is opacity only, so Reduce Motion keeps it (just
+  shorter). It remembers the `month` it last faded, so a re-read after a save (`refreshFinanceCard`)
+  never blinks the figures, and coming back to Home does not repeat it.
 - **One ring after a What's New action.** The button arms `pulseHomeLater(selector)` before the card
   closes; a `MutationObserver` then waits until no overlay is open (every action opens a sheet) and
   `pulseHome()` replays `.is-pulse` on the first target that is actually visible
@@ -739,10 +742,10 @@ box takes its hue from an inline `--cat`, not from a hardcoded colour in the mar
 Two details that are easy to get wrong, so they are pinned:
 
 - a tiny inline script in `<head>` sets `data-theme` **before** the first paint, so a dark phone
-  never flashes a white page (it also seeds `theme-color` and the iOS status bar style);
-- the theme switch keeps `<meta name="theme-color">` (#F2F2F7 / #000000), the status bar style
-  (default / black-translucent — see *Home Screen* below) and `color-scheme` (so native inputs and
-  the date picker follow) in step with the palette.
+  never flashes a white page (it also seeds `theme-color`);
+- the theme switch keeps `<meta name="theme-color">` (the brand top in light; `#000000` off Home in
+  dark) and `color-scheme` (so native inputs and the date picker follow) in step with the palette. The
+  status bar style is not themed: it is fixed at `black-translucent` in `<head>` (see *Home Screen*).
 
 Checked in a real browser at 375×667, 375×812 and 390×844 across 17 states in each theme — Home,
 Transactions, Insights (week + month), Settings, the Add sheet (keypad, chips, Smart Entry,
@@ -754,6 +757,8 @@ something.
 ## API
 
 All of these except `/health` need `Authorization: Bearer <Supabase access token>`. A signed-in user sees only their own rows; another user's id answers `404`. While `ALLOW_LEGACY_API_KEY` is on, the curl examples below also work with `X-API-Key: <API_KEY>`, which acts as `LEGACY_USER_ID`.
+
+`mode` stays in the API and in the database. The web UI always sends `mode=personal`, and `/finance/summary` now totals one mode, so a stored `business` row is still readable through the API but does not move the personal balance the app shows.
 
 | Method | Path | Body | Returns |
 | --- | --- | --- | --- |
@@ -982,11 +987,10 @@ Safari. Both write the same rows.
 
 - **A stale Home Screen app is now ruled out by the header.** There is no service worker and no
   external CSS/JS — the page *is* the asset — and `GET /` sends `Cache-Control: no-store` (verified on
-  the running server), so no copy of the document can be served from cache at all. The **Build** row
-  in Settings remains the way to check what a phone actually loaded (the git short hash, injected by
-  `GET /`, or `dev` locally); if its stamp does not match the deployed commit, the shortcut needs
-  deleting and re-adding. The cost is re-downloading a ~150KB page every
-  launch, which is the right trade for an app whose only asset is that page.
+  the running server), so no copy of the document can be served from cache at all. The Version row in
+  Settings shows the release the page came from; in development it carries the short SHA as well, so a
+  stale shortcut is still obvious. The cost is re-downloading a ~150KB page every launch, which is the
+  right trade for an app whose only asset is that page.
 - **The splash's timing is measured in Chrome, not on a phone.** The probes show the minimum hold,
   the 4s waking line, the 60s backstop (in the harness, with fake timers), the side effects of a
   failing API and that it never returns; what they cannot show is how the 1200ms feels on a cold
@@ -1021,10 +1025,10 @@ Safari. Both write the same rows.
   the scrim looks mid-drag. Locking the whole Add sheet with `touch-action: none` is what makes that
   one reliable; the edit sheet keeps scrolling, so its header is the drag-locked part.
 - **The iOS status bar can only be reasoned about, not tested, from here.** `black-translucent` is
-  shipped and the theme swap is decided before the first paint, but whether iOS re-reads that meta on
-  a relaunch (rather than only at install) cannot be checked without a device. If it does not, a light
-  theme would show white glyphs over the near-white bar; the fallback would be to keep `default` in
-  both themes (`theme-color` still matches the bar, so the top looks continuous either way).
+  fixed in `<head>`, so a light launch no longer gets the opaque strip, but whether iOS re-reads the
+  meta on a relaunch cannot be checked without a device. The invariant to check: the strip behind the
+  clock is the brand top (light) or dark (dark), with white glyphs legible, and the Home hero reaches
+  the top with no seam.
 - **Not yet run on a physical iPhone.** Everything is verified in a desktop browser sized to the
   phone, so these remain open: WebKit's own Web Animations timing against the built-in keypad, whether
   iOS really leaves the page alone now that it is scroll-locked and nothing calls `focus()` with a

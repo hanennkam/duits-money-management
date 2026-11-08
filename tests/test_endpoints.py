@@ -82,7 +82,12 @@ def stored(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, Any]]:
 
 @pytest.fixture
 def created(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    """Capture what POST /transactions inserts, with the dedupe lookup mocked out."""
+    """Capture what POST /transactions inserts, with both lookups mocked out.
+
+    The Pay lookup is stubbed too, and returns "no expense yet": without it a save that carries a
+    `commitment_id` reached the real Supabase project, which passed locally (its URL resolves) and failed
+    in CI. The Pay guard's own cases live in `pay_rows`, below.
+    """
     state: dict[str, Any] = {"rows": [], "lookups": []}
 
     def find(dedupe: str, *, user_id: Any) -> dict[str, Any] | None:
@@ -103,6 +108,7 @@ def created(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         return stored
 
     monkeypatch.setattr("app.db.find_by_dedupe_hash", find)
+    monkeypatch.setattr("app.db.find_pay_expense", lambda *_args, **_kw: None)
     monkeypatch.setattr("app.db.insert_transaction", insert)
     yield state
 
@@ -931,7 +937,7 @@ def test_another_owners_commitment_is_a_404_everywhere(
 
 
 def test_the_summary_is_derived_from_the_callers_rows(client: TestClient, money: dict[str, Any]) -> None:
-    """One balance over every mode and every month; one budget spend over the asked mode and month."""
+    """One balance per mode over every month; one budget spend over that mode and month."""
     money["settings"] = {
         "user_id": TEST_USER,
         "opening_balance": 1000.0,
@@ -954,10 +960,10 @@ def test_the_summary_is_derived_from_the_callers_rows(client: TestClient, money:
         "opening_balance": 1000.0,
         "monthly_budget": 2000.0,
         "total_income": 1200.0,
-        "total_expense": 1249.0,  # every mode, every month
-        "current_balance": 951.0,
+        "total_expense": 250.0,  # personal rows only, every month
+        "current_balance": 1950.0,
         "unpaid_commitments": 300.0,
-        "safe_to_spend": 651.0,
+        "safe_to_spend": 1650.0,
         "remaining_budget": 1800.0,  # 2000 - 200 spent; the unpaid bill is safe-to-spend's job
     }
 
@@ -965,7 +971,33 @@ def test_the_summary_is_derived_from_the_callers_rows(client: TestClient, money:
 
     assert business.json()["mode"] == "business"
     assert business.json()["remaining_budget"] == 1001.0  # 2000 - 999 in that mode
-    assert business.json()["current_balance"] == 951.0  # the balance does not move with the mode
+    assert business.json()["current_balance"] == 1.0  # 1000 + 0 income - 999, that mode only
+
+
+def test_business_rows_do_not_move_the_personal_balance(
+    client: TestClient, money: dict[str, Any]
+) -> None:
+    """Business rows stay stored (and readable by mode) but are outside the personal balance."""
+    money["settings"] = {
+        "user_id": TEST_USER,
+        "opening_balance": 1000.0,
+        "monthly_budget": 0.0,
+        "currency": "MYR",
+    }
+    money["totals"] = [
+        totals_row(month="2026-10", income=1200.0, expense=200.0),
+        totals_row(month="2026-10", mode="business", income=5000.0, expense=999.0),
+    ]
+    money["commitments"] = []
+
+    personal = client.get("/finance/summary?month=2026-10&mode=personal", headers=HEADERS)
+    assert personal.status_code == 200
+    assert personal.json()["current_balance"] == 2000.0  # 1000 + 1200 - 200; business ignored
+    assert personal.json()["safe_to_spend"] == 2000.0
+    assert personal.json()["remaining_budget"] is None  # no budget set
+
+    business = client.get("/finance/summary?month=2026-10&mode=business", headers=HEADERS).json()
+    assert business["current_balance"] == 5001.0  # 1000 + 5000 - 999; the row is still readable
 
 
 def test_a_pay_expense_never_eats_the_budget_but_the_unpaid_bill_never_feeds_it(
