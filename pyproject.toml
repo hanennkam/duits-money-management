@@ -1,4 +1,6 @@
 [tool.pytest.ini_options]
+# Keep real-project integration tests out of ordinary local test runs.
+addopts = ["-m", "not staging"]
 pythonpath = ["."]
 testpaths = ["tests"]
 markers = [
