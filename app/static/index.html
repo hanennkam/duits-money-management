@@ -1386,6 +1386,26 @@
     transition-delay: calc(var(--i, 0) * 60ms);
   }
   .donut.is-drawn .donut-seg { stroke-dashoffset: 0; }
+  /* ---------- first-visit welcome ---------- */
+  var WELCOME_SEEN_SLOT = "duits.welcome.seen";
+
+  function showWelcome() {
+    var screen = $("welcomeScreen");
+    if (!screen) { showAuth("signin"); return; }
+    screen.hidden = false;
+    screen.setAttribute("aria-hidden", "false");
+  }
+
+  function continueFromWelcome() {
+    var screen = $("welcomeScreen");
+    if (screen) {
+      screen.hidden = true;
+      screen.setAttribute("aria-hidden", "true");
+    }
+    try { window.localStorage.setItem(WELCOME_SEEN_SLOT, "1"); } catch (error) { /* storage may be unavailable */ }
+    showAuth("signin", "Sign in to continue. New account registration is being prepared.");
+  }
+
   /* ---------- sign in ---------- */
   /* A gate over the app, not a sheet: it never scales the page behind it. One column, centred and
      sitting ~45% from the top, which scrolls when the keyboard eats the height.
@@ -1448,6 +1468,39 @@
     font-size: 13px; color: var(--text-2);
     margin: 20px 0 0; text-align: center;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+
+  /* ---------- first-visit welcome ---------- */
+  .welcome {
+    position: fixed; inset: 0; z-index: 41; display: flex; align-items: center;
+    justify-content: center; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    padding: max(var(--sat), 28px) 26px max(var(--sab), 28px);
+    background: var(--bg);
+  }
+  .welcome[hidden] { display: none; }
+  .welcome-inner { width: 100%; max-width: 440px; margin: auto; }
+  .welcome-brand { display: flex; align-items: center; gap: 10px; margin-bottom: clamp(52px, 12vh, 104px); }
+  .welcome-brand img { width: 34px; height: 34px; border-radius: 9px; box-shadow: var(--shadow); }
+  .welcome-brand span { font-size: 19px; font-weight: 700; letter-spacing: -.04em; color: var(--text); }
+  .welcome-kicker { color: var(--accent, #30a46c); font-size: 12px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; margin: 0 0 18px; }
+  .welcome-title { max-width: 420px; color: var(--text); font-size: clamp(42px, 10vw, 66px); line-height: .99; letter-spacing: -.065em; font-weight: 750; margin: 0 0 22px; }
+  .welcome-copy { max-width: 360px; color: var(--text-2); font-size: 17px; line-height: 1.55; margin: 0; }
+  .welcome-rule { height: 1px; background: var(--line); margin: 38px 0 22px; }
+  .welcome-points { display: grid; gap: 16px; margin: 0; padding: 0; list-style: none; }
+  .welcome-points li { display: flex; align-items: center; gap: 13px; color: var(--text); font-size: 14px; }
+  .welcome-point-mark { width: 28px; height: 28px; border-radius: 9px; display: grid; place-items: center; flex: 0 0 28px; color: var(--accent, #30a46c); background: color-mix(in srgb, var(--accent, #30a46c) 11%, transparent); font-size: 15px; }
+  .welcome-actions { display: grid; gap: 14px; margin-top: 42px; }
+  .welcome-primary { min-height: 54px; border-radius: 27px; font-size: 16px; font-weight: 650; }
+  .welcome-signin { color: var(--text-2); background: transparent; border: 0; font: inherit; font-size: 14px; padding: 8px; cursor: pointer; }
+  .welcome-foot { color: var(--muted); font-size: 11px; line-height: 1.5; text-align: center; margin: 26px auto 0; max-width: 300px; }
+  @media (prefers-reduced-motion: no-preference) {
+    .welcome-inner { animation: welcome-arrive 520ms cubic-bezier(.2,.75,.25,1) both; }
+    @keyframes welcome-arrive { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+  }
+  @media (max-height: 680px) {
+    .welcome-brand { margin-bottom: 36px; }
+    .welcome-rule { margin: 24px 0 18px; }
+    .welcome-actions { margin-top: 26px; }
   }
 
   .field, .chip, .btn-primary, .btn-danger, .pill { max-width: 100%; }
@@ -2082,6 +2135,27 @@
 <!-- Sign in is a gate over the whole app, not a sheet: there is nothing behind it to dismiss to, so it has
      no scrim, no drag and no close. It is the one layer allowed to fade on its own opacity (it holds no
      sheet, so nothing can go translucent inside it). -->
+<!-- First-visit welcome gate. The app itself remains mounted underneath, but no private content is shown before auth. -->
+<div class="welcome" id="welcomeScreen" hidden aria-labelledby="welcomeTitle">
+  <div class="welcome-inner">
+    <div class="welcome-brand"><img src="/logo.png" alt="" width="34" height="34"><span>Duits</span></div>
+    <p class="welcome-kicker">A clearer view of your money</p>
+    <h1 class="welcome-title" id="welcomeTitle">Your money,<br>understood.</h1>
+    <p class="welcome-copy">A calmer way to keep track of what comes in, what goes out, and what matters next.</p>
+    <div class="welcome-rule" aria-hidden="true"></div>
+    <ul class="welcome-points">
+      <li><span class="welcome-point-mark" aria-hidden="true">↗</span><span>See where your money goes</span></li>
+      <li><span class="welcome-point-mark" aria-hidden="true">⌁</span><span>Capture receipts and expenses with AI</span></li>
+      <li><span class="welcome-point-mark" aria-hidden="true">◎</span><span>Stay ahead of budgets and commitments</span></li>
+    </ul>
+    <div class="welcome-actions">
+      <button class="btn-primary welcome-primary" id="welcomeContinue" type="button">Continue</button>
+      <button class="welcome-signin" id="welcomeSignIn" type="button">Already have an account? Sign in</button>
+    </div>
+    <p class="welcome-foot">A little more clarity, one day at a time.</p>
+  </div>
+</div>
+
 <div class="auth" id="authScreen" hidden>
   <div class="auth-card">
     <img class="auth-logo" src="/logo.png?v=2" alt="Duits">
@@ -5765,7 +5839,7 @@
       centreFocusedFieldSoon();
     });
     watchKeyboard();
-    $("authSubmit").addEventListener("click", submitAuth);
+    $("welcomeContinue").addEventListener("click", continueFromWelcome);\n    $("welcomeSignIn").addEventListener("click", continueFromWelcome);\n    $("authSubmit").addEventListener("click", submitAuth);
     $("authForgot").addEventListener("click", function () { setAuthView("forgot"); });
     $("authBack").addEventListener("click", function () { setAuthView("signin"); });
     $("signOutBtn").addEventListener("click", signOut);
@@ -5891,7 +5965,7 @@
   async function restoreSession() {
     if (readAuthRedirect()) { showAuth("setpassword"); return; }
     var session = readSession();
-    if (!session) { showAuth("signin"); return; }
+    if (!session) {\n      var welcomeSeen = false;\n      try { welcomeSeen = window.localStorage.getItem(WELCOME_SEEN_SLOT) === "1"; } catch (error) { /* show welcome when storage is unavailable */ }\n      if (welcomeSeen) showAuth("signin"); else showWelcome();\n      return;\n    }
     if (sessionExpired(session)) {
       var fresh = await refreshSession(session);
       if (!fresh) {
