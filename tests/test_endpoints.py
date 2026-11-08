@@ -231,7 +231,7 @@ def test_two_identical_manual_entries_both_insert(
 
 
 def test_a_pay_save_carries_its_commitments_link(
-    client: TestClient, created: dict[str, Any], money: dict[str, Any]
+    client: TestClient, pay_rows: dict[str, Any], money: dict[str, Any]
 ) -> None:
     """The Pay flow's save posts `commitment_id` too, and the row stores it as it was sent."""
     money["commitments"] = [commitment_row()]
@@ -249,8 +249,8 @@ def test_a_pay_save_carries_its_commitments_link(
     )
 
     assert response.status_code == 201
-    assert created["rows"][0]["commitment_id"] == COMMITMENT_ID
-    assert created["lookups"] == []  # the link does not turn a Pay row into a deduped one
+    assert pay_rows["rows"][0]["commitment_id"] == COMMITMENT_ID
+    assert pay_rows["lookups"] == [(COMMITMENT_ID, "2026-10", TEST_USER)]
 
 
 def test_a_pay_save_refuses_a_foreign_commitment(
