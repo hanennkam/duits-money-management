@@ -141,9 +141,9 @@ def test_the_sign_in_screen_is_present_in_the_page(client: TestClient) -> None:
         'id="authSubmit"', 'id="authForgot"', 'id="authBack"', 'id="accountEmail"', 'id="signOutBtn"',
     ):
         assert element in page, element + " is missing"
-    # There is no sign-up: accounts arrive by invite.
-    assert "Sign up" not in page and "sign up" not in page
-    assert "Duits is invite only" in page
+    # Public registration replaces the old invite-only copy. Signup controls and validation
+    # are covered by the dedicated public-onboarding static contract tests.
+    assert "Duits is invite only" not in page
 
 
 def test_the_settings_key_card_is_an_account_card(client: TestClient) -> None:
