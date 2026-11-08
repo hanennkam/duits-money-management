@@ -23,7 +23,27 @@ STAGING_PROJECT_REF = "tddigsmukmhkjrwiqdec"
 
 
 def main() -> int:
+    if not ENV_FILE.is_file():
+        print("refused: .env.staging is missing", file=sys.stderr)
+        return 2
+
     values = {key: value for key, value in dotenv_values(ENV_FILE).items() if value is not None}
+    required = (
+        "API_KEY",
+        "SUPABASE_URL",
+        "SUPABASE_SERVICE_KEY",
+        "SUPABASE_PUBLISHABLE_KEY",
+        "ANTHROPIC_API_KEY",
+        "STAGING_USER_A_EMAIL",
+        "STAGING_USER_A_PASSWORD",
+        "STAGING_USER_B_EMAIL",
+        "STAGING_USER_B_PASSWORD",
+    )
+    missing = [name for name in required if not values.get(name, "").strip()]
+    if missing:
+        print("refused: .env.staging is missing required variable(s): " + ", ".join(missing), file=sys.stderr)
+        return 2
+
     match = re.match(r"^https://([a-z0-9]{20})\.supabase\.co/?$", values.get("SUPABASE_URL", ""))
     ref = match.group(1) if match else None
     if ref == LIVE_PROJECT_REF:
