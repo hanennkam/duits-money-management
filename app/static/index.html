@@ -1396,14 +1396,22 @@
     screen.setAttribute("aria-hidden", "false");
   }
 
-  function continueFromWelcome() {
+  function leaveWelcome(nextView) {
     var screen = $("welcomeScreen");
     if (screen) {
       screen.hidden = true;
       screen.setAttribute("aria-hidden", "true");
     }
     try { window.localStorage.setItem(WELCOME_SEEN_SLOT, "1"); } catch (error) { /* storage may be unavailable */ }
-    showAuth("signup");
+    showAuth(nextView);
+  }
+
+  function continueFromWelcome() {
+    leaveWelcome("signup");
+  }
+
+  function signInFromWelcome() {
+    leaveWelcome("signin");
   }
 
   /* ---------- sign in ---------- */
@@ -2879,9 +2887,8 @@
     return new ApiError(response.status === 409 ? "duplicate" : "http", message || "Something went wrong (" + response.status + ").", transaction);
   }
 
-  /* ---------- sign in ---------- */
-  // Three views over one card: sign in, request a reset link, and set a password from an invite or a
-  // recovery link. There is no sign-up: accounts arrive by invite.
+  /* ---------- authentication ---------- */
+  // One card handles sign-in, public sign-up, password recovery, and invite/recovery password setup.
 
   var authView = "signin";
   var pendingToken = null;   // the token an invite/recovery link hands us, used once to set the password
@@ -5893,7 +5900,9 @@
       centreFocusedFieldSoon();
     });
     watchKeyboard();
-    $("welcomeContinue").addEventListener("click", continueFromWelcome);\n    $("welcomeSignIn").addEventListener("click", continueFromWelcome);\n    $("authSubmit").addEventListener("click", submitAuth);
+    $("welcomeContinue").addEventListener("click", continueFromWelcome);
+    $("welcomeSignIn").addEventListener("click", signInFromWelcome);
+    $("authSubmit").addEventListener("click", submitAuth);
     $("authCreate").addEventListener("click", function () { setAuthView("signup"); });
     $("authResend").addEventListener("click", resendSignup);
     $("authForgot").addEventListener("click", function () { setAuthView("forgot"); });
@@ -6036,7 +6045,12 @@
       return;
     }
     var session = readSession();
-    if (!session) {\n      var welcomeSeen = false;\n      try { welcomeSeen = window.localStorage.getItem(WELCOME_SEEN_SLOT) === "1"; } catch (error) { /* show welcome when storage is unavailable */ }\n      if (welcomeSeen) showAuth("signin"); else showWelcome();\n      return;\n    }
+    if (!session) {
+      var welcomeSeen = false;
+      try { welcomeSeen = window.localStorage.getItem(WELCOME_SEEN_SLOT) === "1"; } catch (error) { /* show welcome when storage is unavailable */ }
+      if (welcomeSeen) showAuth("signin"); else showWelcome();
+      return;
+    }
     if (sessionExpired(session)) {
       var fresh = await refreshSession(session);
       if (!fresh) {
