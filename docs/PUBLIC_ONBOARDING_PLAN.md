@@ -1,6 +1,6 @@
 # Duits public onboarding — implementation plan
 
-Status: design and implementation contract. This document does not enable public signup or change production behaviour.
+Status: Phases 1–3 implemented on `feature/public-onboarding`; staging verification and release gates remain outstanding. This document does not enable public signup or change production behaviour.
 
 ## Product direction
 
@@ -71,9 +71,11 @@ Prefer a small versioned onboarding-completion marker in Supabase user metadata 
 - Use staging Supabase configuration for end-to-end tests first.
 
 ### Phase 3 — optional personalisation and first-use guidance
-- Add skippable starting-balance/monthly-budget setup only after the account is verified.
-- Persist completion without forcing financial disclosure.
-- Add a dismissible first-transaction prompt.
+- [x] Add skippable starting-balance/monthly-budget setup after account verification.
+- [x] Persist completion in Supabase Auth user metadata (`onboarding_completed`, versioned) without forcing financial disclosure.
+- [ ] Add a dismissible first-transaction prompt (deferred; not required to complete optional setup).
+
+Implementation notes: setup reuses the existing `/finance/settings` API for `opening_balance` and `monthly_budget`; blank fields are not written. “Skip for now” records completion without writing either financial value. New accounts resume incomplete setup on later sign-ins.
 
 ### Phase 4 — release gates
 - Full pytest suite and UI harness (if available).
