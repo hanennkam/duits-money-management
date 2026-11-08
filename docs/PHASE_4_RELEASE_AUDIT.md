@@ -50,11 +50,11 @@ Reviewed `app/db.py` and the relevant routes in `app/main.py`:
 - Keep **production** sign-up closed until all staging gates pass and the owner explicitly approves the live setting change.
 - Confirm the production Auth URL allow-list and email template separately before launch; do not assume staging configuration carries over.
 
-### 6. Automated coverage gap — onboarding flow not pinned by current tests
+### 6. Automated coverage — static regression tests added; execution pending
 
-- The branch's `tests/test_static.py` contains no references to onboarding, signup, confirmation or resend.
+- Added seven focused checks to `tests/test_static.py` for the signup view, validation and metadata payload, confirmation callback, resend, optional save/skip, incomplete-onboarding resume and recovery/invite preservation.
 - `tests/test_auth.py` exercises FastAPI JWT verification and the legacy-key/throttle boundary; it does not exercise the browser's Supabase signup/confirmation flow.
-- Add focused regression tests for the onboarding state machine and auth request payload/redirect handling before treating the new public-registration UI as regression-covered. At minimum, pin signup, confirmation callback, resend, returning-user sign-in, recovery preservation, optional save/skip and incomplete-onboarding resume.
+- These are source-contract tests, not a browser-driven simulation of Supabase Auth. The full pytest suite still needs to run on the exact branch head; staging must prove the real callback and email journey.
 
 ### 5. Onboarding settings write — contract reviewed, end-to-end proof pending
 
@@ -67,7 +67,7 @@ Reviewed `app/db.py` and the relevant routes in `app/main.py`:
 
 | Area | Required proof | Current status |
 | --- | --- | --- |
-| Python suite | Run `./.venv/bin/python -m pytest -q` on the exact branch head | Not run in this audit environment |
+| Onboarding static coverage | Seven source-contract checks added to `tests/test_static.py` | Added; not executed |\n| Python suite | Run `./.venv/bin/python -m pytest -q` on the exact branch head | Not run in this audit environment |
 | UI harness | Run the repo's documented UI harness if present; otherwise record unavailable | Not run; harness is documented as external/not in repo |
 | Signup | New email → confirmation email → callback → first session | Not run against staging |
 | Resend / duplicate | Neutral response, resend, duplicate and rate-limit behaviour | Not run against staging |
@@ -83,7 +83,7 @@ Reviewed `app/db.py` and the relevant routes in `app/main.py`:
 
 1. Create or identify two dedicated staging test accounts and use the staging Supabase project only.
 2. Confirm staging schema has every migration required by the current app, including finance settings and commitment/payment tables. The checked-in runbooks contain historical notes and must not be treated as proof of current staging state.
-3. Run the full pytest suite on a local checkout of this exact branch head and record the actual summary. Do not substitute historical test counts from `NEXT_STEPS.md`.
+3. Run the full pytest suite on a local checkout of this exact branch head, including the new onboarding static checks, and record the actual summary. Do not substitute historical test counts from `NEXT_STEPS.md`.
 4. Execute the staging test matrix above, especially cross-account object access and signed receipt URLs.
 5. Test the whole onboarding and recovery journey on desktop and a physical iPhone.
 6. Review and update stale auth/setup statements in `README.md` before public release.
