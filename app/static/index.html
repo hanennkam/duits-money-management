@@ -2885,6 +2885,7 @@
 
   var authView = "signin";
   var pendingToken = null;   // the token an invite/recovery link hands us, used once to set the password
+  var pendingAuthRedirectType = "";
 
   function renderAccount() {
     var session = readSession();
@@ -2984,6 +2985,7 @@
     });
     var type = params.type || "";
     if (type !== "invite" && type !== "recovery" && type !== "signup") return false;
+    pendingAuthRedirectType = type;
     pendingToken = params.access_token || null;
     if (params.access_token && params.refresh_token) {
       var session = {
@@ -6017,7 +6019,22 @@
   // The splash stays up until this has settled, then the user sees either the sign-in card or their own
   // data. An invite or recovery link wins over a stored session: it is there to set a password.
   async function restoreSession() {
-    if (readAuthRedirect()) { showAuth("setpassword"); return; }
+    if (readAuthRedirect()) {
+      // Email confirmation creates a session; it is not a password-reset flow. Invite and recovery
+      // links still need the user to choose a password before entering the app.
+      if (pendingAuthRedirectType === "signup") {
+        var confirmedSession = readSession();
+        if (!confirmedSession) {
+          showAuth("signin", "Your email is confirmed. Sign in to continue.");
+          return;
+        }
+        hideAuth();
+        await reloadScreen();
+        return;
+      }
+      showAuth("setpassword");
+      return;
+    }
     var session = readSession();
     if (!session) {\n      var welcomeSeen = false;\n      try { welcomeSeen = window.localStorage.getItem(WELCOME_SEEN_SLOT) === "1"; } catch (error) { /* show welcome when storage is unavailable */ }\n      if (welcomeSeen) showAuth("signin"); else showWelcome();\n      return;\n    }
     if (sessionExpired(session)) {
