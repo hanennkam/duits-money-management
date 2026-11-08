@@ -1511,6 +1511,29 @@
     .welcome-actions { margin-top: 26px; }
   }
 
+  /* ---------- optional first-run setup ---------- */
+  .onboarding {
+    position: fixed; inset: 0; z-index: 42; display: flex; align-items: center;
+    justify-content: center; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    padding: max(var(--sat), 28px) 24px max(var(--sab), 28px);
+    background: var(--bg);
+  }
+  .onboarding[hidden] { display: none; }
+  .onboarding-inner { width: 100%; max-width: 420px; margin: auto; }
+  .onboarding-kicker { color: var(--accent); font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; margin: 0 0 14px; }
+  .onboarding-title { color: var(--text); font-size: clamp(32px, 8vw, 44px); line-height: 1.04; letter-spacing: -.055em; margin: 0 0 12px; }
+  .onboarding-copy { color: var(--text-2); font-size: 15px; line-height: 1.5; margin: 0 0 30px; }
+  .onboarding-field { margin: 0 0 20px; }
+  .onboarding-field .form-label { display: block; margin: 0 0 8px; }
+  .onboarding-hint { color: var(--muted); font-size: 12px; line-height: 1.45; margin: 7px 2px 0; }
+  .onboarding-actions { display: grid; gap: 12px; margin-top: 30px; }
+  .onboarding-actions .btn-primary { min-height: 52px; border-radius: 26px; }
+  .onboarding-skip { background: transparent; border: 0; color: var(--text-2); font: inherit; font-size: 14px; padding: 10px; cursor: pointer; }
+  .onboarding-message { color: var(--danger); font-size: 13px; line-height: 1.4; min-height: 18px; margin: 14px 0 0; }
+  @media (prefers-reduced-motion: no-preference) {
+    .onboarding-inner { animation: welcome-arrive 420ms cubic-bezier(.2,.75,.25,1) both; }
+  }
+
   .field, .chip, .btn-primary, .btn-danger, .pill { max-width: 100%; }
 </style>
 </head>
@@ -2184,6 +2207,29 @@
     <button class="btn-ghost" id="authResend" type="button" hidden>Resend confirmation email</button>
     <button class="btn-ghost" id="authBack" type="button">Back to sign in</button>
     <p class="auth-foot" id="authFoot">Your finances, kept private and secure.</p>
+  </div>
+</div>
+
+<div class="onboarding" id="onboardingScreen" hidden aria-labelledby="onboardingTitle">
+  <div class="onboarding-inner">
+    <p class="onboarding-kicker">A quick personal touch · Optional</p>
+    <h1 class="onboarding-title" id="onboardingTitle">Make Duits feel like yours.</h1>
+    <p class="onboarding-copy">A couple of details can make your dashboard more useful from day one. Skip anything you’re not ready to share.</p>
+    <div class="onboarding-field">
+      <label class="form-label" for="onboardingBalance">Starting balance</label>
+      <input class="field" id="onboardingBalance" type="number" inputmode="decimal" min="0" step="0.01" placeholder="e.g. 1200.00" autocomplete="off">
+      <p class="onboarding-hint">What you have in your accounts right now. You can change this anytime.</p>
+    </div>
+    <div class="onboarding-field">
+      <label class="form-label" for="onboardingBudget">Monthly spending budget</label>
+      <input class="field" id="onboardingBudget" type="number" inputmode="decimal" min="0" step="0.01" placeholder="e.g. 800.00" autocomplete="off">
+      <p class="onboarding-hint">A monthly limit for everyday spending, excluding commitments.</p>
+    </div>
+    <div class="onboarding-actions">
+      <button class="btn-primary" id="onboardingSave" type="button">Save and continue</button>
+      <button class="onboarding-skip" id="onboardingSkip" type="button">Skip for now</button>
+    </div>
+    <p class="onboarding-message" id="onboardingMessage" role="status" aria-live="polite"></p>
   </div>
 </div>
 
@@ -3015,16 +3061,103 @@
     return true;
   }
 
-  async function afterSignIn(session) {
+  async function afterSignIn(session, isNewSignup) {
     writeSession(session);
     hideAuth();
     clearCaches();   // never let the previous user's rows show while the new ones load
-    // Reload every data screen, not just the active one. Home's list is only re-rendered when Home is
-    // loaded, so a stale list would keep showing the previous user's rows on a tab nobody revisited.
     await Promise.all([loadHome(), loadTransactions(), loadInsights()]);
     renderAccount();
-    // The user is in and on Home now, so the What's New sheet may be shown (once per version).
+    if (isNewSignup) {
+      await showOptionalOnboarding();
+      return;
+    }
     maybeShowWhatsNew();
+  }
+
+  function hideOptionalOnboarding() {
+    $("onboardingScreen").hidden = true;
+    $("onboardingMessage").textContent = "";
+  }
+
+  function showOptionalOnboarding() {
+    $("onboardingBalance").value = "";
+    $("onboardingBudget").value = "";
+    $("onboardingMessage").textContent = "";
+    $("onboardingScreen").hidden = false;
+  }
+
+  async function finishOptionalOnboarding() {
+    var session = readSession();
+    if (!session || !session.access_token) {
+      $("onboardingMessage").textContent = "Your session expired. Please sign in again.";
+      return false;
+    }
+    var marked = await authRequest("PUT", "/auth/v1/user",
+      { data: { onboarding_completed: true, onboarding_version: 1 } }, session.access_token);
+    if (!marked.ok) {
+      $("onboardingMessage").textContent = "We couldn't save your setup yet. Please try again.";
+      return false;
+    }
+    hideOptionalOnboarding();
+    await reloadScreen();
+    maybeShowWhatsNew();
+    return true;
+  }
+
+  async function saveOptionalOnboarding() {
+    var button = $("onboardingSave");
+    var balanceText = $("onboardingBalance").value.trim();
+    var budgetText = $("onboardingBudget").value.trim();
+    var payload = {};
+    if (balanceText) {
+      var balance = Number(balanceText);
+      if (!isFinite(balance) || balance < 0) {
+        $("onboardingMessage").textContent = "Enter a valid starting balance, or leave it blank.";
+        return;
+      }
+      payload.opening_balance = balance;
+    }
+    if (budgetText) {
+      var budget = Number(budgetText);
+      if (!isFinite(budget) || budget < 0) {
+        $("onboardingMessage").textContent = "Enter a valid monthly budget, or leave it blank.";
+        return;
+      }
+      payload.monthly_budget = budget;
+    }
+    button.disabled = true;
+    $("onboardingSkip").disabled = true;
+    $("onboardingMessage").textContent = "";
+    try {
+      if (Object.keys(payload).length) {
+        var saved = await api("/finance/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        financeSettings = saved;
+      }
+      await finishOptionalOnboarding();
+    } catch (error) {
+      $("onboardingMessage").textContent = friendly(error) + " Your setup hasn't been completed.";
+    } finally {
+      button.disabled = false;
+      $("onboardingSkip").disabled = false;
+    }
+  }
+
+  async function skipOptionalOnboarding() {
+    var button = $("onboardingSkip");
+    button.disabled = true;
+    $("onboardingSave").disabled = true;
+    $("onboardingMessage").textContent = "";
+    try { await finishOptionalOnboarding(); }
+    catch (error) {
+      $("onboardingMessage").textContent = "We couldn't save that you skipped. Please try again.";
+    } finally {
+      button.disabled = false;
+      $("onboardingSave").disabled = false;
+    }
   }
 
   async function resendSignup() {
@@ -3070,7 +3203,7 @@
             access_token: created.access_token, refresh_token: created.refresh_token,
             expires_at: created.expires_at || (Math.floor(Date.now() / 1000) + (created.expires_in || 3600)),
             email: (created.user && created.user.email) || email
-          });
+          }, true);
           return;
         }
         $("authEmail").value = email;
@@ -5906,6 +6039,14 @@
     watchKeyboard();
     $("welcomeContinue").addEventListener("click", continueFromWelcome);
     $("welcomeSignIn").addEventListener("click", signInFromWelcome);
+    $("onboardingSave").addEventListener("click", saveOptionalOnboarding);
+    $("onboardingSkip").addEventListener("click", skipOptionalOnboarding);
+    $("onboardingBalance").addEventListener("keydown", function (event) {
+      if (event.key === "Enter") { event.preventDefault(); $("onboardingBudget").focus(); }
+    });
+    $("onboardingBudget").addEventListener("keydown", function (event) {
+      if (event.key === "Enter") { event.preventDefault(); saveOptionalOnboarding(); }
+    });
     $("authSubmit").addEventListener("click", submitAuth);
     $("authCreate").addEventListener("click", function () { setAuthView("signup"); });
     $("authResend").addEventListener("click", resendSignup);
@@ -6042,7 +6183,9 @@
           return;
         }
         hideAuth();
-        await reloadScreen();
+        clearCaches();
+        await Promise.all([loadHome(), loadTransactions(), loadInsights()]);
+        await showOptionalOnboarding();
         return;
       }
       showAuth("setpassword");
