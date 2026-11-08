@@ -1693,9 +1693,9 @@ def test_the_whats_new_version_is_remembered_per_account(client: TestClient) -> 
     assert "if (!readSession()) return;" in show, "never on a sign-in screen"
     assert 'if ($("authScreen") && !$("authScreen").hidden) return;' in show
     assert 'if (state.screen !== "home") return;' in show
-    # It is opened from the two places the user arrives at Home — a fresh sign-in and a restored
-    # session — and from nowhere else.
-    assert page.count("maybeShowWhatsNew();") == 2, "the two callers, and no third"
+    # It is opened from the supported Home-entry paths, including the onboarding completion
+    # path, as well as a fresh sign-in and a restored session.
+    assert page.count("maybeShowWhatsNew();") == 3, "sign-in, restored session, and onboarding completion"
     assert "await Promise.all([loadHome(), loadTransactions(), loadInsights()]);" in page
 
 
