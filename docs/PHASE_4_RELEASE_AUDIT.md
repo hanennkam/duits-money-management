@@ -56,6 +56,13 @@ Reviewed `app/db.py` and the relevant routes in `app/main.py`:
 - `tests/test_auth.py` exercises FastAPI JWT verification and the legacy-key/throttle boundary; it does not exercise the browser's Supabase signup/confirmation flow.
 - These are source-contract tests, not a browser-driven simulation of Supabase Auth. The full pytest suite still needs to run on the exact branch head; staging must prove the real callback and email journey.
 
+### 7. Staging test runner — target directory needs verification
+
+- `scripts/run_staging_tests.py` invokes pytest on `tests/staging` with the `staging` marker.
+- The branch exposes `tests/test_isolation.py`, which is a valuable two-user fake-store suite, but its module docstring explicitly says it makes no network calls and it is not a real staging test.
+- I could not retrieve any tracked files under `tests/staging/` from this branch. Treat the staging runner as **unverified and potentially stale** until a local checkout confirms that directory exists and contains the intended integration tests.
+- Do not run the runner against production. It is deliberately hard-coded to accept only the staging project ref.
+
 ### 5. Onboarding settings write — contract reviewed, end-to-end proof pending
 
 - Optional onboarding reuses `PUT /finance/settings` for `opening_balance` and `monthly_budget`.
@@ -68,7 +75,7 @@ Reviewed `app/db.py` and the relevant routes in `app/main.py`:
 | Area | Required proof | Current status |
 | --- | --- | --- |
 | Onboarding static coverage | Seven source-contract checks added to `tests/test_static.py` | Added; not executed |\n| Python suite | Run `./.venv/bin/python -m pytest -q` on the exact branch head | Not run in this audit environment |
-| UI harness | Run the repo's documented UI harness if present; otherwise record unavailable | Not run; harness is documented as external/not in repo |
+| Staging runner | Confirm `tests/staging/` exists and the staging integration tests are present before running the guarded script | Target directory not retrievable from branch via file API; local checkout verification required |\n| UI harness | Run the repo's documented UI harness if present; otherwise record unavailable | Not run; harness is documented as external/not in repo |
 | Signup | New email → confirmation email → callback → first session | Not run against staging |
 | Resend / duplicate | Neutral response, resend, duplicate and rate-limit behaviour | Not run against staging |
 | Recovery | Existing password recovery and set-password links still work | Not run against staging |
@@ -84,7 +91,7 @@ Reviewed `app/db.py` and the relevant routes in `app/main.py`:
 1. Create or identify two dedicated staging test accounts and use the staging Supabase project only.
 2. Confirm staging schema has every migration required by the current app, including finance settings and commitment/payment tables. The checked-in runbooks contain historical notes and must not be treated as proof of current staging state.
 3. Run the full pytest suite on a local checkout of this exact branch head, including the new onboarding static checks, and record the actual summary. Do not substitute historical test counts from `NEXT_STEPS.md`.
-4. Execute the staging test matrix above, especially cross-account object access and signed receipt URLs.
+4. Verify `tests/staging/` exists and contains the intended real-project tests; if absent, implement a reviewed staging suite before invoking the guarded runner. Then execute the staging matrix above, especially cross-account object access and signed receipt URLs.
 5. Test the whole onboarding and recovery journey on desktop and a physical iPhone.
 6. Review and update stale auth/setup statements in `README.md` before public release.
 7. Only after the above pass, request explicit approval to change production Supabase Auth settings and deploy.
