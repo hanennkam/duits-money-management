@@ -1,6 +1,6 @@
 # Duits public onboarding — implementation plan
 
-Status: Phases 1–3 implemented on `feature/public-onboarding`; staging verification and release gates remain outstanding. This document does not enable public signup or change production behaviour.
+Status: Phases 1–3 implemented on `feature/public-onboarding`; Phase 4 static audit documented, but staging verification and release gates remain outstanding. See `docs/PHASE_4_RELEASE_AUDIT.md`. This work does not enable public signup or change production behaviour.
 
 ## Product direction
 
@@ -78,11 +78,13 @@ Prefer a small versioned onboarding-completion marker in Supabase user metadata 
 Implementation notes: setup reuses the existing `/finance/settings` API for `opening_balance` and `monthly_budget`; blank fields are not written. “Skip for now” records completion without writing either financial value. New accounts resume incomplete setup on later sign-ins.
 
 ### Phase 4 — release gates
-- Full pytest suite and UI harness (if available).
-- Two-account isolation checks across all private data and receipt storage.
-- Regression checks for transactions, AI receipt scanning, commitments and recovery.
-- iPhone Safari and Home Screen testing on a real device.
-- Production Supabase setting changes and deployment only after owner approval.
+- [x] Static source audit of JWT verification, owner-scoped DB helpers, finance/commitment routes and receipt path enforcement; findings recorded in `docs/PHASE_4_RELEASE_AUDIT.md`.
+- [ ] Full pytest suite on the exact branch head and UI harness (if available).
+- [ ] Two-account isolation checks across all private data and receipt storage on staging.
+- [ ] End-to-end staging signup, confirmation, resend, recovery and optional onboarding.
+- [ ] Regression checks for transactions, AI receipt scanning, commitments and recovery.
+- [ ] iPhone Safari and Home Screen testing on a real device.
+- [ ] Production Supabase setting changes and deployment only after owner approval.
 
 ## Acceptance criteria
 
