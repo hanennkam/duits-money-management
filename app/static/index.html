@@ -431,19 +431,25 @@
      its hero instead, and no screen carries a mode toggle any more. */
   .screen-head {
     display: flex; align-items: center; justify-content: space-between; gap: 10px;
-    margin: 4px 0 14px;
+    margin: 4px 0 18px;   /* the same gap to the first block on Transactions and Insights */
   }
   .screen-head .large-title { flex: 0 1 auto; min-width: 0; margin: 0; }
   .month-pill {
     display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: none;
-    min-height: 44px; padding: 0 14px; border: 0; border-radius: 9999px;   /* 44px = the iOS tap target */
-    background: var(--card); color: var(--text); font: inherit; font-size: 15px; font-weight: 600;
+    min-height: 34px; padding: 0 11px; border: 0; border-radius: 9999px;
+    background: var(--card); color: var(--text); font: inherit; font-size: 13px; font-weight: 600;
     box-shadow: var(--shadow);
     position: relative; z-index: 1;          /* nothing may end up on top of the tap target */
     touch-action: manipulation;              /* no 300ms double-tap zoom wait on iOS */
   }
-  .month-pill-icon { width: 16px; height: 16px; color: var(--accent); }
-  .month-pill-chev { width: 14px; height: 14px; color: var(--muted); }
+  /* The pill the eye sees is 34px; the 44px iOS tap floor is this invisible hit area, so the header
+     row stays slim without shrinking the target. */
+  .month-pill::after {
+    content: ""; position: absolute; left: 0; right: 0; top: 50%;
+    height: 44px; transform: translateY(-50%);
+  }
+  .month-pill-icon { width: 14px; height: 14px; color: var(--accent); }
+  .month-pill-chev { width: 12px; height: 12px; color: var(--muted); }
 
   /* ---------- month wheel (our own picker: Safari has no month control to show) ---------- */
   .wheel { position: relative; height: 220px; margin-top: 12px; }        /* 5 rows x 44px */
@@ -633,17 +639,11 @@
   .hero-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   .hero .hero-balance-head { align-items: flex-start; }   /* the wallet sits on the label's line, not between both */
   .hero .month-pill {
-    flex: none; min-height: 34px; padding: 0 11px;
     background: var(--glass-fill); border: 0; box-shadow: none;
     -webkit-backdrop-filter: none; backdrop-filter: none;
-    color: var(--hero-text); font-size: 13px; font-weight: 600;
+    color: var(--hero-text);
   }
-  .hero .month-pill::after {
-    content: ""; position: absolute; left: 0; right: 0; top: 50%;
-    height: 44px; transform: translateY(-50%);
-  }
-  .hero .month-pill-icon { width: 14px; height: 14px; color: var(--hero-text); }
-  .hero .month-pill-chev { width: 12px; height: 12px; color: var(--hero-text); }
+  .hero .month-pill-icon, .hero .month-pill-chev { color: var(--hero-text); }
   /* With no opening balance the prompt follows the label row on the same gradient; a gap keeps the
      two from reading as one paragraph. */
   .hero #balanceNotSet { margin-top: 14px; }
@@ -1438,7 +1438,6 @@
     margin: 6px 0 2px;
   }
   /* Transactions: the shared header, search and type filter read as one toolbar above the day cards. */
-  #screen-transactions .screen-head { margin-bottom: 10px; }
   .search-field {
     display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px;
     margin: 0 0 10px; border-radius: var(--r-sm);
