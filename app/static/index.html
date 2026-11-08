@@ -2983,7 +2983,7 @@
       params[decodeURIComponent(bits[0] || "")] = decodeURIComponent((bits[1] || "").replace(/\+/g, " "));
     });
     var type = params.type || "";
-    if (type !== "invite" && type !== "recovery") return false;
+    if (type !== "invite" && type !== "recovery" && type !== "signup") return false;
     pendingToken = params.access_token || null;
     if (params.access_token && params.refresh_token) {
       var session = {
