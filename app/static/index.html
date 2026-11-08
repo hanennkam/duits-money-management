@@ -2809,9 +2809,13 @@
 
   function authError(result) {
     var body = result.body || {};
-    var message = body.error_description || body.msg || body.message || body.error ||
-      "Could not reach the sign-in service. Try again.";
-    return String(message);
+    var message = String(body.error_description || body.msg || body.message || body.error ||
+      "Could not reach the sign-in service. Try again.");
+    // Do not confirm whether an email address already belongs to a Duits account.
+    if (/already registered|already exists|user exists|email.*registered/i.test(message)) {
+      return "If this email already has a Duits account, sign in or reset your password instead.";
+    }
+    return message;
   }
 
   /* ---------- fetch ---------- */
