@@ -1403,7 +1403,7 @@
       screen.setAttribute("aria-hidden", "true");
     }
     try { window.localStorage.setItem(WELCOME_SEEN_SLOT, "1"); } catch (error) { /* storage may be unavailable */ }
-    showAuth("signin", "Sign in to continue. New account registration is being prepared.");
+    showAuth("signup");
   }
 
   /* ---------- sign in ---------- */
@@ -2172,8 +2172,10 @@
            enterkeyhint="go" autocapitalize="off" autocorrect="off" spellcheck="false" hidden>
     <button class="btn-primary auth-submit" id="authSubmit" type="button">Sign in</button>
     <button class="btn-ghost" id="authForgot" type="button">Forgot password?</button>
+    <button class="btn-ghost" id="authCreate" type="button">New to Duits? Create an account</button>
+    <button class="btn-ghost" id="authResend" type="button" hidden>Resend confirmation email</button>
     <button class="btn-ghost" id="authBack" type="button">Back to sign in</button>
-    <p class="auth-foot">Duits is invite only. Ask for an invite to get started.</p>
+    <p class="auth-foot" id="authFoot">Your finances, kept private and secure.</p>
   </div>
 </div>
 
@@ -2892,22 +2894,32 @@
 
   function setAuthView(view, note) {
     authView = view;
-    $("authTitle").textContent = view === "setpassword" ? "Set a new password"
-      : view === "forgot" ? "Reset password" : "Sign in";
+    var titles = { signin: "Sign in", signup: "Create your account", forgot: "Reset password",
+      setpassword: "Set a new password", confirmation: "Check your email" };
+    $("authTitle").textContent = titles[view] || "Sign in";
     $("authNote").textContent = note || (view === "forgot"
-      ? "Enter your email and we'll send a link to set a new one." : "");
+      ? "Enter your email and we'll send a link to reset your password."
+      : view === "confirmation" ? "Open the confirmation link we sent to your email address to activate your account."
+      : view === "signup" ? "Start with your email. You can personalise Duits later."
+      : "");
     var settingPassword = view === "setpassword";
-    var emailOnly = view === "forgot";
-    $("authPassword2").hidden = !settingPassword;
-    $("authPassword2Label").hidden = !settingPassword;
+    var emailOnly = view === "forgot" || view === "confirmation";
+    var confirmation = view === "confirmation";
+    $("authPassword2").hidden = !settingPassword && view !== "signup";
+    $("authPassword2Label").hidden = !settingPassword && view !== "signup";
     $("authPassword").hidden = emailOnly;
     $("authPasswordLabel").hidden = emailOnly;
-    // The link already proved who they are, so the address is not editable on that screen.
-    $("authEmail").disabled = settingPassword;
+    $("authEmail").disabled = settingPassword || confirmation;
+    $("authSubmit").hidden = confirmation;
     $("authSubmit").textContent = settingPassword ? "Save password"
-      : emailOnly ? "Send reset link" : "Sign in";
+      : emailOnly ? "Send reset link" : view === "signup" ? "Create account" : "Sign in";
     $("authForgot").hidden = view !== "signin";
+    $("authCreate").hidden = view !== "signin";
+    $("authResend").hidden = !confirmation;
     $("authBack").hidden = view === "signin";
+    $("authFoot").textContent = view === "signup"
+      ? "By creating an account, you agree to use Duits responsibly. Privacy matters."
+      : "Your finances, kept private and secure.";
   }
 
   function showAuth(view, note) {
@@ -3002,6 +3014,20 @@
     maybeShowWhatsNew();
   }
 
+  async function resendSignup() {
+    var email = $("authEmail").value.trim();
+    if (!email) { setAuthView("confirmation", "Enter the email address you registered with."); return; }
+    $("authResend").disabled = true;
+    try {
+      var result = await authRequest("POST", "/auth/v1/resend", { type: "signup", email: email });
+      setAuthView("confirmation", result.ok
+        ? "If this address has a pending registration, a new confirmation link is on its way."
+        : authError(result));
+    } catch (error) {
+      setAuthView("confirmation", "We couldn't reach the email service. Check your connection and try again.");
+    } finally { $("authResend").disabled = false; }
+  }
+
   async function submitAuth() {
     var button = $("authSubmit");
     var email = $("authEmail").value.trim();
@@ -3013,6 +3039,32 @@
     }
     button.disabled = true;
     try {
+      if (authView === "signup") {
+        if (!email || !password) { setAuthView("signup", "Enter your email and password."); return; }
+        if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) {
+          setAuthView("signup", "Enter a valid email address."); return;
+        }
+        if (password.length < 8) { setAuthView("signup", "Use at least 8 characters for your password."); return; }
+        if (password !== $("authPassword2").value) {
+          setAuthView("signup", "Those two passwords do not match."); return;
+        }
+        var registered = await authRequest("POST", "/auth/v1/signup",
+          { email: email, password: password, data: { onboarding_version: 1 } });
+        if (!registered.ok) { setAuthView("signup", authError(registered)); return; }
+        var created = registered.body || {};
+        if (created.access_token && created.refresh_token) {
+          await afterSignIn({
+            access_token: created.access_token, refresh_token: created.refresh_token,
+            expires_at: created.expires_at || (Math.floor(Date.now() / 1000) + (created.expires_in || 3600)),
+            email: (created.user && created.user.email) || email
+          });
+          return;
+        }
+        $("authEmail").value = email;
+        setAuthView("confirmation", "We sent a confirmation link to " + email + ". Open it to activate your account, then come back here to sign in.");
+        return;
+      }
+
       if (authView === "forgot") {
         if (!email) { setAuthView("forgot", "Enter your email first."); return; }
         var sent = await authRequest("POST", "/auth/v1/recover",
@@ -5840,6 +5892,8 @@
     });
     watchKeyboard();
     $("welcomeContinue").addEventListener("click", continueFromWelcome);\n    $("welcomeSignIn").addEventListener("click", continueFromWelcome);\n    $("authSubmit").addEventListener("click", submitAuth);
+    $("authCreate").addEventListener("click", function () { setAuthView("signup"); });
+    $("authResend").addEventListener("click", resendSignup);
     $("authForgot").addEventListener("click", function () { setAuthView("forgot"); });
     $("authBack").addEventListener("click", function () { setAuthView("signin"); });
     $("signOutBtn").addEventListener("click", signOut);
