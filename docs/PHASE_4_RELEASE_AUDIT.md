@@ -99,7 +99,7 @@ Reviewed `app/db.py` and the relevant routes in `app/main.py`:
 
 ## Scope and changes
 
-- This audit made no application code, API, schema, migration, RLS, or Storage changes.
-- No secrets, tokens, user data, or live account identifiers were read or copied.
-- No tests were executed by this audit.
+- The staging suite and guarded runner were added on `feature/public-onboarding`; no API, schema, migration, RLS, or Storage changes were made.
+- No staging or production requests were made by this audit, and no secrets or user data were read or copied.
+- The staging suite has not been executed.
 - No merge, production setting change, or deployment was performed.
