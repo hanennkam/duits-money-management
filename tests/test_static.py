@@ -1844,3 +1844,111 @@ def test_the_balance_card_ends_by_saying_what_a_tap_does(client: TestClient) -> 
     # The link's own recipe: 13px in the accent, with the bills row's 14px chevron.
     assert ".hero-how {" in page and "color: var(--accent);" in page[page.index(".hero-how {"):page.index("}", page.index(".hero-how {"))]
     assert ".hero-how-chev { width: 14px; height: 14px; flex: none; }" in page
+
+
+
+# ---------------------------------------------------------------- public registration and optional onboarding
+
+
+def test_public_signup_is_an_explicit_auth_view(client: TestClient) -> None:
+    """The existing sign-in form exposes signup without replacing sign-in or recovery."""
+    page = client.get("/").text
+    for marker in (
+        'id="authCreate"',
+        'id="authResend"',
+        'id="authPassword2"',
+        'id="onboardingScreen"',
+        'id="onboardingBalance"',
+        'id="onboardingBudget"',
+        'id="onboardingSave"',
+        'id="onboardingSkip"',
+    ):
+        assert marker in page, marker
+    assert '$("authCreate").addEventListener("click", function () { setAuthView("signup"); });' in page
+    assert '$("authSubmit").addEventListener("click", submitAuth);' in page
+    assert '$("authForgot").addEventListener("click", function () { setAuthView("forgot"); });' in page
+    assert '$("authBack").addEventListener("click", function () { setAuthView("signin"); });' in page
+
+
+def test_signup_validates_and_sends_versioned_user_metadata(client: TestClient) -> None:
+    """Signup validates both passwords and marks only newly registered users for optional setup."""
+    page = client.get("/").text
+    start = page.index('if (authView === "signup")')
+    end = page.index('\n      if (authView === "forgot")', start)
+    signup = page[start:end]
+    for required in (
+        'if (!email || !password)',
+        'if (password.length < 8)',
+        'password !== $("authPassword2").value',
+        'authRequest("POST", "/auth/v1/signup"',
+        'data: { onboarding_version: 1 }',
+        'await afterSignIn({',
+        '}, true);',
+        'setAuthView("confirmation"',
+    ):
+        assert required in signup, required
+    assert 'if (created.access_token && created.refresh_token)' in signup
+
+
+def test_signup_confirmation_redirect_creates_session_and_enters_onboarding(client: TestClient) -> None:
+    """Supabase signup callback is distinct from invite/recovery password setup."""
+    page = client.get("/").text
+    redirect = page[page.index("function readAuthRedirect()"):page.index("async function needsOptionalOnboarding()")]
+    assert 'type !== "invite" && type !== "recovery" && type !== "signup"' in redirect
+    assert 'pendingAuthRedirectType = type;' in redirect
+    assert 'writeSession(session);' in redirect
+    assert 'window.history.replaceState(null, "", window.location.pathname + window.location.search);' in redirect
+    restore = page[page.index("async function restoreSession()"):]
+    signup_callback = restore[restore.index('if (pendingAuthRedirectType === "signup")'):restore.index('showAuth("setpassword");')]
+    assert 'var confirmedSession = readSession();' in signup_callback
+    assert 'await showOptionalOnboarding();' in signup_callback
+    assert 'showAuth("setpassword")' not in signup_callback
+
+
+def test_confirmation_resend_uses_signup_type_and_neutral_copy(client: TestClient) -> None:
+    """Resend must not reveal whether an email address has a pending account."""
+    page = client.get("/").text
+    start = page.index("async function resendSignup()")
+    end = page.index("async function submitAuth()", start)
+    resend = page[start:end]
+    assert 'authRequest("POST", "/auth/v1/resend", { type: "signup", email: email })' in resend
+    assert "If this address has a pending registration, a new confirmation link is on its way." in resend
+    assert '$("authResend").addEventListener("click", resendSignup);' in page
+
+
+def test_optional_onboarding_saves_only_entered_values_and_skip_is_financially_empty(client: TestClient) -> None:
+    """Both values are optional; Skip marks completion without writing finance settings."""
+    page = client.get("/").text
+    start = page.index("async function saveOptionalOnboarding()")
+    end = page.index("async function resendSignup()", start)
+    onboarding = page[start:end]
+    assert 'if (balanceText)' in onboarding and 'payload.opening_balance = balance;' in onboarding
+    assert 'if (budgetText)' in onboarding and 'payload.monthly_budget = budget;' in onboarding
+    assert 'if (Object.keys(payload).length)' in onboarding
+    assert 'api("/finance/settings"' in onboarding
+    skip_start = onboarding.index("async function skipOptionalOnboarding()")
+    skip = onboarding[skip_start:]
+    assert 'await finishOptionalOnboarding();' in skip
+    assert 'api("/finance/settings"' not in skip
+    assert 'data: { onboarding_completed: true, onboarding_version: 1 }' in onboarding
+
+
+def test_incomplete_onboarding_resumes_without_forcing_existing_users(client: TestClient) -> None:
+    """Only accounts carrying this onboarding version and not marked complete are resumed."""
+    page = client.get("/").text
+    check = page[page.index("async function needsOptionalOnboarding()"):page.index("async function afterSignIn(")]
+    assert 'Number(metadata.onboarding_version) === 1 && metadata.onboarding_completed !== true' in check
+    assert 'if (isNewSignup || await needsOptionalOnboarding())' in page
+    restore = page[page.index("async function restoreSession()"):]
+    assert 'if (await needsOptionalOnboarding())' in restore
+    assert 'showOptionalOnboarding();' in restore
+
+
+def test_public_signup_keeps_password_recovery_and_invite_flows(client: TestClient) -> None:
+    """Adding public signup must not route recovery/invites through the signup confirmation path."""
+    page = client.get("/").text
+    assert 'authRequest("POST", "/auth/v1/recover"' in page
+    assert 'authRequest("PUT", "/auth/v1/user", { password: password }, pendingToken)' in page
+    assert 'type !== "invite" && type !== "recovery" && type !== "signup"' in page
+    assert 'if (pendingAuthRedirectType === "signup")' in page
+    assert 'showAuth("setpassword");' in page
