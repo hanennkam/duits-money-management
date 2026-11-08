@@ -3061,14 +3061,25 @@
     return true;
   }
 
+  async function needsOptionalOnboarding() {
+    var session = readSession();
+    if (!session || !session.access_token) return false;
+    try {
+      var result = await authRequest("GET", "/auth/v1/user", null, session.access_token);
+      if (!result.ok || !result.body) return false;
+      var metadata = result.body.user_metadata || {};
+      return Number(metadata.onboarding_version) === 1 && metadata.onboarding_completed !== true;
+    } catch (error) { return false; }
+  }
+
   async function afterSignIn(session, isNewSignup) {
     writeSession(session);
     hideAuth();
     clearCaches();   // never let the previous user's rows show while the new ones load
     await Promise.all([loadHome(), loadTransactions(), loadInsights()]);
     renderAccount();
-    if (isNewSignup) {
-      await showOptionalOnboarding();
+    if (isNewSignup || await needsOptionalOnboarding()) {
+      showOptionalOnboarding();
       return;
     }
     maybeShowWhatsNew();
@@ -6208,8 +6219,11 @@
     }
     hideAuth();
     await reloadScreen();
-    // A returning user is on Home now, so the What's New sheet may be shown (once per version). It
-    // waits for the splash to fade, which is what still covers the app at this point.
+    if (await needsOptionalOnboarding()) {
+      showOptionalOnboarding();
+      return;
+    }
+    // A returning user is on Home now, so the What's New sheet may be shown (once per version).
     maybeShowWhatsNew();
   }
 
