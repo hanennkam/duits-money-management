@@ -57,9 +57,19 @@ def missing_env() -> list[str]:
     return [name for name in REQUIRED_ENV if env_value(name) is None]
 
 
+def environment_name() -> str:
+    """The normalized environment name, defaulting to development when unset."""
+    return (env_value("ENVIRONMENT") or "development").lower()
+
+
 def is_production() -> bool:
-    """True when ENVIRONMENT=production: docs are off and startup insists on a real config."""
-    return (env_value("ENVIRONMENT") or "").lower() == "production"
+    """True when ENVIRONMENT=production: production-only startup behaviour applies."""
+    return environment_name() == "production"
+
+
+def docs_enabled() -> bool:
+    """Interactive API docs are for local development only; staging and production hide them."""
+    return environment_name() == "development"
 
 
 def max_upload_bytes() -> int:

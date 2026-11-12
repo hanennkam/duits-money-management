@@ -54,15 +54,16 @@ def main() -> int:
         return 2
 
     os.environ.update(values)
+    os.environ["ENVIRONMENT"] = "staging"          # docs are development-only; staging hides them
     os.environ["DUITS_STAGING_TESTS"] = "1"
     os.chdir(REPO)
 
     import pytest
 
     # --tb=short, and never -l/--showlocals: a traceback must name the row that failed, not render the
-    # fixtures — they carry the service key, the publishable key and the test password. Secret (tests/
-    # conftest.py) hides a credential from repr(), but the long traceback styles print whole source
-    # contexts, so short is the ceiling here.
+    # fixtures — they carry the service key, the publishable key and the two staging account passwords.
+    # Secret (tests/conftest.py) hides a credential from repr(), but the long traceback styles print whole
+    # source contexts, so short is the ceiling here.
     return int(pytest.main(["tests/staging", "-m", "staging", "-q", "--tb=short", "-p", "no:randomly"]))
 
 

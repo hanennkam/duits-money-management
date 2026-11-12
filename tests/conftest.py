@@ -89,9 +89,15 @@ def redact_secrets(values: dict[str, str]) -> dict[str, str]:
 
 
 @pytest.fixture(autouse=True)
-def test_signing_keys(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """The app verifies against the test key, and failed-attempt counts start empty for every test."""
-    monkeypatch.setattr("app.auth.signing_key_for", lambda _token, _url: SIGNING_KEY.public_key())
+def test_signing_keys(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """The app verifies against the test key, and failed-attempt counts start empty for every test.
+
+    Staging tests are the exception: their tokens are signed by the real project, so replacing
+    `signing_key_for` here would reject every one with the test key's signature. Those tests keep the
+    app's own JWKS lookup, which is what they exist to exercise.
+    """
+    if request.node.get_closest_marker("staging") is None:
+        monkeypatch.setattr("app.auth.signing_key_for", lambda _token, _url: SIGNING_KEY.public_key())
     auth._failures.clear()
     yield
     auth._failures.clear()

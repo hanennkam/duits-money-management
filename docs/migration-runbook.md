@@ -128,7 +128,13 @@ two must match. Pass `--allow-live` only in this step.
 
 ## 6. Deploy the step-2 code
 
-1. In Render, set the environment variables **before** the deploy:
+> **Historical — superseded by `docs/CUTOVER_RUNBOOK.md`.** This section describes the pre-web-UI deployment:
+> it assumed `index.html` sent `X-API-Key` and that no sign-in screen existed. Neither is true now. For a public
+> multi-user deployment, `ALLOW_LEGACY_API_KEY` must be absent (or explicitly false) and `LEGACY_USER_ID` unset.
+> The steps below are kept only as a record of what was done at the time; do not follow them on a new deploy.
+
+1. In Render, set the environment variables **before** the deploy (**historical — do not do this**; see the
+   note above):
    - `ALLOW_LEGACY_API_KEY=true`
    - `LEGACY_USER_ID=<owner auth.users id>`
    Without these, the current page and the iOS Shortcut get 401 (the sign-in screen does not exist yet).

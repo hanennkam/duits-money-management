@@ -29,10 +29,18 @@ passed unless you ran it in that session.
   2. **Move existing receipts.** Old objects sit at `YYYY/MM/...`. Owner checks now refuse those paths, so
      `receipt-url` and `DELETE` on the 16 existing receipt rows return 500 until a storage move (not written yet)
      has run. Nothing is lost, because the delete fails before the row is removed.
-  3. **The browser has no sign-in screen yet.** `index.html` still sends `X-API-Key`. Until a login UI exists, the
-     app needs `ALLOW_LEGACY_API_KEY=true` and `LEGACY_USER_ID=<owner's id>`, and the iOS Shortcut depends on the
-     same flag. Personal access tokens for the Shortcut are not built.
-  4. **Sign-up is still open** in the live project. Close it in the Supabase dashboard before any second user exists.
+  3. **Historical (pre-web-UI, superseded): the browser had no sign-in screen yet.** At the time, `index.html`
+     still sent `X-API-Key`, so the app needed `ALLOW_LEGACY_API_KEY=true` and `LEGACY_USER_ID=<owner's id>`,
+     and the iOS Shortcut depended on the same flag. **Do not do this now.** The current local page has email
+     sign-in, sign-up, password recovery and token-hash link screens; verified per-user JWTs are the only
+     accepted identity, so a public multi-user deployment must keep both variables unset. Personal access
+     tokens for the Shortcut are still not built.
+  4. **Authentication configuration is environment-specific, and only staging was checked.** Staging reported
+     `disable_signup: true`, `mailer_autoconfirm: false` and `external.google: false`: `/auth/v1/signup` is
+     refused, email confirmation is required, and Google is UI-only with no PKCE implementation. Production
+     auth settings were **not** inspected; do not infer them from staging. Keep public sign-up closed until the
+     staging end-to-end tests and the release gates pass. Local keyboard/mock/contrast checks do not prove
+     staging or production behaviour.
 - `./.venv/bin/python -m pytest -q` — the full suite must pass; read the count from the summary it prints,
   never from a number written in a doc (this one included).
 - **No automated UI test exists in the repo.** `tests/test_static.py` pins strings in the page; it does not

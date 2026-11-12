@@ -1491,7 +1491,7 @@ def test_the_chips_show_every_category_in_one_scrolling_row(client: TestClient) 
     assert 'class="cat-chip' in chips and "is-on" in chips
     strip = page[page.index("  .chip-scroll {\n"):page.index("  .chip-scroll {\n") + 300]
     assert "overflow-x: auto" in strip and "scrollbar-width: none" in strip, "one row, scrollbar hidden"
-    assert ".cat-chip.is-on { background: var(--accent); color: var(--on-accent); }" in page
+    assert ".cat-chip.is-on { background: var(--accent-fill); color: var(--on-accent); }" in page
 
 
 def test_the_keyboard_lifts_the_sheet_and_centres_the_focused_field(client: TestClient) -> None:
@@ -1695,7 +1695,14 @@ def test_the_whats_new_version_is_remembered_per_account(client: TestClient) -> 
     assert 'if (state.screen !== "home") return;' in show
     # It is opened from the supported Home-entry paths, including the onboarding completion
     # path, as well as a fresh sign-in and a restored session.
-    assert page.count("maybeShowWhatsNew();") == 3, "sign-in, restored session, and onboarding completion"
+    # It is opened from every supported Home-entry path: a fresh sign-in, a restored session, onboarding
+    # completion, and the recovery path (enterApp). Assert the paths, not a raw count that rots.
+    sign_in = page[page.index("async function afterSignIn("):page.index("async function enterApp(")]
+    assert "maybeShowWhatsNew();" in sign_in
+    recovery = page[page.index("async function enterApp("):page.index("function hideOptionalOnboarding(")]
+    assert "maybeShowWhatsNew();" in recovery
+    restore = page[page.index("async function restoreSession(link, oauth)"):]
+    assert "maybeShowWhatsNew();" in restore
     assert "await Promise.all([loadHome(), loadTransactions(), loadInsights()]);" in page
 
 
@@ -1867,7 +1874,7 @@ def test_public_signup_is_an_explicit_auth_view(client: TestClient) -> None:
     assert '$("authCreate").addEventListener("click", function () { setAuthView("signup"); });' in page
     assert '$("authSubmit").addEventListener("click", submitAuth);' in page
     assert '$("authForgot").addEventListener("click", function () { setAuthView("forgot"); });' in page
-    assert '$("authBack").addEventListener("click", function () { setAuthView("signin"); });' in page
+    assert '$("authBack").addEventListener("click", backFromAuth);' in page
 
 
 def test_signup_validates_and_sends_versioned_user_metadata(client: TestClient) -> None:
@@ -1890,19 +1897,42 @@ def test_signup_validates_and_sends_versioned_user_metadata(client: TestClient) 
     assert 'if (created.access_token && created.refresh_token)' in signup
 
 
-def test_signup_confirmation_redirect_creates_session_and_enters_onboarding(client: TestClient) -> None:
-    """Supabase signup callback is distinct from invite/recovery password setup."""
+def test_signup_email_validation_rejects_before_the_signup_request(client: TestClient) -> None:
+    """The corrected validator runs before the Supabase signup call; invalid input never reaches it."""
     page = client.get("/").text
-    redirect = page[page.index("function readAuthRedirect()"):page.index("async function needsOptionalOnboarding()")]
-    assert 'type !== "invite" && type !== "recovery" && type !== "signup"' in redirect
-    assert 'pendingAuthRedirectType = type;' in redirect
-    assert 'writeSession(session);' in redirect
-    assert 'window.history.replaceState(null, "", window.location.pathname + window.location.search);' in redirect
-    restore = page[page.index("async function restoreSession()"):]
-    signup_callback = restore[restore.index('if (pendingAuthRedirectType === "signup")'):restore.index('showAuth("setpassword");')]
-    assert 'var confirmedSession = readSession();' in signup_callback
-    assert 'await showOptionalOnboarding();' in signup_callback
-    assert 'showAuth("setpassword")' not in signup_callback
+    helper_start = page.index("/* ---------- signup email validation")
+    helper_end = page.index("/* ---------- end signup email validation")
+    helper = page[helper_start:helper_end]
+    assert "function isValidSignupEmail(email)" in helper
+    assert r"/^[^\s@]+@[^\s@]+\.[^\s@]+$/" in helper, "the corrected single-backslash pattern"
+    assert r"/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/" not in helper, "the old double-escaped pattern"
+
+    start = page.index('if (authView === "signup")')
+    end = page.index('\n      if (authView === "forgot")', start)
+    signup = page[start:end]
+    presence = signup.index("if (!email || !password)")
+    email = signup.index("if (!isValidSignupEmail(email))")
+    request = signup.index('authRequest("POST", "/auth/v1/signup"')
+    assert presence < email < request, "email validation must run before the signup request"
+    assert signup.count('authRequest("POST", "/auth/v1/signup"') == 1
+    assert "{ email: email, password: password, data: { onboarding_version: 1 } }" in signup
+
+
+def test_signup_confirmation_verifies_then_enters_onboarding(client: TestClient) -> None:
+    """A confirmed signup enters optional onboarding; recovery and invite choose a password first."""
+    page = client.get("/").text
+    start = page.index("async function verifyPendingLink()")
+    end = page.index("function backFromAuth()", start)
+    verify = page[start:end]
+    assert "await authLink.verify();" in verify
+    assert 'if (result.type === "signup")' in verify
+    assert "await afterSignIn(result.session, true);" in verify
+    assert "pendingAuthLinkType = result.type;" in verify
+    assert "pendingAuthSession = result.session;" in verify
+    assert 'setAuthView("setpassword"' in verify
+    restore = page[page.index("async function restoreSession(link, oauth)"):]
+    assert 'showAuth(link.type === "signup" ? "link-signup"' in restore
+    assert 'link.type === "invite" ? "link-invite" : "link-recovery"' in restore
 
 
 def test_confirmation_resend_uses_signup_type_and_neutral_copy(client: TestClient) -> None:
@@ -1939,7 +1969,7 @@ def test_incomplete_onboarding_resumes_without_forcing_existing_users(client: Te
     check = page[page.index("async function needsOptionalOnboarding()"):page.index("async function afterSignIn(")]
     assert 'Number(metadata.onboarding_version) === 1 && metadata.onboarding_completed !== true' in check
     assert 'if (isNewSignup || await needsOptionalOnboarding())' in page
-    restore = page[page.index("async function restoreSession()"):]
+    restore = page[page.index("async function restoreSession(link, oauth)"):]
     assert 'if (await needsOptionalOnboarding())' in restore
     assert 'showOptionalOnboarding();' in restore
 
@@ -1947,8 +1977,86 @@ def test_incomplete_onboarding_resumes_without_forcing_existing_users(client: Te
 def test_public_signup_keeps_password_recovery_and_invite_flows(client: TestClient) -> None:
     """Adding public signup must not route recovery/invites through the signup confirmation path."""
     page = client.get("/").text
-    assert 'authRequest("POST", "/auth/v1/recover"' in page
-    assert 'authRequest("PUT", "/auth/v1/user", { password: password }, pendingToken)' in page
-    assert 'type !== "invite" && type !== "recovery" && type !== "signup"' in page
-    assert 'if (pendingAuthRedirectType === "signup")' in page
-    assert 'showAuth("setpassword");' in page
+    assert '"/auth/v1/recover?redirect_to=" + encodeURIComponent(redirectTarget())' in page
+    assert "updatePasswordForSession(verified, password" in page
+    assert "AUTH_LINK_TYPES = { signup: true, recovery: true, invite: true }" in page
+    verify = page[page.index("async function verifyPendingLink()"):page.index("function backFromAuth()")]
+    assert 'if (result.type === "signup")' in verify
+    assert 'setAuthView("setpassword"' in verify
+    # Recovery finishes without onboarding; an invite goes through the normal afterSignIn path.
+    submit = page[page.index("async function submitAuth()"):page.index("async function signOut()")]
+    assert 'if (reason === "invite") await afterSignIn(session);' in submit
+    assert "else await enterApp(session);" in submit
+
+
+def test_the_welcome_script_is_in_the_script_block_not_the_stylesheet(client: TestClient) -> None:
+    """The first-visit welcome is JavaScript: inside <style> it never runs and the app shell shows."""
+    page = client.get("/").text
+    first_style = page[page.index("<style"):page.index("</style>")]
+    script_start = page.index("<script", page.index("<body>"))
+    main_script = page[script_start:page.index("</script>", script_start)]
+
+    definitions = (
+        "var WELCOME_SEEN_SLOT",
+        "function showWelcome()",
+        "function leaveWelcome(nextView)",
+        "function continueFromWelcome()",
+        "function signInFromWelcome()",
+    )
+    for definition in definitions:
+        assert definition not in first_style, f"{definition} is inert inside <style>"
+        assert definition in main_script, f"{definition} must be in the main <script>"
+
+    # The markup those functions drive is still present.
+    assert '<div class="welcome" id="welcomeScreen" hidden' in page
+    assert 'id="welcomeTitle"' in page
+    assert 'id="welcomeContinue"' in page
+    assert 'id="welcomeSignIn"' in page
+
+
+def test_a_boot_failure_is_logged_and_still_settles_the_splash(client: TestClient) -> None:
+    """A boot that throws must reach the console; the splash still settles so the app is usable."""
+    page = client.get("/").text
+    boot = page[page.index("start().then("):]
+    assert 'console.error("Duits boot failed: the app could not finish starting.", error);' in boot
+    assert "splashSettled();" in boot
+
+
+def test_the_welcome_journey_has_four_steps_and_an_honest_google_state(client: TestClient) -> None:
+    """The intro is a four-step story; Google stays dark until the provider is configured."""
+    page = client.get("/").text
+    for step in range(4):
+        assert f'data-welcome-step="{step}"' in page
+    assert page.count('class="welcome-progress-seg') == 4
+    assert 'id="welcomeProgress"' in page
+    assert 'id="welcomeSkip"' in page
+    assert 'id="welcomeBack"' in page
+    assert 'id="welcomeContinue"' in page
+    assert 'id="welcomeEmail"' in page
+    assert 'id="welcomeSignIn"' in page
+    assert '<button class="welcome-google" id="welcomeGoogle" type="button" disabled aria-describedby="welcomeGoogleNote">' in page
+    assert "Google sign-in isn't available yet. Continue with email." in page
+    assert "window.isSecureContext && window.crypto && window.crypto.subtle" in page
+    # The PKCE client flow is wired but remains dark until the provider is configured.
+    assert "var GOOGLE_OAUTH_CONFIGURED = false;" in page
+    assert '$("welcomeGoogle").addEventListener("click", startGoogleSignIn);' in page
+    assert '$("welcomeEmail").addEventListener("click", continueWithEmail);' in page
+    assert '$("welcomeSignIn").addEventListener("click", signInFromWelcome);' in page
+    assert '$("welcomeSkip").addEventListener("click", welcomeSkip);' in page
+    assert '$("welcomeBack").addEventListener("click", welcomeBack);' in page
+    assert "function continueWithEmail() {" in page and 'leaveWelcome("signup");' in page
+    assert "if (welcomeStep < WELCOME_STEPS - 1) showWelcomeStep(welcomeStep + 1, true);" in page
+    # Returning users still skip the intro through the existing seen marker.
+    assert 'if (welcomeSeen) showAuth("signin"); else showWelcome();' in page
+
+
+def test_the_welcome_motion_respects_reduced_motion(client: TestClient) -> None:
+    """The story animates only when motion is welcome; reduce-motion gets the final states."""
+    page = client.get("/").text
+    welcome_css = page[page.index("/* ---------- first-visit welcome ---------- */"):page.index("/* ---------- optional first-run setup ---------- */")]
+    assert "@media (prefers-reduced-motion: reduce)" in welcome_css
+    assert ".welcome-ring-seg { stroke-dashoffset: var(--target); }" in welcome_css
+    assert "function staggerWelcome(slide)" in page
+    assert "function animateWelcomeSlide(slide, direction)" in page
+    assert "if (!slide || reducedMotion()) return;" in page
+    assert "replay(slide, \"is-active\");" in page

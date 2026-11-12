@@ -68,11 +68,12 @@
     --hairline: rgba(60, 60, 67, .18);
     --text: #1a1b1f;
     --text-2: #414754;
-    --muted: #8e8e93;
-    --accent: #007aff;
-    --accent-soft: rgba(0, 122, 255, .12);
-    --accent-ring: rgba(0, 122, 255, .25);
-    --accent-glow: rgba(0, 122, 255, .38);
+    --muted: #6b6b70;                       /* 4.75:1 on --bg and 5.30:1 on --card (WCAG AA) */
+    --accent: #0068d9;                      /* accent text and focus rings (4.73:1 on --bg) */
+    --accent-fill: #0068d9;                 /* filled controls carrying --on-accent (5.27:1) */
+    --accent-soft: rgba(0, 104, 217, .12);
+    --accent-ring: rgba(0, 104, 217, .25);
+    --accent-glow: rgba(0, 104, 217, .38);
     --on-accent: #ffffff;
     --on-accent-soft: rgba(255, 255, 255, .25);
     --green: #006e28;
@@ -125,6 +126,7 @@
     --text-2: rgba(235, 235, 245, .6);
     --muted: #8e8e93;
     --accent: #0a84ff;
+    --accent-fill: #0a6fd6;                 /* filled controls carrying --on-accent (4.93:1) */
     --accent-soft: rgba(10, 132, 255, .18);
     --accent-ring: rgba(10, 132, 255, .3);
     --accent-glow: rgba(10, 132, 255, .45);
@@ -608,7 +610,7 @@
     border: 0; border-radius: 9999px; background: var(--card); color: var(--text-2);
     font: inherit; font-size: 13px; font-weight: 500; box-shadow: var(--shadow);
   }
-  .chip.is-active { background: var(--accent); color: var(--on-accent); }
+  .chip.is-active { background: var(--accent-fill); color: var(--on-accent); }
   .chip-count {
     min-width: 20px; padding: 1px 6px; border-radius: 9999px; text-align: center;
     background: var(--card-2); color: var(--text-2); font-size: 12px; font-weight: 700;
@@ -682,7 +684,7 @@
   }
   .btn-primary {
     width: 100%; min-height: 50px; border: 0; border-radius: 9999px;
-    background: var(--accent); color: var(--on-accent); font: inherit; font-size: 17px; font-weight: 600;
+    background: var(--accent-fill); color: var(--on-accent); font: inherit; font-size: 17px; font-weight: 600;
   }
   .btn-primary[aria-busy="true"] { opacity: .6; }
   .btn-secondary {
@@ -883,7 +885,7 @@
   .cat-ico { flex: none; display: inline-flex; align-items: center; justify-content: center; color: var(--cat); }
   .cat-ico svg { width: 18px; height: 18px; }
   /* A chosen chip fills with the accent, and its icon goes white with the label. */
-  .cat-chip.is-on { background: var(--accent); color: var(--on-accent); }
+  .cat-chip.is-on { background: var(--accent-fill); color: var(--on-accent); }
   .cat-chip.is-on .cat-ico { color: var(--on-accent); }
   .cat-dot { background: var(--cat); }
   .cat-fill { background: var(--cat); }
@@ -1193,7 +1195,7 @@
   }
   .tab-add-face {
     width: 52px; height: 52px; margin-top: -20px; border-radius: 50%;
-    background: var(--accent); color: var(--on-accent);
+    background: var(--accent-fill); color: var(--on-accent);
     display: flex; align-items: center; justify-content: center;
     box-shadow: 0 6px 18px var(--accent-glow), 0 0 0 5px var(--bg);
     transition: transform .12s ease;
@@ -1386,41 +1388,13 @@
     transition-delay: calc(var(--i, 0) * 60ms);
   }
   .donut.is-drawn .donut-seg { stroke-dashoffset: 0; }
-  /* ---------- first-visit welcome ---------- */
-  var WELCOME_SEEN_SLOT = "duits.welcome.seen";
-
-  function showWelcome() {
-    var screen = $("welcomeScreen");
-    if (!screen) { showAuth("signin"); return; }
-    screen.hidden = false;
-    screen.setAttribute("aria-hidden", "false");
-  }
-
-  function leaveWelcome(nextView) {
-    var screen = $("welcomeScreen");
-    if (screen) {
-      screen.hidden = true;
-      screen.setAttribute("aria-hidden", "true");
-    }
-    try { window.localStorage.setItem(WELCOME_SEEN_SLOT, "1"); } catch (error) { /* storage may be unavailable */ }
-    showAuth(nextView);
-  }
-
-  function continueFromWelcome() {
-    leaveWelcome("signup");
-  }
-
-  function signInFromWelcome() {
-    leaveWelcome("signin");
-  }
-
   /* ---------- sign in ---------- */
-  /* A gate over the app, not a sheet: it never scales the page behind it. One column, centred and
+  /* A gate over the app, not a sheet: it never scales the page behind it. The shell is centred and
      sitting ~45% from the top, which scrolls when the keyboard eats the height.
      - min-height: 100dvh and never 100vh: the static viewport height is what iOS breaks.
      - The bottom padding is 10vh larger than the top. That IS the shift: with the block centred in the
        content box, a taller bottom padding puts its centre at exactly 45% of the box.
-     - .auth-card carries `margin: auto` as well as the container's `safe center`: a centred flex item
+     - .auth-shell carries `margin: auto` as well as the container's `safe center`: a centred flex item
        taller than its box overflows off the *top* and becomes unreachable. `safe` falls back to the
        start instead, and auto margins fall back to 0, so the title stays reachable and it still scrolls.
      --sat/--sab are the file's only safe-area reads (see the inset rule at :root). */
@@ -1430,7 +1404,7 @@
     min-height: 100dvh;
     display: flex; flex-direction: column;
     /* "safe" is the point: a form taller than the box is aligned to the start rather than overflowing
-       off the top, where the logo and title could never be scrolled back into view. The first line is
+       off the top, where the brand and title could never be scrolled back into view. The first line is
        the plain form for engines without it. */
     justify-content: center;
     justify-content: safe center;
@@ -1439,76 +1413,287 @@
     overflow-y: auto; -webkit-overflow-scrolling: touch;
     touch-action: manipulation;
   }
-  .auth-card {
-    width: 100%; max-width: 340px;
-    margin: auto;
-    display: flex; flex-direction: column; align-items: stretch;
+  .auth-shell {
+    width: 100%; max-width: 440px; margin: auto;
+    display: flex; flex-direction: column; gap: 28px;
   }
-  .auth-logo {
-    width: 72px; height: 72px; border-radius: 16px; align-self: center;
-    margin-bottom: 16px;
-    box-shadow: var(--shadow); border: .5px solid var(--line);
+  .auth-lead { min-width: 0; }
+  .auth-brand { display: flex; align-items: center; gap: 10px; }
+  .auth-brand img { width: 32px; height: 32px; border-radius: 9px; box-shadow: var(--shadow); }
+  .auth-brand span { font-size: 18px; font-weight: 700; letter-spacing: -.04em; color: var(--text); }
+  .auth-kicker {
+    color: var(--accent); font-size: 12px; font-weight: 700; letter-spacing: .13em;
+    text-transform: uppercase; margin: 24px 0 12px;
   }
-  .auth-title {
-    font-size: 24px; font-weight: 700;
-    margin: 0 0 20px; text-align: center;
+  .auth-lead-title {
+    color: var(--text); font-size: clamp(36px, 9vw, 44px); line-height: .99;
+    letter-spacing: -.06em; font-weight: 750; margin: 0 0 16px; max-width: 520px;
   }
-  .auth-note {
-    font-size: 13px; color: var(--text-2);
-    margin: 0 0 14px; text-align: center;
+  .auth-lead-copy { color: var(--text-2); font-size: 15px; line-height: 1.55; max-width: 44ch; margin: 0; }
+  .auth-visual { display: none; }
+  .auth-visual svg { display: block; width: min(100%, 260px); height: auto; transform: rotate(-90deg); }
+  .auth-ring { fill: none; stroke-width: 10; stroke-linecap: round; }
+  .auth-ring-a { stroke: var(--accent); }
+  .auth-ring-b { stroke: var(--green); }
+  .auth-ring-c { stroke: var(--amber); }
+  .auth-lead-foot { display: none; color: var(--muted); font-size: 12px; line-height: 1.5; margin: 0; max-width: 300px; }
+  .auth-panel { width: 100%; }
+  .auth-card { width: 100%; display: flex; flex-direction: column; align-items: stretch; }
+  .auth-back {
+    align-self: flex-start; min-height: 44px; margin: 0 0 14px;
+    padding: 0 4px; font-size: 14px; font-weight: 500; color: var(--text-2);
   }
+  .auth-back:hover { color: var(--text); }
+  .auth-title { font-size: 26px; font-weight: 700; letter-spacing: -.03em; margin: 0 0 8px; text-align: left; }
+  .auth-note { font-size: 13px; color: var(--text-2); line-height: 1.5; margin: 0 0 18px; text-align: left; }
   .auth-note:empty { display: none; }
+  .auth-google-block { display: grid; gap: 8px; margin: 0 0 4px; }
+  .auth-google {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    width: 100%; min-height: 54px; padding: 0 18px; border-radius: 27px;
+    border: 1px solid var(--hairline); background: var(--card); color: var(--text);
+    font: inherit; font-size: 16px; font-weight: 600; cursor: pointer;
+    touch-action: manipulation;
+  }
+  .auth-google[disabled] { opacity: .7; cursor: not-allowed; }
+  .auth-google-icon { width: 18px; height: 18px; flex: 0 0 18px; }
+  .auth-google-note { min-height: 18px; margin: 0; font-size: 12px; line-height: 1.45; color: var(--muted); text-align: center; }
+  .auth-divider {
+    display: flex; align-items: center; gap: 10px;
+    margin: 18px 0; color: var(--muted); font-size: 12px; line-height: 1.4;
+  }
+  .auth-divider::before,
+  .auth-divider::after { content: ""; height: 1px; flex: 1; background: var(--line); }
   .auth-card .form-label { font-size: 12px; margin: 0 0 6px; }
   .auth-card .field {
     height: 48px; min-height: 48px; border-radius: 12px; font-size: 16px;
   }
+  .auth-input-wrap { position: relative; }
+  .auth-input-wrap .field { padding-right: 48px; }
+  .auth-eye {
+    position: absolute; top: 2px; right: 4px;
+    width: 44px; height: 44px; display: grid; place-items: center;
+    padding: 0; border: 0; border-radius: 50%;
+    background: transparent; color: var(--muted); cursor: pointer;
+    touch-action: manipulation;
+  }
+  .auth-eye:hover { color: var(--text); }
+  .auth-eye[aria-pressed="true"] { color: var(--accent); }
+  .auth button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .auth-title:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+  .auth button[aria-disabled="true"] { cursor: progress; pointer-events: none; }
+  /* Loading keeps full opacity: dimming the whole button pushed white-on-blue below 4.5:1. The
+     changed label ("Signing in…") is what marks the busy state. */
+  .auth .btn-primary[aria-busy="true"] { opacity: 1; }
+  .auth-eye svg { width: 20px; height: 20px; }
+  .auth-eye .auth-eye-off { display: none; }
+  .auth-eye[aria-pressed="true"] .auth-eye-on { display: none; }
+  .auth-eye[aria-pressed="true"] .auth-eye-off { display: block; }
+  .auth-card .auth-link[aria-busy="true"] { color: var(--muted); }
   /* 14px between one field and the label of the next. */
   .auth-card .field + .form-label { margin-top: 14px; }
+  .auth-hint { margin: 6px 2px 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
+  .auth-hint + .form-label { margin-top: 14px; }
+  #authForgot {
+    align-self: flex-end; min-height: 44px; margin: 6px 0 0;
+    padding: 0 4px; font-size: 14px; font-weight: 500; color: var(--text-2);
+  }
   .auth-submit {
-    width: 100%; height: 48px; min-height: 48px;
-    border-radius: 24px; font-size: 17px; margin-top: 18px;
+    width: 100%; height: 52px; min-height: 52px;
+    border-radius: 26px; font-size: 16px; margin-top: 20px;
     padding-top: 0; padding-bottom: 0;
   }
-  .auth-card .btn-ghost {
-    width: 100%; font-size: 15px; margin-top: 14px;
+  .auth-card .auth-link {
+    width: auto; align-self: flex-start; min-height: 44px; margin-top: 8px;
+    padding: 0 4px; font-size: 14px; font-weight: 500; color: var(--text-2);
   }
-  .auth-foot {
-    font-size: 13px; color: var(--text-2);
-    margin: 20px 0 0; text-align: center;
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  .auth-card .auth-link:hover { color: var(--text); }
+  #authCreate { margin-top: 16px; }
+  .auth-foot { font-size: 12px; color: var(--muted); line-height: 1.5; margin: 22px 0 0; text-align: left; }
+  @media (min-width: 900px) {
+    .auth-shell {
+      max-width: 1040px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(360px, 420px);
+      gap: clamp(40px, 8vw, 96px);
+      align-items: center;
+    }
+    .auth-lead { max-width: 520px; }
+    .auth-kicker { margin-top: 36px; }
+    .auth-lead-title { font-size: clamp(36px, 4vw, 58px); }
+    .auth-lead-copy { font-size: clamp(15px, 1.4vw, 17px); }
+    .auth-visual { display: block; margin: 26px 0 4px; }
+    .auth-lead-foot { display: block; margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--line); }
+    .auth-panel {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: var(--r-lg);
+      box-shadow: var(--shadow);
+      padding: 28px;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    /* Match the global press rule's specificity, or its 1ms transition wins over this one. */
+    .auth button:not(.tab):not(.tab-add), .auth .field { transition: none; }
   }
 
   /* ---------- first-visit welcome ---------- */
   .welcome {
-    position: fixed; inset: 0; z-index: 41; display: flex; align-items: center;
-    justify-content: center; overflow-y: auto; -webkit-overflow-scrolling: touch;
-    padding: max(var(--sat), 28px) 26px max(var(--sab), 28px);
+    position: fixed; inset: 0; z-index: 41;
+    display: flex; flex-direction: column;
     background: var(--bg);
+    min-height: 100dvh;
+    overflow: hidden;
+    padding: max(var(--sat), 20px) max(var(--sar), 22px) max(var(--sab), 20px) max(var(--sal), 22px);
+    touch-action: manipulation;
   }
   .welcome[hidden] { display: none; }
-  .welcome-inner { width: 100%; max-width: 440px; margin: auto; }
-  .welcome-brand { display: flex; align-items: center; gap: 10px; margin-bottom: clamp(52px, 12vh, 104px); }
-  .welcome-brand img { width: 34px; height: 34px; border-radius: 9px; box-shadow: var(--shadow); }
-  .welcome-brand span { font-size: 19px; font-weight: 700; letter-spacing: -.04em; color: var(--text); }
-  .welcome-kicker { color: var(--accent, #30a46c); font-size: 12px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; margin: 0 0 18px; }
-  .welcome-title { max-width: 420px; color: var(--text); font-size: clamp(42px, 10vw, 66px); line-height: .99; letter-spacing: -.065em; font-weight: 750; margin: 0 0 22px; }
-  .welcome-copy { max-width: 360px; color: var(--text-2); font-size: 17px; line-height: 1.55; margin: 0; }
-  .welcome-rule { height: 1px; background: var(--line); margin: 38px 0 22px; }
-  .welcome-points { display: grid; gap: 16px; margin: 0; padding: 0; list-style: none; }
-  .welcome-points li { display: flex; align-items: center; gap: 13px; color: var(--text); font-size: 14px; }
-  .welcome-point-mark { width: 28px; height: 28px; border-radius: 9px; display: grid; place-items: center; flex: 0 0 28px; color: var(--accent, #30a46c); background: color-mix(in srgb, var(--accent, #30a46c) 11%, transparent); font-size: 15px; }
-  .welcome-actions { display: grid; gap: 14px; margin-top: 42px; }
-  .welcome-primary { min-height: 54px; border-radius: 27px; font-size: 16px; font-weight: 650; }
-  .welcome-signin { color: var(--text-2); background: transparent; border: 0; font: inherit; font-size: 14px; padding: 8px; cursor: pointer; }
-  .welcome-foot { color: var(--muted); font-size: 11px; line-height: 1.5; text-align: center; margin: 26px auto 0; max-width: 300px; }
-  @media (prefers-reduced-motion: no-preference) {
-    .welcome-inner { animation: welcome-arrive 520ms cubic-bezier(.2,.75,.25,1) both; }
-    @keyframes welcome-arrive { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+  .welcome-shell {
+    width: 100%; max-width: 1040px;
+    height: calc(100dvh - max(var(--sat), 20px) - max(var(--sab), 20px));
+    min-height: 0;
+    margin: 0 auto; display: flex; flex-direction: column;
   }
-  @media (max-height: 680px) {
-    .welcome-brand { margin-bottom: 36px; }
-    .welcome-rule { margin: 24px 0 18px; }
-    .welcome-actions { margin-top: 26px; }
+  .welcome-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 44px; }
+  .welcome-brand { display: flex; align-items: center; gap: 10px; }
+  .welcome-brand img { width: 32px; height: 32px; border-radius: 9px; box-shadow: var(--shadow); }
+  .welcome-brand span { font-size: 18px; font-weight: 700; letter-spacing: -.04em; color: var(--text); }
+  .welcome-skip {
+    min-height: 44px; padding: 0 4px; border: 0; background: transparent;
+    color: var(--text-2); font: inherit; font-size: 14px; font-weight: 500;
+    cursor: pointer; touch-action: manipulation;
+  }
+  .welcome-skip:hover { color: var(--text); }
+  .welcome-viewport { flex: 1; min-height: 0; display: flex; align-items: center; align-items: safe center; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: clamp(22px, 5vh, 56px) 0; }
+  .welcome-slide { display: none; width: 100%; min-width: 0; }
+  .welcome-slide.is-active { display: grid; }
+  .welcome-slide[data-welcome-step="0"],
+  .welcome-slide[data-welcome-step="3"] { max-width: 620px; margin: 0 auto; }
+  .welcome-slide[data-welcome-step="1"],
+  .welcome-slide[data-welcome-step="2"] { gap: clamp(26px, 5vw, 64px); align-items: center; }
+  .welcome-copy-col { min-width: 0; }
+  .welcome-kicker { color: var(--accent); font-size: 12px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; margin: 0 0 18px; }
+  .welcome-title { color: var(--text); font-size: clamp(42px, 8.4vw, 72px); line-height: .99; letter-spacing: -.065em; font-weight: 750; margin: 0 0 22px; outline: none; }
+  .welcome-title-sm { font-size: clamp(34px, 6.2vw, 56px); line-height: 1.02; letter-spacing: -.055em; }
+  .welcome-copy { max-width: 46ch; color: var(--text-2); font-size: clamp(16px, 1.6vw, 18px); line-height: 1.55; margin: 0; }
+  .welcome-points { display: grid; gap: 14px; margin: 28px 0 0; padding: 0; list-style: none; }
+  .welcome-points li { display: flex; align-items: center; gap: 12px; color: var(--text); font-size: 15px; line-height: 1.4; }
+  .welcome-point-mark {
+    width: 30px; height: 30px; border-radius: 10px; display: grid; place-items: center;
+    flex: 0 0 30px; color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 11%, transparent); font-size: 15px;
+  }
+  .welcome-visual { position: relative; display: grid; place-items: center; min-width: 0; }
+  .welcome-visual-hero { min-height: 220px; }
+  .welcome-orbit { position: relative; width: min(70vw, 340px); aspect-ratio: 1; display: grid; place-items: center; }
+  .welcome-orbit-ring { position: absolute; inset: 0; border: 1px solid var(--line); border-radius: 50%; }
+  .welcome-orbit-ring + .welcome-orbit-ring { inset: 14%; border-color: var(--hairline); }
+  .welcome-orbit img { width: 84px; height: 84px; border-radius: 22px; box-shadow: 0 12px 40px rgba(0, 0, 0, .12); }
+  .welcome-orbit-dot { position: absolute; top: 9%; right: 17%; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 7px var(--accent-soft); }
+  .welcome-chart-card,
+  .welcome-control-card {
+    width: min(100%, 340px); padding: 22px; border-radius: 24px;
+    background: var(--card); border: 1px solid var(--line); box-shadow: var(--shadow);
+  }
+  .welcome-chart-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; font-weight: 600; color: var(--text); }
+  .welcome-chart-pill { font-size: 11px; font-weight: 600; color: var(--text-2); background: var(--card-2); padding: 4px 8px; border-radius: 9999px; }
+  .welcome-chart { position: relative; display: grid; place-items: center; margin: 8px auto 2px; width: min(100%, 300px); }
+  .welcome-ring { width: 100%; height: auto; transform: rotate(-90deg); }
+  .welcome-ring-track { fill: none; stroke: var(--line); stroke-width: 10; }
+  .welcome-ring-seg { fill: none; stroke-width: 10; stroke-linecap: round; stroke-dasharray: var(--circ); stroke-dashoffset: var(--circ); }
+  .welcome-ring-seg-a { stroke: var(--accent); }
+  .welcome-ring-seg-b { stroke: var(--green); }
+  .welcome-ring-seg-c { stroke: var(--amber); }
+  .welcome-chart-center { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; pointer-events: none; }
+  .welcome-chart-center span { display: block; font-size: 15px; font-weight: 650; color: var(--text); }
+  .welcome-chart-center small { display: block; margin-top: 2px; font-size: 11px; color: var(--muted); }
+  .welcome-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px 16px; margin-top: 6px; font-size: 11px; color: var(--text-2); }
+  .welcome-legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .welcome-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+  .welcome-dot-a { background: var(--accent); }
+  .welcome-dot-b { background: var(--green); }
+  .welcome-dot-c { background: var(--amber); }
+  .welcome-control-head { display: flex; align-items: center; gap: 12px; }
+  .welcome-control-icon { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; flex: 0 0 42px; background: var(--green-soft); color: var(--green); font-size: 18px; font-weight: 700; }
+  .welcome-control-head strong { display: block; font-size: 16px; font-weight: 650; color: var(--text); }
+  .welcome-control-head span { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); }
+  .welcome-control-bar { height: 8px; border-radius: 9999px; background: var(--bar-track); margin: 22px 0 10px; overflow: hidden; }
+  .welcome-control-fill { display: block; height: 100%; width: 68%; border-radius: inherit; background: linear-gradient(90deg, var(--accent), var(--green)); transform-origin: left center; }
+  .welcome-control-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
+  .welcome-control-rows { display: grid; gap: 0; margin-top: 16px; }
+  .welcome-control-rows div { display: flex; align-items: center; justify-content: space-between; padding: 11px 0; border-top: 1px solid var(--line); font-size: 13px; color: var(--text-2); }
+  .welcome-control-rows div:first-child { border-top: 0; padding-top: 4px; }
+  .welcome-control-rows i { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+  .welcome-auth-col { max-width: 420px; margin: 0 auto; }
+  .welcome-auth-actions { display: grid; gap: 12px; margin-top: 30px; }
+  .welcome-google {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    width: 100%; min-height: 54px; padding: 0 18px; border-radius: 27px;
+    border: 1px solid var(--hairline); background: var(--card); color: var(--text);
+    font: inherit; font-size: 16px; font-weight: 600; cursor: pointer;
+    touch-action: manipulation;
+  }
+  .welcome-google[disabled] { opacity: .55; cursor: not-allowed; }
+  .welcome-google-icon { width: 18px; height: 18px; flex: 0 0 18px; }
+  .welcome-auth-note { min-height: 18px; margin: 0; font-size: 12px; line-height: 1.45; color: var(--muted); text-align: center; }
+  .welcome-email { width: 100%; min-height: 54px; border-radius: 27px; font-size: 16px; font-weight: 650; }
+  .welcome-signin { min-height: 44px; color: var(--text-2); background: transparent; border: 0; font: inherit; font-size: 14px; padding: 10px; cursor: pointer; touch-action: manipulation; }
+  .welcome-signin:hover { color: var(--text); }
+  .welcome-foot { color: var(--muted); font-size: 11px; line-height: 1.5; text-align: center; margin: 26px auto 0; max-width: 300px; }
+  .welcome-footer { display: grid; gap: 16px; padding-top: 10px; }
+  .welcome-progress { display: flex; gap: 6px; height: 3px; }
+  .welcome-progress-seg { flex: 1; border-radius: 9999px; background: var(--bar-track); overflow: hidden; }
+  .welcome-progress-seg i {
+    display: block; height: 100%; width: 100%; border-radius: inherit;
+    background: var(--accent); transform: scaleX(0); transform-origin: left center;
+    transition: transform 240ms var(--ease-ios), opacity 240ms var(--ease-ios);
+  }
+  .welcome-progress-seg.is-active i,
+  .welcome-progress-seg.is-complete i { transform: scaleX(1); }
+  .welcome-progress-seg.is-complete i { opacity: .45; }
+  .welcome-nav { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 52px; }
+  .welcome-back { min-height: 48px; padding: 0 6px; border: 0; background: transparent; color: var(--text-2); font: inherit; font-size: 15px; font-weight: 500; cursor: pointer; touch-action: manipulation; }
+  .welcome-back:hover { color: var(--text); }
+  .welcome-next { width: auto; min-height: 52px; min-width: 148px; margin-left: auto; border-radius: 26px; font-size: 16px; font-weight: 650; }
+  @keyframes welcome-arrive { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+  @media (prefers-reduced-motion: no-preference) {
+    .welcome-slide.is-active .welcome-orbit { animation: welcome-orbit-in 700ms var(--ease-ios) both; }
+    .welcome-slide.is-active .welcome-ring-seg { animation: welcome-ring-draw 900ms var(--ease-ios) both; }
+    .welcome-slide.is-active .welcome-ring-seg-b { animation-delay: 90ms; }
+    .welcome-slide.is-active .welcome-ring-seg-c { animation-delay: 180ms; }
+    .welcome-slide.is-active .welcome-control-fill { animation: welcome-control-grow 700ms var(--ease-ios) both; }
+    @keyframes welcome-orbit-in { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: scale(1); } }
+    @keyframes welcome-ring-draw { from { stroke-dashoffset: var(--circ); } to { stroke-dashoffset: var(--target); } }
+    @keyframes welcome-control-grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .welcome-ring-seg { stroke-dashoffset: var(--target); }
+    .welcome-progress-seg i { transition: none; }
+  }
+  @media (min-width: 760px) {
+    .welcome-slide[data-welcome-step="0"] {
+      max-width: none;
+      grid-template-columns: minmax(0, 1.1fr) minmax(260px, .9fr);
+      gap: clamp(32px, 6vw, 80px); align-items: center;
+    }
+    .welcome-slide[data-welcome-step="1"],
+    .welcome-slide[data-welcome-step="2"] { grid-template-columns: minmax(0, 1.05fr) minmax(300px, .95fr); }
+    .welcome-visual { justify-self: end; }
+  }
+  @media (max-width: 759px) {
+    .welcome-visual-hero { display: none; }
+    .welcome-title { font-size: clamp(40px, 11vw, 56px); }
+    .welcome-title-sm { font-size: clamp(32px, 8.6vw, 44px); }
+    .welcome-slide[data-welcome-step="1"],
+    .welcome-slide[data-welcome-step="2"] { gap: 26px; }
+    .welcome-viewport { padding: 24px 0; }
+    .welcome-next { flex: 1; }
+  }
+  @media (max-height: 700px) {
+    .welcome-viewport { padding: 16px 0; }
+    .welcome-points { margin-top: 20px; }
+    .welcome-auth-actions { margin-top: 22px; }
+    .welcome-foot { margin-top: 18px; }
   }
 
   /* ---------- optional first-run setup ---------- */
@@ -2167,46 +2352,220 @@
      no scrim, no drag and no close. It is the one layer allowed to fade on its own opacity (it holds no
      sheet, so nothing can go translucent inside it). -->
 <!-- First-visit welcome gate. The app itself remains mounted underneath, but no private content is shown before auth. -->
-<div class="welcome" id="welcomeScreen" hidden aria-labelledby="welcomeTitle">
-  <div class="welcome-inner">
-    <div class="welcome-brand"><img src="/logo.png" alt="" width="34" height="34"><span>Duits</span></div>
-    <p class="welcome-kicker">A clearer view of your money</p>
-    <h1 class="welcome-title" id="welcomeTitle">Your money,<br>understood.</h1>
-    <p class="welcome-copy">A calmer way to keep track of what comes in, what goes out, and what matters next.</p>
-    <div class="welcome-rule" aria-hidden="true"></div>
-    <ul class="welcome-points">
-      <li><span class="welcome-point-mark" aria-hidden="true">↗</span><span>See where your money goes</span></li>
-      <li><span class="welcome-point-mark" aria-hidden="true">⌁</span><span>Capture receipts and expenses with AI</span></li>
-      <li><span class="welcome-point-mark" aria-hidden="true">◎</span><span>Stay ahead of budgets and commitments</span></li>
-    </ul>
-    <div class="welcome-actions">
-      <button class="btn-primary welcome-primary" id="welcomeContinue" type="button">Continue</button>
-      <button class="welcome-signin" id="welcomeSignIn" type="button">Already have an account? Sign in</button>
+<div class="welcome" id="welcomeScreen" hidden aria-label="Welcome to Duits">
+  <div class="welcome-shell">
+    <header class="welcome-top">
+      <div class="welcome-brand"><img src="/logo.png" alt="" width="32" height="32"><span>Duits</span></div>
+      <button class="welcome-skip" id="welcomeSkip" type="button">Skip</button>
+    </header>
+
+    <div class="welcome-viewport">
+      <section class="welcome-slide" data-welcome-step="0" aria-labelledby="welcomeTitle">
+        <div class="welcome-copy-col">
+          <p class="welcome-kicker">A clearer view of your money</p>
+          <h1 class="welcome-title" id="welcomeTitle" tabindex="-1">Your money,<br>understood.</h1>
+          <p class="welcome-copy">A calmer way to keep track of what comes in, what goes out, and what matters next.</p>
+        </div>
+        <div class="welcome-visual welcome-visual-hero" aria-hidden="true">
+          <div class="welcome-orbit">
+            <span class="welcome-orbit-ring"></span>
+            <span class="welcome-orbit-ring"></span>
+            <img src="/logo.png" alt="" width="84" height="84">
+            <span class="welcome-orbit-dot"></span>
+          </div>
+        </div>
+      </section>
+
+      <section class="welcome-slide" data-welcome-step="1" aria-labelledby="welcomeTitle2">
+        <div class="welcome-copy-col">
+          <p class="welcome-kicker">See the pattern</p>
+          <h2 class="welcome-title welcome-title-sm" id="welcomeTitle2" tabindex="-1">Understand your money.</h2>
+          <p class="welcome-copy">Duits turns scattered spending into a clear picture, so the month makes sense at a glance.</p>
+          <ul class="welcome-points">
+            <li><span class="welcome-point-mark" aria-hidden="true">↗</span><span>See where your money goes</span></li>
+            <li><span class="welcome-point-mark" aria-hidden="true">◔</span><span>Spot patterns without spreadsheets</span></li>
+            <li><span class="welcome-point-mark" aria-hidden="true">⌁</span><span>Keep receipts and notes in one place</span></li>
+          </ul>
+        </div>
+        <div class="welcome-visual" aria-hidden="true">
+          <div class="welcome-chart-card">
+            <div class="welcome-chart-head"><span>Where it goes</span><span class="welcome-chart-pill">Monthly</span></div>
+            <div class="welcome-chart">
+              <svg class="welcome-ring" viewBox="0 0 240 240" role="presentation">
+                <circle class="welcome-ring-track" cx="120" cy="120" r="92"></circle>
+                <circle class="welcome-ring-seg welcome-ring-seg-a" cx="120" cy="120" r="92" style="--circ: 578; --target: 173"></circle>
+                <circle class="welcome-ring-seg welcome-ring-seg-b" cx="120" cy="120" r="74" style="--circ: 465; --target: 209"></circle>
+                <circle class="welcome-ring-seg welcome-ring-seg-c" cx="120" cy="120" r="56" style="--circ: 352; --target: 176"></circle>
+              </svg>
+              <div class="welcome-chart-center"><span>Spending</span><small>clearer</small></div>
+            </div>
+            <div class="welcome-legend">
+              <span><i class="welcome-dot welcome-dot-a"></i>Food</span>
+              <span><i class="welcome-dot welcome-dot-b"></i>Transport</span>
+              <span><i class="welcome-dot welcome-dot-c"></i>Bills</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="welcome-slide" data-welcome-step="2" aria-labelledby="welcomeTitle3">
+        <div class="welcome-copy-col">
+          <p class="welcome-kicker">A calmer month</p>
+          <h2 class="welcome-title welcome-title-sm" id="welcomeTitle3" tabindex="-1">Take control.</h2>
+          <p class="welcome-copy">Set a budget, keep an eye on what is left, and make decisions with clarity instead of guesswork.</p>
+          <ul class="welcome-points">
+            <li><span class="welcome-point-mark" aria-hidden="true">◎</span><span>Budgets that stay in view</span></li>
+            <li><span class="welcome-point-mark" aria-hidden="true">↻</span><span>Recurring commitments, accounted for</span></li>
+            <li><span class="welcome-point-mark" aria-hidden="true">✓</span><span>A clear next step, not more noise</span></li>
+          </ul>
+        </div>
+        <div class="welcome-visual" aria-hidden="true">
+          <div class="welcome-control-card">
+            <div class="welcome-control-head">
+              <span class="welcome-control-icon">✓</span>
+              <div><strong>On track</strong><span>Budget, in one glance</span></div>
+            </div>
+            <div class="welcome-control-bar"><span class="welcome-control-fill"></span></div>
+            <div class="welcome-control-labels"><span>Plan</span><span>Track</span><span>Adjust</span></div>
+            <div class="welcome-control-rows">
+              <div><span>Budgets</span><i></i></div>
+              <div><span>Recurring</span><i></i></div>
+              <div><span>Receipts</span><i></i></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="welcome-slide" data-welcome-step="3" aria-labelledby="welcomeTitle4">
+        <div class="welcome-copy-col welcome-auth-col">
+          <p class="welcome-kicker">Start your account</p>
+          <h2 class="welcome-title welcome-title-sm" id="welcomeTitle4" tabindex="-1">A calmer way to begin.</h2>
+          <p class="welcome-copy">Create your account to keep your money picture in one private place.</p>
+          <div class="welcome-auth-actions">
+            <button class="welcome-google" id="welcomeGoogle" type="button" disabled aria-describedby="welcomeGoogleNote">
+              <svg class="welcome-google-icon" viewBox="0 0 18 18" aria-hidden="true">
+                <path fill="#4285F4" d="M17.64 9.205c0-.638-.057-1.252-.164-1.841H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615Z"/>
+                <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A9 9 0 0 0 9 18Z"/>
+                <path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A9 9 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332Z"/>
+                <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A9 9 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58Z"/>
+              </svg>
+              <span>Continue with Google</span>
+            </button>
+            <p class="welcome-auth-note" id="welcomeGoogleNote" role="status">Google sign-in isn't available yet. Continue with email.</p>
+            <button class="btn-primary welcome-email" id="welcomeEmail" type="button">Continue with Email</button>
+            <button class="welcome-signin" id="welcomeSignIn" type="button">Already have an account? Sign in</button>
+          </div>
+          <p class="welcome-foot">Your finances, kept private and secure.</p>
+        </div>
+      </section>
     </div>
-    <p class="welcome-foot">A little more clarity, one day at a time.</p>
+
+    <footer class="welcome-footer">
+      <div class="welcome-progress" id="welcomeProgress" role="progressbar" aria-label="Onboarding progress" aria-valuemin="1" aria-valuemax="4" aria-valuenow="1">
+        <span class="welcome-progress-seg is-active" aria-hidden="true"><i></i></span>
+        <span class="welcome-progress-seg" aria-hidden="true"><i></i></span>
+        <span class="welcome-progress-seg" aria-hidden="true"><i></i></span>
+        <span class="welcome-progress-seg" aria-hidden="true"><i></i></span>
+      </div>
+      <div class="welcome-nav">
+        <button class="welcome-back" id="welcomeBack" type="button" hidden>Back</button>
+        <button class="btn-primary welcome-next" id="welcomeContinue" type="button">Get started</button>
+      </div>
+    </footer>
   </div>
 </div>
 
-<div class="auth" id="authScreen" hidden>
-  <div class="auth-card">
-    <img class="auth-logo" src="/logo.png?v=2" alt="Duits">
-    <h2 class="auth-title" id="authTitle">Sign in</h2>
-    <p class="auth-note" id="authNote"></p>
-    <label class="form-label" for="authEmail">Email</label>
-    <input class="field" id="authEmail" type="email" autocomplete="username" inputmode="email"
-           enterkeyhint="next" autocapitalize="off" autocorrect="off" spellcheck="false">
-    <label class="form-label" for="authPassword" id="authPasswordLabel">Password</label>
-    <input class="field" id="authPassword" type="password" autocomplete="current-password"
-           enterkeyhint="go" autocapitalize="off" autocorrect="off" spellcheck="false">
-    <label class="form-label" for="authPassword2" id="authPassword2Label" hidden>Confirm password</label>
-    <input class="field" id="authPassword2" type="password" autocomplete="new-password"
-           enterkeyhint="go" autocapitalize="off" autocorrect="off" spellcheck="false" hidden>
-    <button class="btn-primary auth-submit" id="authSubmit" type="button">Sign in</button>
-    <button class="btn-ghost" id="authForgot" type="button">Forgot password?</button>
-    <button class="btn-ghost" id="authCreate" type="button">New to Duits? Create an account</button>
-    <button class="btn-ghost" id="authResend" type="button" hidden>Resend confirmation email</button>
-    <button class="btn-ghost" id="authBack" type="button">Back to sign in</button>
-    <p class="auth-foot" id="authFoot">Your finances, kept private and secure.</p>
+<div class="auth" id="authScreen" hidden role="main" aria-labelledby="authTitle">
+  <div class="auth-shell">
+    <aside class="auth-lead">
+      <div class="auth-brand">
+        <img src="/logo.png?v=2" alt="" width="32" height="32">
+        <span>Duits</span>
+      </div>
+      <p class="auth-kicker">A clearer view</p>
+      <h1 class="auth-lead-title" id="authLeadTitle">Welcome back.</h1>
+      <p class="auth-lead-copy" id="authLeadCopy">Pick up where you left off. Your financial clarity starts here.</p>
+      <div class="auth-visual" aria-hidden="true">
+        <svg viewBox="0 0 240 240" role="presentation">
+          <circle class="auth-ring auth-ring-a" cx="120" cy="120" r="92" stroke-dasharray="578" stroke-dashoffset="173"></circle>
+          <circle class="auth-ring auth-ring-b" cx="120" cy="120" r="74" stroke-dasharray="465" stroke-dashoffset="209"></circle>
+          <circle class="auth-ring auth-ring-c" cx="120" cy="120" r="56" stroke-dasharray="352" stroke-dashoffset="176"></circle>
+        </svg>
+      </div>
+      <p class="auth-lead-foot">Private by design. Built around your financial clarity.</p>
+    </aside>
+
+    <div class="auth-panel">
+      <div class="auth-card">
+        <button class="btn-ghost auth-back" id="authBack" type="button" hidden>Back to sign in</button>
+        <h2 class="auth-title" id="authTitle" tabindex="-1">Sign in</h2>
+        <p class="auth-note" id="authNote" role="status" aria-live="polite"></p>
+        <div class="auth-google-block" id="authGoogleBlock">
+          <button class="auth-google" id="authGoogle" type="button" disabled aria-describedby="authGoogleNote">
+            <svg class="auth-google-icon" viewBox="0 0 18 18" aria-hidden="true">
+              <path fill="#4285F4" d="M17.64 9.205c0-.638-.057-1.252-.164-1.841H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615Z"/>
+              <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A9 9 0 0 0 9 18Z"/>
+              <path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A9 9 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332Z"/>
+              <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A9 9 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58Z"/>
+            </svg>
+            <span>Continue with Google</span>
+          </button>
+          <p class="auth-google-note" id="authGoogleNote" role="status">Google sign-in isn't available yet. Continue with email.</p>
+        </div>
+        <div class="auth-divider" id="authEmailDivider"><span>or continue with email</span></div>
+        <label class="form-label" for="authEmail" id="authEmailLabel">Email</label>
+        <input class="field" id="authEmail" type="email" autocomplete="username" inputmode="email"
+               placeholder="you@example.com"
+               enterkeyhint="next" autocapitalize="off" autocorrect="off" spellcheck="false">
+        <label class="form-label" for="authPassword" id="authPasswordLabel">Password</label>
+        <div class="auth-input-wrap">
+          <input class="field" id="authPassword" type="password" autocomplete="current-password"
+                 placeholder="Your password" aria-describedby="authPasswordHint"
+                 enterkeyhint="go" autocapitalize="off" autocorrect="off" spellcheck="false">
+          <button class="auth-eye" id="authPasswordToggle" type="button"
+                  aria-label="Show password" aria-pressed="false" aria-controls="authPassword">
+            <svg class="auth-eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M2.5 12s3.5-7 9.5-7 9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7Z"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+            <svg class="auth-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M2.5 12s3.5-7 9.5-7 9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7Z"/>
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M4 4l16 16"/>
+            </svg>
+          </button>
+        </div>
+        <p class="auth-hint" id="authPasswordHint" hidden>Choose a secure password.</p>
+        <label class="form-label" for="authPassword2" id="authPassword2Label" hidden>Confirm password</label>
+        <div class="auth-input-wrap">
+          <input class="field" id="authPassword2" type="password" autocomplete="new-password"
+                 placeholder="Repeat your password" aria-describedby="authPassword2Hint"
+                 enterkeyhint="go" autocapitalize="off" autocorrect="off" spellcheck="false" hidden>
+          <button class="auth-eye" id="authPassword2Toggle" type="button"
+                  aria-label="Show confirm password" aria-pressed="false" aria-controls="authPassword2" hidden>
+            <svg class="auth-eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M2.5 12s3.5-7 9.5-7 9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7Z"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+            <svg class="auth-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M2.5 12s3.5-7 9.5-7 9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7Z"/>
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M4 4l16 16"/>
+            </svg>
+          </button>
+        </div>
+        <p class="auth-hint" id="authPassword2Hint" hidden>Use the same password.</p>
+        <button class="btn-ghost auth-link auth-forgot" id="authForgot" type="button">Forgot password?</button>
+        <button class="btn-primary auth-submit" id="authSubmit" type="button">Sign in</button>
+        <button class="btn-ghost auth-link" id="authCreate" type="button">New to Duits? Create an account</button>
+        <button class="btn-ghost auth-link" id="authResend" type="button" hidden>Resend confirmation email</button>
+        <p class="auth-foot" id="authFoot">Your finances, kept private and secure.</p>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -2737,10 +3096,170 @@
     }
   }
 
+  /* ---------- first-visit welcome ---------- */
+  var WELCOME_SEEN_SLOT = "duits.welcome.seen";
+  var WELCOME_STEPS = 4;
+  var welcomeStep = 0;
+
+  function welcomeStepNode(step) {
+    return document.querySelector('[data-welcome-step="' + step + '"]');
+  }
+
+  function welcomeSlides() {
+    return Array.prototype.slice.call(document.querySelectorAll("[data-welcome-step]"));
+  }
+
+  function setWelcomeChrome(step) {
+    var back = $("welcomeBack");
+    var skip = $("welcomeSkip");
+    var next = $("welcomeContinue");
+    if (back) back.hidden = step === 0;
+    if (skip) skip.hidden = step === WELCOME_STEPS - 1;
+    if (next) {
+      next.hidden = step === WELCOME_STEPS - 1;
+      next.textContent = step === 0 ? "Get started" : "Continue";
+    }
+    var progress = $("welcomeProgress");
+    if (progress) progress.setAttribute("aria-valuenow", String(step + 1));
+    Array.prototype.forEach.call(
+      document.querySelectorAll("#welcomeProgress .welcome-progress-seg"),
+      function (segment, index) {
+        segment.classList.toggle("is-active", index === step);
+        segment.classList.toggle("is-complete", index < step);
+      }
+    );
+  }
+
+  function staggerWelcome(slide) {
+    if (!slide || reducedMotion()) return;
+    Array.prototype.forEach.call(
+      slide.querySelectorAll(".welcome-copy-col > *, .welcome-visual"),
+      function (item, index) {
+        item.animate(
+          [{ opacity: 0, transform: "translateY(10px)" },
+           { opacity: 1, transform: "translateY(0)" }],
+          { duration: 420, delay: index * 55, easing: EASE_IOS, fill: "both" }
+        );
+      }
+    );
+  }
+
+  function animateWelcomeSlide(slide, direction) {
+    if (!slide || reducedMotion()) return;
+    slide.animate(
+      [{ opacity: 0, transform: "translateX(" + (direction > 0 ? 14 : -14) + "px)" },
+       { opacity: 1, transform: "translateX(0)" }],
+      { duration: 260, easing: EASE_IOS, fill: "both" }
+    );
+  }
+
+  var GOOGLE_UNAVAILABLE_NOTE = "Google sign-in isn't available yet. Continue with email.";
+  // The client flow exists, but the provider is not configured. Flip this only after the Supabase
+  // provider and an HTTPS staging origin are ready.
+  var GOOGLE_OAUTH_CONFIGURED = false;
+
+  function googleOAuthAvailable() {
+    return !!(GOOGLE_OAUTH_CONFIGURED && window.isSecureContext &&
+      window.crypto && window.crypto.subtle);
+  }
+
+  function googleAvailabilityNote() {
+    if (!(window.isSecureContext && window.crypto && window.crypto.subtle)) {
+      return "Google sign-in needs a secure connection. Open Duits over HTTPS, or use email.";
+    }
+    if (!GOOGLE_OAUTH_CONFIGURED) return GOOGLE_UNAVAILABLE_NOTE;
+    return "";
+  }
+
+  function updateGoogleAvailability() {
+    var available = googleOAuthAvailable();
+    var text = googleAvailabilityNote();
+    [["welcomeGoogle", "welcomeGoogleNote"], ["authGoogle", "authGoogleNote"]].forEach(function (pair) {
+      var button = $(pair[0]);
+      var note = $(pair[1]);
+      if (button) button.disabled = !available;
+      if (note) {
+        note.textContent = text;
+        note.hidden = !text;
+      }
+    });
+  }
+
+  function showWelcomeStep(step, animate) {
+    step = Math.max(0, Math.min(WELCOME_STEPS - 1, step));
+    var direction = step >= welcomeStep ? 1 : -1;
+    welcomeStep = step;
+    welcomeSlides().forEach(function (slide, index) {
+      var active = index === step;
+      slide.hidden = !active;
+      slide.classList.toggle("is-active", active);
+      slide.setAttribute("aria-hidden", active ? "false" : "true");
+    });
+    setWelcomeChrome(step);
+    var active = welcomeStepNode(step);
+    if (active) {
+      if (animate !== false) {
+        animateWelcomeSlide(active, direction);
+        staggerWelcome(active);
+      }
+      var heading = active.querySelector(".welcome-title");
+      if (heading) focusWithoutScroll(heading);
+    }
+    if (step === WELCOME_STEPS - 1) updateGoogleAvailability();
+  }
+
+  function playWelcomeEntrance() {
+    var slide = welcomeStepNode(welcomeStep);
+    if (!slide || reducedMotion()) return;
+    replay(slide, "is-active");
+    staggerWelcome(slide);
+    var heading = slide.querySelector(".welcome-title");
+    if (heading) focusWithoutScroll(heading);
+  }
+
+  function showWelcome() {
+    var screen = $("welcomeScreen");
+    if (!screen) { showAuth("signin"); return; }
+    screen.hidden = false;
+    screen.setAttribute("aria-hidden", "false");
+    syncGateInert();
+    showWelcomeStep(0, splashHidden);
+  }
+
+  function leaveWelcome(nextView) {
+    var screen = $("welcomeScreen");
+    if (screen) {
+      screen.hidden = true;
+      screen.setAttribute("aria-hidden", "true");
+    }
+    try { window.localStorage.setItem(WELCOME_SEEN_SLOT, "1"); } catch (error) { /* storage may be unavailable */ }
+    showAuth(nextView);
+  }
+
+  function continueFromWelcome() {
+    if (welcomeStep < WELCOME_STEPS - 1) showWelcomeStep(welcomeStep + 1, true);
+  }
+
+  function welcomeBack() {
+    if (welcomeStep > 0) showWelcomeStep(welcomeStep - 1, true);
+  }
+
+  function welcomeSkip() {
+    showWelcomeStep(WELCOME_STEPS - 1, true);
+  }
+
+  function continueWithEmail() {
+    leaveWelcome("signup");
+  }
+
+  function signInFromWelcome() {
+    leaveWelcome("signin");
+  }
+
   /* ---------- session (Supabase Auth over REST; no SDK, no CDN) ---------- */
 
-  // Tokens live in browser storage, so nothing here is ever logged, printed or put in a URL. Supabase's
-  // invite and recovery links do put one in the URL hash: it is read once, then the address bar is rewritten.
+  // Tokens live in browser storage, so nothing here is ever logged, printed or put in a URL. Email links
+  // carry a one-time token_hash in the query string: it is read once, then the address bar is rewritten.
   function authBase() { return String(AUTH.url || "").replace(/\/$/, ""); }
 
   function authHeaders() { return { "apikey": AUTH.key, "Content-Type": "application/json" }; }
@@ -2941,8 +3460,66 @@
   // One card handles sign-in, public sign-up, password recovery, and invite/recovery password setup.
 
   var authView = "signin";
-  var pendingToken = null;   // the token an invite/recovery link hands us, used once to set the password
-  var pendingAuthRedirectType = "";
+  var pendingAuthLinkType = "";   // "recovery" | "invite" while a verified link waits for a password
+  var pendingAuthSession = null;  // the exact session /verify returned; never a storage re-read
+  var authSubmitInFlight = false;
+  var authResendInFlight = false;
+  var authSubmitBusyToken = 0;
+  var authResendBusyToken = 0;
+
+  /* ---------- auth UI helpers (no DOM; tests/js/auth_ui_test.mjs extracts this block) ---------- */
+  function authLinkTypeFor(view) {
+    return view === "link-signup" ? "signup"
+      : view === "link-recovery" ? "recovery"
+      : view === "link-invite" ? "invite" : "";
+  }
+
+  function authSubmitLabel(view) {
+    var linkType = authLinkTypeFor(view);
+    if (linkType) {
+      return linkType === "signup" ? "Confirm email"
+        : linkType === "invite" ? "Accept invitation" : "Continue";
+    }
+    return view === "setpassword" ? "Save password"
+      : view === "forgot" ? "Send reset link"
+      : view === "signup" ? "Create account" : "Sign in";
+  }
+
+  function authSubmitBusyLabel(view) {
+    if (authLinkTypeFor(view)) return "Verifying\u2026";
+    return view === "setpassword" ? "Saving password\u2026"
+      : view === "forgot" ? "Sending reset link\u2026"
+      : view === "signup" ? "Creating account\u2026" : "Signing in\u2026";
+  }
+
+  function authResendLabel(view) {
+    return view === "expired" ? "Send a new confirmation email" : "Resend confirmation email";
+  }
+
+  function applyPasswordVisibility(input, button, visible, showLabel, hideLabel) {
+    if (!input || !button) return;
+    input.type = visible ? "text" : "password";
+    button.setAttribute("aria-pressed", visible ? "true" : "false");
+    button.setAttribute("aria-label", visible ? hideLabel : showLabel);
+  }
+
+  function resetPasswordVisibility(input, button, showLabel) {
+    if (input) input.type = "password";
+    if (button) {
+      button.setAttribute("aria-pressed", "false");
+      button.setAttribute("aria-label", showLabel);
+    }
+  }
+
+  function setAuthBusy(button, busy, label) {
+    if (!button) return;
+    if (busy) button.setAttribute("aria-disabled", "true");
+    else button.removeAttribute("aria-disabled");
+    if (busy) button.setAttribute("aria-busy", "true");
+    else button.removeAttribute("aria-busy");
+    if (label) button.textContent = label;
+  }
+  /* ---------- end auth UI helpers ---------- */
 
   function renderAccount() {
     var session = readSession();
@@ -2951,33 +3528,133 @@
   }
 
   function setAuthView(view, note) {
+    var viewChanged = view !== authView;
     authView = view;
-    var titles = { signin: "Sign in", signup: "Create your account", forgot: "Reset password",
-      setpassword: "Set a new password", confirmation: "Check your email" };
-    $("authTitle").textContent = titles[view] || "Sign in";
-    $("authNote").textContent = note || (view === "forgot"
-      ? "Enter your email and we'll send a link to reset your password."
-      : view === "confirmation" ? "Open the confirmation link we sent to your email address to activate your account."
-      : view === "signup" ? "Start with your email. You can personalise Duits later."
-      : "");
+    // A view change abandons any in-flight action's UI state; the auth guard still owns the
+    // security-sensitive response checks where they matter.
+    authSubmitBusyToken += 1;
+    authResendBusyToken += 1;
+    authSubmitInFlight = false;
+    authResendInFlight = false;
+    setAuthBusy($("authSubmit"), false, authSubmitLabel(view));
+    setAuthBusy($("authResend"), false, authResendLabel(view));
+    resetPasswordVisibility($("authPassword"), $("authPasswordToggle"), "Show password");
+    resetPasswordVisibility($("authPassword2"), $("authPassword2Toggle"), "Show confirm password");
+    var linkType = authLinkTypeFor(view);
+    var isLink = !!linkType;
+    var expired = view === "expired";
     var settingPassword = view === "setpassword";
-    var emailOnly = view === "forgot" || view === "confirmation";
+    var signup = view === "signup";
+    var forgot = view === "forgot";
     var confirmation = view === "confirmation";
-    $("authPassword2").hidden = !settingPassword && view !== "signup";
-    $("authPassword2Label").hidden = !settingPassword && view !== "signup";
-    $("authPassword").hidden = emailOnly;
-    $("authPasswordLabel").hidden = emailOnly;
+    var emailOnly = forgot || confirmation || expired;
+    var creatingPassword = signup || settingPassword;
+    var showGoogle = view === "signin" || view === "signup";
+
+    var titles = { signin: "Sign in", signup: "Create your account", forgot: "Reset password",
+      setpassword: "Set a new password", confirmation: "Check your email",
+      "link-signup": "Confirm your email", "link-recovery": "Reset your password",
+      "link-invite": "Accept your invitation", expired: "This link can't be used" };
+    var leads = {
+      signin: { title: "Welcome back.", copy: "Pick up where you left off. Your financial clarity starts here." },
+      signup: { title: "A better relationship with money starts here.", copy: "Create your account and start seeing your money more clearly." },
+      forgot: { title: "Let's get you back in.", copy: "Enter your email and we'll send you a secure recovery link." },
+      confirmation: { title: "Check your inbox.", copy: "Confirm your email before signing in." },
+      setpassword: { title: "Choose a new password.", copy: "Set a new password to secure your account." },
+      "link-signup": { title: "Confirm your email.", copy: "One tap verifies this address and finishes activating your Duits account." },
+      "link-recovery": { title: "Reset your password.", copy: "Verify this link, then choose a new password." },
+      "link-invite": { title: "You're invited.", copy: "Accept the invitation, then choose a password." },
+      expired: { title: "This link can't be used.", copy: "Request a new confirmation email or reset your password below." }
+    };
+    var notes = {
+      forgot: "Enter your email and we'll send a link to reset your password.",
+      confirmation: "Open the confirmation link we sent to your email address to activate your account.",
+      signup: "Create your account to keep your money picture in one place.",
+      "link-signup": "Tap Confirm to verify this address and finish activating your Duits account. If this page reloads first, open the link again.",
+      "link-recovery": "Tap Continue to verify this link, then choose a new password. If this page reloads first, open the link again.",
+      "link-invite": "Tap Accept to verify this invitation, then choose a password. If this page reloads first, open the link again.",
+      expired: "This link has expired or has already been used. Request a new one below."
+    };
+    var lead = leads[view] || leads.signin;
+    $("authLeadTitle").textContent = lead.title;
+    $("authLeadCopy").textContent = lead.copy;
+    $("authTitle").textContent = titles[view] || "Sign in";
+    $("authNote").textContent = note || notes[view] || "";
+
+    // Google is presented first on sign-in and sign-up, but it stays disabled until OAuth is ready.
+    updateGoogleAvailability();
+    $("authGoogleBlock").hidden = !showGoogle;
+    $("authEmailDivider").hidden = !showGoogle;
+
+    // A link screen has no fields: the token is already in memory, and the button is the one action.
+    $("authEmail").hidden = isLink;
+    $("authEmailLabel").hidden = isLink;
     $("authEmail").disabled = settingPassword || confirmation;
-    $("authSubmit").hidden = confirmation;
-    $("authSubmit").textContent = settingPassword ? "Save password"
-      : emailOnly ? "Send reset link" : view === "signup" ? "Create account" : "Sign in";
-    $("authForgot").hidden = view !== "signin";
+    $("authEmail").autocomplete = view === "signin" ? "username" : "email";
+    $("authPassword").autocomplete = creatingPassword ? "new-password" : "current-password";
+    $("authPasswordHint").hidden = !creatingPassword;
+    $("authPassword2Hint").hidden = !creatingPassword;
+    $("authPassword2").hidden = !creatingPassword;
+    $("authPassword2Label").hidden = !creatingPassword;
+    $("authPassword").hidden = emailOnly || isLink;
+    $("authPasswordLabel").hidden = emailOnly || isLink;
+    $("authPasswordToggle").hidden = $("authPassword").hidden;
+    $("authPassword2Toggle").hidden = $("authPassword2").hidden;
+    $("authSubmit").hidden = confirmation || expired;
+    $("authForgot").hidden = !(view === "signin" || expired);
+    $("authForgot").textContent = expired ? "Send a password reset link" : "Forgot password?";
     $("authCreate").hidden = view !== "signin";
-    $("authResend").hidden = !confirmation;
+    $("authResend").hidden = !(confirmation || expired);
     $("authBack").hidden = view === "signin";
-    $("authFoot").textContent = view === "signup"
+    $("authFoot").textContent = signup
       ? "By creating an account, you agree to use Duits responsibly. Privacy matters."
       : "Your finances, kept private and secure.";
+    if (viewChanged) {
+      resetAuthScroll();
+      focusAuthTitle();
+    }
+  }
+
+  function focusAuthTitle() {
+    var screen = $("authScreen");
+    var title = $("authTitle");
+    if (!screen || screen.hidden || !title) return;
+    focusWithoutScroll(title);
+  }
+
+  function syncGateInert() {
+    var app = document.querySelector(".app");
+    if (!app) return;
+    var gateOpen = ($("welcomeScreen") && !$("welcomeScreen").hidden) ||
+      ($("authScreen") && !$("authScreen").hidden) ||
+      ($("onboardingScreen") && !$("onboardingScreen").hidden);
+    if (gateOpen) {
+      app.setAttribute("inert", "");
+      app.setAttribute("aria-hidden", "true");
+    } else {
+      app.removeAttribute("inert");
+      app.removeAttribute("aria-hidden");
+    }
+  }
+
+  function focusAfterAuth() {
+    var onboarding = $("onboardingScreen");
+    if (onboarding && !onboarding.hidden) {
+      var onboardingTitle = $("onboardingTitle");
+      if (onboardingTitle) {
+        onboardingTitle.setAttribute("tabindex", "-1");
+        focusWithoutScroll(onboardingTitle);
+      }
+      return;
+    }
+    var app = document.querySelector(".app");
+    if (!app || app.hasAttribute("inert")) return;
+    var screen = $("screen-" + state.screen) || $("screen-home");
+    var title = screen && screen.querySelector(".large-title");
+    if (title) {
+      title.setAttribute("tabindex", "-1");
+      focusWithoutScroll(title);
+    }
   }
 
   function showAuth(view, note) {
@@ -2986,16 +3663,22 @@
     if (!screen) return;
     screen.hidden = false;
     screen.setAttribute("aria-hidden", "false");
+    syncGateInert();
+    resetAuthScroll();
+    focusAuthTitle();
   }
 
   function hideAuth() {
     var screen = $("authScreen");
-    if (!screen || screen.hidden) return;
-    screen.hidden = true;
-    screen.setAttribute("aria-hidden", "true");
-    $("authPassword").value = "";
-    $("authPassword2").value = "";
-    renderAccount();
+    if (screen && !screen.hidden) {
+      screen.hidden = true;
+      screen.setAttribute("aria-hidden", "true");
+      $("authPassword").value = "";
+      $("authPassword2").value = "";
+      renderAccount();
+    }
+    syncGateInert();
+    focusAfterAuth();
   }
 
   function redirectTarget() {
@@ -3018,47 +3701,587 @@
     }
   }
 
-  // Last resort when the token carried no address claim: ask Supabase who this is and store the answer.
-  async function hydrateEmail(session) {
-    try {
-      var result = await authRequest("GET", "/auth/v1/user", null, session.access_token);
-      var email = result.body && result.body.email;
-      if (result.ok && email) {
-        writeSession(Object.assign({}, session, { email: email }));
-        renderAccount();
-      }
-    } catch (error) { /* leave the address blank rather than show a wrong one */ }
+  /* ---------- auth link core (no DOM; tests/js/auth_link_test.mjs extracts this block) ---------- */
+  // Supabase email links now carry a one-time token hash in the query string:
+  //   /?token_hash=<hash>&type=signup|recovery|invite
+  // Nothing here adopts access/refresh tokens from a fragment. The token is held in memory by the
+  // caller and is sent only when the user explicitly confirms.
+
+  var AUTH_LINK_TYPES = { signup: true, recovery: true, invite: true };
+  // `email` is the alias Supabase's own email-template example uses for a signup link.
+  var AUTH_LINK_ALIASES = { email: "signup" };
+  var AUTH_LINK_KEYS = ["token_hash", "type", "code", "state", "error", "error_description", "error_code"];
+  // Auth material for URL cleanup only. access_token/refresh_token are recognised so they are
+  // stripped, but they are never read into a session. `sb` is Supabase Auth's redirect marker.
+  var AUTH_CLEAN_KEYS = AUTH_LINK_KEYS.concat(
+    ["access_token", "refresh_token", "expires_at", "token_type", "sb"]);
+
+  function hasOwn(object, key) {
+    return Object.prototype.hasOwnProperty.call(object, key);
   }
 
-  function readAuthRedirect() {
-    // Supabase puts invite and recovery links in the URL hash. Read it once, then rewrite the address bar
-    // so a token never lingers in the URL: it would leak through history, screenshots and referers.
-    var hash = window.location.hash.replace(/^#/, "");
-    if (!hash) return false;
+  function normalizeAuthLinkType(type) {
+    return hasOwn(AUTH_LINK_ALIASES, type) ? AUTH_LINK_ALIASES[type] : type;
+  }
+
+  // Remove auth keys from a query or fragment, preserving everything else. Returns the value without
+  // its leading ? or #. A key that cannot be decoded cannot be identified, so it is left alone.
+  function removeAuthKeys(value) {
+    return String(value || "").replace(/^[?#]/, "").split("&").filter(function (pair) {
+      if (!pair) return false;
+      var key;
+      try { key = decodeURIComponent((pair.split("=")[0] || "").replace(/\+/g, " ")); }
+      catch (error) { return true; }
+      return AUTH_CLEAN_KEYS.indexOf(key) === -1;
+    }).join("&");
+  }
+
+  // Parse a query string or fragment. The first occurrence of a key wins; a repeated key, an
+  // undecodable pair or an undecodable value marks the key ambiguous so the caller can reject it.
+  function parseQuery(value) {
     var params = {};
-    hash.split("&").forEach(function (pair) {
+    var duplicates = {};
+    var seen = {};
+    String(value || "").replace(/^[?#]/, "").split("&").forEach(function (pair) {
+      if (!pair) return;
       var bits = pair.split("=");
-      params[decodeURIComponent(bits[0] || "")] = decodeURIComponent((bits[1] || "").replace(/\+/g, " "));
+      var key;
+      try {
+        key = decodeURIComponent((bits[0] || "").replace(/\+/g, " "));
+      } catch (error) { return; }
+      if (!key) return;
+      if (seen[key]) { duplicates[key] = true; return; }
+      seen[key] = true;
+      try {
+        params[key] = decodeURIComponent((bits[1] || "").replace(/\+/g, " "));
+      } catch (error) { duplicates[key] = true; }
     });
-    var type = params.type || "";
-    if (type !== "invite" && type !== "recovery" && type !== "signup") return false;
-    pendingAuthRedirectType = type;
-    pendingToken = params.access_token || null;
-    if (params.access_token && params.refresh_token) {
-      var session = {
-        access_token: params.access_token,
-        refresh_token: params.refresh_token,
-        expires_at: Number(params.expires_at) || null,
-        email: emailFromToken(params.access_token)
-      };
-      writeSession(session);
-      // Settings must say who is signed in, not "Not signed in", even on this path.
-      if (!session.email) hydrateEmail(session);
+    return { params: params, duplicates: duplicates };
+  }
+
+  function hasAmbiguousAuthKey(query) {
+    return Object.keys(query.duplicates).some(function (key) {
+      return AUTH_LINK_KEYS.indexOf(key) > -1;
+    });
+  }
+
+  // Classify what the URL is carrying without acting on it. `clean` means the URL held auth material
+  // and must be rewritten before anything is rendered.
+  function readAuthLink(search, hash) {
+    var query = parseQuery(search);
+    var fragment = parseQuery(hash);
+    var q = query.params;
+    var h = fragment.params;
+    var hasQueryAuth = AUTH_CLEAN_KEYS.some(function (key) { return q[key] !== undefined; }) ||
+      hasAmbiguousAuthKey(query);
+    var hasHashAuth = h.access_token !== undefined || h.refresh_token !== undefined ||
+      h.error !== undefined || h.error_description !== undefined || h.type !== undefined;
+    if (!hasQueryAuth && !hasHashAuth) return { kind: "none", clean: false };
+    // A fragment carrying session tokens is the old implicit flow. It is never adopted; it is only
+    // reported as unusable so the user can request a new link.
+    if (hasHashAuth) return { kind: "invalid", reason: "legacy", clean: true };
+    if (q.error !== undefined || q.error_description !== undefined) {
+      return { kind: "invalid", reason: "error", clean: true };
     }
-    if (window.history && window.history.replaceState) {
-      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    if (hasAmbiguousAuthKey(query)) return { kind: "invalid", reason: "malformed", clean: true };
+    var type = normalizeAuthLinkType(q.type);
+    if (!q.token_hash || !hasOwn(AUTH_LINK_TYPES, type)) {
+      return { kind: "invalid", reason: "malformed", clean: true };
     }
-    return true;
+    return { kind: "ready", type: type, tokenHash: q.token_hash, clean: true };
+  }
+
+  // 403 is what GoTrue answers for an unknown, consumed or expired hash; 400 for a bad type. Neither
+  // a network failure nor a 5xx proves the link is dead, so they stay retryable.
+  function classifyVerifyFailure(result) {
+    if (!result || !result.status) return "network";
+    if (result.status === 429) return "rate";
+    if (result.status === 403) return "expired";
+    if (result.status === 400 || result.status === 422) return "invalid";
+    if (result.status >= 500) return "server";
+    return "invalid";
+  }
+
+  function authLinkMessage(kind) {
+    switch (kind) {
+      case "expired": return "This link has expired or has already been used. Request a new one below.";
+      case "invalid": return "This link is not valid. Request a new one below.";
+      case "legacy": return "This link is in an older format and can no longer be used. Request a new one below.";
+      case "malformed": return "This link is incomplete. Request a new one below.";
+      case "error": return "This link could not be confirmed. Request a new one below.";
+      case "rate": return "Too many attempts. Wait a minute and try again.";
+      case "server": return "The confirmation service had a problem. Try again in a moment.";
+      case "network": return "Can't reach the sign-in service. Check your connection and try again.";
+      case "missing": return "This link is no longer available. Open it again from your email.";
+      default: return "This link could not be confirmed. Request a new one below.";
+    }
+  }
+
+  // Only a response with both tokens becomes a session. Nothing is inferred from a partial body.
+  function sessionFromAuthBody(body, now, emailFromToken) {
+    if (!body || typeof body.access_token !== "string" || typeof body.refresh_token !== "string") return null;
+    if (!body.access_token || !body.refresh_token) return null;
+    var expires = Number(body.expires_at);
+    if (!expires) expires = now + (Number(body.expires_in) || 3600);
+    return {
+      access_token: body.access_token,
+      refresh_token: body.refresh_token,
+      expires_at: expires,
+      email: (body.user && body.user.email) || (emailFromToken ? emailFromToken(body.access_token) : "") || ""
+    };
+  }
+
+  function createAuthLinkFlow(deps) {
+    var pending = null;
+    var generation = 0;
+    var inFlight = false;
+
+    // Read the link, strip it from the address bar, and stop. No request is sent here.
+    function begin(search, hash) {
+      var link = readAuthLink(search, hash);
+      generation += 1;
+      pending = null;
+      if (!link.clean) return { kind: "none" };
+      if (deps.cleanUrl) deps.cleanUrl();
+      if (link.kind !== "ready") return { kind: link.kind, reason: link.reason };
+      pending = { tokenHash: link.tokenHash, type: link.type };
+      return { kind: "ready", type: link.type };
+    }
+
+    // Abandon the link: the token is dropped, and a request already in flight can no longer write a
+    // session when it returns.
+    function cancel() {
+      generation += 1;
+      pending = null;
+    }
+
+    function hasPending() { return !!pending; }
+
+    async function verify() {
+      if (inFlight) return { ok: false, kind: "busy" };
+      if (!pending) return { ok: false, kind: "missing" };
+      var mine = generation;
+      var type = pending.type;
+      // GoTrue rejects redirect_to (and email/token/phone) when token_hash is used: exactly these two.
+      var body = { type: type, token_hash: pending.tokenHash };
+      inFlight = true;
+      try {
+        var result;
+        try { result = await deps.request("POST", "/auth/v1/verify", body); }
+        catch (error) { return { ok: false, kind: "network" }; }
+        if (mine !== generation) return { ok: false, kind: "cancelled" };
+        if (!result || !result.ok) {
+          var kind = classifyVerifyFailure(result);
+          if (kind !== "network" && kind !== "rate" && kind !== "server") pending = null;
+          return { ok: false, kind: kind };
+        }
+        var now = typeof deps.now === "function" ? deps.now() : Math.floor(Date.now() / 1000);
+        var session = sessionFromAuthBody(result.body, now, deps.emailFromToken);
+        if (!session) { pending = null; return { ok: false, kind: "unexpected" }; }
+        deps.writeSession(session);
+        pending = null;
+        return { ok: true, type: type, session: session };
+      } finally {
+        inFlight = false;
+      }
+    }
+
+    return { begin: begin, verify: verify, cancel: cancel, hasPending: hasPending };
+  }
+
+  // One auth action at a time, and a late response must not touch a screen the user has left.
+  function createAuthGuard() {
+    var epoch = 0;
+    return {
+      begin: function () { epoch += 1; return epoch; },
+      cancel: function () { epoch += 1; },
+      current: function (token) { return token === epoch; }
+    };
+  }
+
+  // Change a password with the session returned by verify, never with a session read from shared
+  // storage. A refresh uses the retained refresh token; the caller's refresh() must reject a
+  // different identity.
+  async function updatePasswordForSession(verified, password, deps) {
+    if (!verified || typeof verified.access_token !== "string" || !verified.access_token) {
+      return { ok: false, kind: "missing" };
+    }
+    var session = verified;
+    if (deps.isExpired && deps.isExpired(session)) {
+      var refreshed = null;
+      try { refreshed = await deps.refresh(session); } catch (error) { refreshed = null; }
+      if (!refreshed) return { ok: false, kind: "expired" };
+      session = refreshed;
+    }
+    var result;
+    try {
+      result = await deps.request("PUT", "/auth/v1/user", { password: password }, session.access_token);
+    } catch (error) {
+      return { ok: false, kind: "network", session: session };
+    }
+    if (result && result.status === 401 && deps.refresh) {
+      var again = null;
+      try { again = await deps.refresh(session); } catch (error) { again = null; }
+      if (!again) return { ok: false, kind: "expired" };
+      session = again;
+      try {
+        result = await deps.request("PUT", "/auth/v1/user", { password: password }, session.access_token);
+      } catch (error) {
+        return { ok: false, kind: "network", session: session };
+      }
+    }
+    if (!result || !result.ok) {
+      return { ok: false, kind: "failed", status: result ? result.status : 0, response: result, session: session };
+    }
+    return { ok: true, session: session };
+  }
+  /* ---------- end auth link core ---------- */
+
+  // Rewrite the address bar without the auth material. Unrelated query parameters and fragments are
+  // preserved; only auth keys are removed. Only called when auth parameters were present.
+  function cleanAuthUrl() {
+    if (!window.history || !window.history.replaceState) return;
+    var query = removeAuthKeys(window.location.search);
+    var hash = removeAuthKeys(window.location.hash);
+    window.history.replaceState(null, "", window.location.pathname +
+      (query ? "?" + query : "") + (hash ? "#" + hash : ""));
+  }
+
+  var authLink = createAuthLinkFlow({
+    request: authRequest,
+    writeSession: writeSession,
+    emailFromToken: emailFromToken,
+    now: function () { return Math.floor(Date.now() / 1000); },
+    cleanUrl: cleanAuthUrl
+  });
+  var authGuard = createAuthGuard();
+
+  /* ---------- oauth pkce core ---------- */
+  // Supabase owns OAuth state. This browser owns the PKCE verifier: a callback is accepted only when
+  // a single-use, unexpired flow record exists in sessionStorage. No code, verifier or token is logged.
+  var OAUTH_FLOW_KEY = "duits.auth.oauth";
+  var OAUTH_FLOW_TTL_MS = 10 * 60 * 1000;
+  var OAUTH_REPEAT_GUARD_MS = 10 * 1000;
+  var OAUTH_PROVIDER = "google";
+  // Supabase's Google provider already adds email and profile; openid is the additional OIDC scope
+  // Google requires for an ID token. Passing comma-separated extra scopes matches GoTrue's parser.
+  var OAUTH_SCOPES = "openid";
+
+  function base64UrlFromBytes(bytes) {
+    var binary = "";
+    for (var index = 0; index < bytes.length; index += 1) {
+      binary += String.fromCharCode(bytes[index]);
+    }
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+
+  async function sha256Base64Url(text, subtle) {
+    var digest = await subtle.digest("SHA-256", new TextEncoder().encode(text));
+    return base64UrlFromBytes(new Uint8Array(digest));
+  }
+
+  function oauthAuthorizeUrl(baseUrl, redirectTo, challenge) {
+    var params = [
+      ["provider", OAUTH_PROVIDER],
+      ["redirect_to", redirectTo],
+      ["scopes", OAUTH_SCOPES],
+      ["code_challenge", challenge],
+      ["code_challenge_method", "s256"]
+    ];
+    return String(baseUrl || "").replace(/\/$/, "") + "/auth/v1/authorize?" +
+      params.map(function (pair) {
+        return encodeURIComponent(pair[0]) + "=" + encodeURIComponent(pair[1]);
+      }).join("&");
+  }
+
+  // Supabase decides whether a provider identity links to an existing user. This app never links by
+  // email or frontend input; the session's user is the only identity source. A new Google user has no
+  // onboarding metadata, so recent creation is the only signal available without inventing one.
+  function oauthIsNewUser(user, nowMs) {
+    if (!user) return false;
+    var metadata = user.user_metadata || {};
+    if (metadata.onboarding_completed === true) return false;
+    if (Number(metadata.onboarding_version) === 1) return true;
+    var created = Date.parse(user.created_at || "");
+    return isFinite(created) && (Number(nowMs) - created) < 5 * 60 * 1000;
+  }
+
+  function classifyOAuthFailure(result) {
+    if (!result || !result.status) return "network";
+    if (result.status === 429) return "rate";
+    if (result.status >= 500) return "server";
+    if (result.status === 400 || result.status === 401 || result.status === 403 ||
+        result.status === 422) return "invalid";
+    return "invalid";
+  }
+
+  function oauthMessage(kind) {
+    switch (kind) {
+      case "cancelled": return "Google sign-in was cancelled. Continue with email or try again.";
+      case "signup_disabled": return "Google registration isn't available right now. Continue with email or try again later.";
+      case "missing": return "This Google sign-in was opened in a different browser. Start again here.";
+      case "malformed": return "This Google sign-in link is incomplete. Start again here.";
+      case "invalid": return "Google sign-in failed. Try again or continue with email.";
+      case "busy": return "A Google sign-in is already in progress.";
+      case "unavailable": return "Google sign-in isn't available yet. Continue with email.";
+      case "insecure": return "Google sign-in needs a secure connection. Open Duits over HTTPS, or use email.";
+      case "storage": return "This browser could not start Google sign-in. Try again or continue with email.";
+      case "rate": return "Too many attempts. Wait a minute and try again.";
+      case "server": return "The sign-in service had a problem. Try again in a moment.";
+      case "network": return "Can't reach the sign-in service. Check your connection and try again.";
+      default: return "Google sign-in failed. Try again or continue with email.";
+    }
+  }
+
+  function createOAuthFlow(deps) {
+    var pending = null;
+    var generation = 0;
+    var inFlight = false;
+
+    function nowMs() {
+      return typeof deps.nowMs === "function" ? deps.nowMs() : Date.now();
+    }
+
+    function storageGet() {
+      try { return deps.storage ? deps.storage.getItem(OAUTH_FLOW_KEY) : null; }
+      catch (error) { return null; }
+    }
+
+    function storageSet(value) {
+      try {
+        if (!deps.storage) return false;
+        deps.storage.setItem(OAUTH_FLOW_KEY, value);
+        return true;
+      } catch (error) { return false; }
+    }
+
+    function storageRemove() {
+      try { if (deps.storage) deps.storage.removeItem(OAUTH_FLOW_KEY); }
+      catch (error) { /* private mode or a disabled store: the flow simply cannot continue */ }
+    }
+
+    function readRecord() {
+      var raw = storageGet();
+      if (!raw) return null;
+      try {
+        var record = JSON.parse(raw);
+        if (!record || typeof record.verifier !== "string" || !record.verifier) return null;
+        if (typeof record.created !== "number" || !isFinite(record.created)) return null;
+        var age = nowMs() - record.created;
+        if (age < -60000 || age > OAUTH_FLOW_TTL_MS) return null;
+        return record;
+      } catch (error) { return null; }
+    }
+
+    async function startAuthorization() {
+      if (inFlight) return { ok: false, kind: "busy" };
+      if (typeof deps.isAvailable === "function" && !deps.isAvailable()) {
+        return { ok: false, kind: "unavailable" };
+      }
+      var existing = readRecord();
+      if (existing && nowMs() - existing.created < OAUTH_REPEAT_GUARD_MS) {
+        return { ok: false, kind: "busy" };
+      }
+      inFlight = true;
+      try {
+        var verifier = base64UrlFromBytes(deps.randomBytes(32));
+        var challenge = await sha256Base64Url(verifier, deps.subtle);
+        var record = {
+          verifier: verifier,
+          created: nowMs(),
+          redirectTo: deps.redirectTo,
+          flowId: base64UrlFromBytes(deps.randomBytes(16))
+        };
+        if (!storageSet(JSON.stringify(record))) return { ok: false, kind: "storage" };
+        var url = oauthAuthorizeUrl(deps.baseUrl, deps.redirectTo, challenge);
+        deps.navigate(url);
+        return { ok: true, url: url };
+      } catch (error) {
+        storageRemove();
+        return { ok: false, kind: "failed" };
+      } finally {
+        inFlight = false;
+      }
+    }
+
+    // Read and strip the callback before any UI renders. The record is removed before the exchange,
+    // so a replay finds no verifier and cannot consume a second session.
+    function begin(search, hash) {
+      var query = parseQuery(search);
+      var params = query.params;
+      var hasCode = params.code !== undefined;
+      var hasError = params.error !== undefined || params.error_description !== undefined ||
+        params.error_code !== undefined;
+      var hasState = params.state !== undefined;
+      var record = readRecord();
+      generation += 1;
+      pending = null;
+
+      if (hasError && record) {
+        deps.cleanUrl();
+        storageRemove();
+        var errorCode = String(params.error_code || "").toLowerCase();
+        if (errorCode === "signup_disabled") return { kind: "signup_disabled" };
+        var reason = String(params.error || "").toLowerCase();
+        return { kind: reason === "access_denied" || reason === "cancelled" ? "cancelled" : "error" };
+      }
+      if (hasCode) {
+        deps.cleanUrl();
+        if (query.duplicates.code || query.duplicates.state) {
+          storageRemove();
+          return { kind: "malformed" };
+        }
+        if (!record) {
+          storageRemove();
+          return { kind: "missing" };
+        }
+        if (!params.code) {
+          storageRemove();
+          return { kind: "malformed" };
+        }
+        storageRemove();
+        pending = { code: params.code, verifier: record.verifier };
+        return { kind: "ready" };
+      }
+      if (hasState && record) {
+        deps.cleanUrl();
+        storageRemove();
+        return { kind: "malformed" };
+      }
+      return { kind: "none" };
+    }
+
+    async function verify() {
+      if (inFlight) return { ok: false, kind: "busy" };
+      if (!pending) return { ok: false, kind: "missing" };
+      var mine = generation;
+      var current = pending;
+      pending = null;
+      inFlight = true;
+      try {
+        var result;
+        try {
+          result = await deps.request("POST", "/auth/v1/token?grant_type=pkce", {
+            auth_code: current.code,
+            code_verifier: current.verifier
+          });
+        } catch (error) {
+          return { ok: false, kind: "network" };
+        }
+        if (mine !== generation) return { ok: false, kind: "cancelled" };
+        if (!result || !result.ok) return { ok: false, kind: classifyOAuthFailure(result) };
+        var now = typeof deps.now === "function" ? deps.now() : Math.floor(Date.now() / 1000);
+        var session = sessionFromAuthBody(result.body, now, deps.emailFromToken);
+        if (!session) return { ok: false, kind: "unexpected" };
+        var user = (result.body && result.body.user) || null;
+        return { ok: true, session: session, user: user, isNewUser: oauthIsNewUser(user, nowMs()) };
+      } finally {
+        inFlight = false;
+      }
+    }
+
+    function cancel() {
+      generation += 1;
+      pending = null;
+      storageRemove();
+    }
+
+    function hasPending() { return !!pending; }
+
+    return { start: startAuthorization, begin: begin, verify: verify, cancel: cancel, hasPending: hasPending };
+  }
+  /* ---------- end oauth pkce core ---------- */
+
+  var oauthFlow = createOAuthFlow({
+    request: authRequest,
+    storage: (function () {
+      try { return window.sessionStorage; } catch (error) { return null; }
+    })(),
+    now: function () { return Math.floor(Date.now() / 1000); },
+    nowMs: function () { return Date.now(); },
+    randomBytes: function (length) {
+      return window.crypto.getRandomValues(new Uint8Array(length));
+    },
+    subtle: window.crypto && window.crypto.subtle,
+    isAvailable: googleOAuthAvailable,
+    baseUrl: authBase(),
+    redirectTo: redirectTarget(),
+    navigate: function (url) { window.location.assign(url); },
+    cleanUrl: cleanAuthUrl,
+    emailFromToken: emailFromToken
+  });
+
+  var googleInFlight = false;
+  async function startGoogleSignIn() {
+    if (googleInFlight) return;
+    if (!googleOAuthAvailable()) {
+      updateGoogleAvailability();
+      return;
+    }
+    var button = $("authGoogle");
+    googleInFlight = true;
+    if (button) setAuthBusy(button, true, "Connecting\u2026");
+    var started;
+    try {
+      started = await oauthFlow.start();
+    } catch (error) {
+      started = { ok: false, kind: "failed" };
+    }
+    if (started && started.ok) {
+      // The navigation should unload this page. If it is blocked, let the button recover.
+      setTimeout(function () {
+        googleInFlight = false;
+        if (button) setAuthBusy(button, false, "Continue with Google");
+      }, 5000);
+      return;
+    }
+    googleInFlight = false;
+    if (button) setAuthBusy(button, false, "Continue with Google");
+    if (started.kind === "unavailable" || started.kind === "insecure") {
+      updateGoogleAvailability();
+    } else {
+      setAuthView(authView === "signup" ? "signup" : "signin", oauthMessage(started.kind));
+    }
+  }
+
+  async function finishOAuthSignIn() {
+    var result = await oauthFlow.verify();
+    if (!result.ok) {
+      var existing = readSession();
+      if (existing && !sessionExpired(existing)) {
+        // A failed callback must not sign a valid user out.
+        hideAuth();
+        await reloadScreen();
+        if (await needsOptionalOnboarding()) { showOptionalOnboarding(); return; }
+        maybeShowWhatsNew();
+        return;
+      }
+      showAuth("signin", oauthMessage(result.kind));
+      return;
+    }
+    await afterSignIn(result.session, result.isNewUser === true);
+  }
+
+  // Refresh the verified link session with its own refresh token. A different identity is refused, so
+  // a refresh can never swap the account whose password is about to change.
+  async function refreshVerifiedSession(verified) {
+    if (!verified || !verified.refresh_token) return null;
+    try {
+      var result = await authRequest("POST", "/auth/v1/token?grant_type=refresh_token",
+        { refresh_token: verified.refresh_token });
+      if (!result.ok || !result.body) return null;
+      var next = sessionFromAuthBody(result.body, Math.floor(Date.now() / 1000), emailFromToken);
+      if (!next) return null;
+      if (!sameVerifiedEmail(verified.email, next.email)) return null;
+      writeSession(next);
+      return next;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function sameVerifiedEmail(a, b) {
+    return !!a && !!b && String(a).toLowerCase() === String(b).toLowerCase();
   }
 
   async function needsOptionalOnboarding() {
@@ -3085,9 +4308,124 @@
     maybeShowWhatsNew();
   }
 
+  // Enter the app without the new-signup onboarding. A password reset must not be mistaken for a
+  // first run, so recovery finishes here; an invitation goes through afterSignIn() instead. The
+  // verified session is re-asserted first so a different tab's session cannot be loaded by mistake.
+  async function enterApp(session) {
+    if (session) writeSession(session);
+    hideAuth();
+    clearCaches();
+    await Promise.all([loadHome(), loadTransactions(), loadInsights()]);
+    renderAccount();
+    maybeShowWhatsNew();
+  }
+
+  function clearPendingAuth() {
+    pendingAuthLinkType = "";
+    pendingAuthSession = null;
+  }
+
+  // Drop the session verification created, but only when it is still the one in storage: a different
+  // tab's account must not be signed out by this flow.
+  function clearVerifiedSession() {
+    if (!pendingAuthSession) return;
+    var stored = readSession();
+    if (!stored || stored.access_token === pendingAuthSession.access_token) writeSession(null);
+  }
+
+  function expireVerifiedSession() {
+    var invited = pendingAuthLinkType === "invite";
+    clearVerifiedSession();
+    clearPendingAuth();
+    showAuth("expired", "Your verified session has expired. Request a new link below." +
+      (invited ? " If this was an invitation, ask the person who invited you to send a new one." : ""));
+  }
+
+  function showLinkError(kind) {
+    if (kind === "expired" || kind === "invalid" || kind === "legacy" ||
+        kind === "malformed" || kind === "missing" || kind === "unexpected") {
+      // A dead token gets the request-a-new-link screen. "unexpected" means a 200 without a session,
+      // which is not something the user can retry with the same link.
+      var invited = authView === "link-invite";
+      showAuth("expired", authLinkMessage(kind === "unexpected" ? "invalid" : kind) +
+        (invited ? " If this was an invitation, ask the person who invited you to send a new one." : ""));
+      return;
+    }
+    // Network, rate-limit and service failures are not proof that the link is dead: keep the link on
+    // screen and let the user press the button again.
+    setAuthView(authView, authLinkMessage(kind));
+  }
+
+  async function verifyPendingLink() {
+    var button = $("authSubmit");
+    var label = button.textContent;
+    var view = authView;
+    var epoch = authGuard.begin();
+    button.setAttribute("aria-busy", "true");
+    button.textContent = "Verifying\u2026";
+    try {
+      var result = await authLink.verify();
+      // Back or any other view change invalidates this response: it must not sign the user in or
+      // replace the screen they moved to.
+      if (!authGuard.current(epoch) || authView !== view) return;
+      if (!result.ok) {
+        if (result.kind === "cancelled") return;
+        if (result.kind === "busy") {
+          setAuthView(view, "A verification is already in progress.");
+          return;
+        }
+        clearPendingAuth();
+        showLinkError(result.kind);
+        return;
+      }
+      if (result.type === "signup") {
+        clearPendingAuth();
+        // Same path as a signup that already had a session: enter, then optional onboarding.
+        await afterSignIn(result.session, true);
+        return;
+      }
+      // Recovery and invitation both choose a password before the app opens. The session is kept in
+      // page memory; the password update must use this object, never a storage re-read.
+      pendingAuthLinkType = result.type;
+      pendingAuthSession = result.session;
+      if (result.session.email) $("authEmail").value = result.session.email;
+      setAuthView("setpassword", result.type === "invite"
+        ? "Choose a password to finish setting up your account."
+        : "Choose a new password for your account.");
+    } finally {
+      if (authGuard.current(epoch)) {
+        button.removeAttribute("aria-busy");
+        if (authView.indexOf("link-") === 0) button.textContent = label;
+      }
+    }
+  }
+
+  // "Back to sign in" from a link screen. A valid stored session is not discarded by a bad link, and
+  // anything this flow started (token, verified session, in-flight request) is abandoned.
+  function backFromAuth() {
+    authGuard.cancel();
+    authLink.cancel();
+    var hadVerified = !!pendingAuthSession;
+    clearVerifiedSession();
+    clearPendingAuth();
+    if (hadVerified) {
+      setAuthView("signin");
+      return;
+    }
+    var session = readSession();
+    if (session && !sessionExpired(session)) {
+      hideAuth();
+      reloadScreen();
+      return;
+    }
+    setAuthView("signin");
+  }
+
   function hideOptionalOnboarding() {
     $("onboardingScreen").hidden = true;
     $("onboardingMessage").textContent = "";
+    syncGateInert();
+    focusAfterAuth();
   }
 
   function showOptionalOnboarding() {
@@ -3095,6 +4433,8 @@
     $("onboardingBudget").value = "";
     $("onboardingMessage").textContent = "";
     $("onboardingScreen").hidden = false;
+    syncGateInert();
+    focusAfterAuth();
   }
 
   async function finishOptionalOnboarding() {
@@ -3172,33 +4512,57 @@
   }
 
   async function resendSignup() {
+    if (authResendInFlight) return;
+    var button = $("authResend");
     var email = $("authEmail").value.trim();
-    if (!email) { setAuthView("confirmation", "Enter the email address you registered with."); return; }
-    $("authResend").disabled = true;
+    if (!email) { setAuthView(authView, "Enter the email address you registered with."); return; }
+    authResendInFlight = true;
+    var resendToken = ++authResendBusyToken;
+    setAuthBusy(button, true, "Sending\u2026");
     try {
       var result = await authRequest("POST", "/auth/v1/resend", { type: "signup", email: email });
-      setAuthView("confirmation", result.ok
+      setAuthView(authView, result.ok
         ? "If this address has a pending registration, a new confirmation link is on its way."
         : authError(result));
     } catch (error) {
-      setAuthView("confirmation", "We couldn't reach the email service. Check your connection and try again.");
-    } finally { $("authResend").disabled = false; }
+      setAuthView(authView, "We couldn't reach the email service. Check your connection and try again.");
+    } finally {
+      if (resendToken === authResendBusyToken) {
+        authResendInFlight = false;
+        setAuthBusy(button, false, authResendLabel(authView));
+      }
+    }
   }
+
+  /* ---------- signup email validation (no DOM; tests/js/signup_email_test.mjs extracts this block) ---------- */
+  function isValidSignupEmail(email) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || ""));
+  }
+  /* ---------- end signup email validation ---------- */
 
   async function submitAuth() {
     var button = $("authSubmit");
     var email = $("authEmail").value.trim();
     var password = $("authPassword").value;
 
+    if (authSubmitInFlight) return;
     if (!AUTH.key) {
       setAuthView(authView, "Sign-in is not configured on this server.");
       return;
     }
-    button.disabled = true;
+    authSubmitInFlight = true;
+    var submitToken = ++authSubmitBusyToken;
+    authGuard.begin();
+    setAuthBusy(button, true, authView.indexOf("link-") === 0 ? null : authSubmitBusyLabel(authView));
     try {
+      if (authView === "link-signup" || authView === "link-recovery" || authView === "link-invite") {
+        await verifyPendingLink();
+        return;
+      }
+
       if (authView === "signup") {
         if (!email || !password) { setAuthView("signup", "Enter your email and password."); return; }
-        if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) {
+        if (!isValidSignupEmail(email)) {
           setAuthView("signup", "Enter a valid email address."); return;
         }
         if (password.length < 8) { setAuthView("signup", "Use at least 8 characters for your password."); return; }
@@ -3224,8 +4588,11 @@
 
       if (authView === "forgot") {
         if (!email) { setAuthView("forgot", "Enter your email first."); return; }
-        var sent = await authRequest("POST", "/auth/v1/recover",
-          { email: email, redirect_to: redirectTarget() });
+        // GoTrue reads redirect_to from the query string (r.Form); a JSON body field is ignored for a
+        // JSON request. Sending it in the body was the old behaviour and silently fell back to SiteURL.
+        var sent = await authRequest("POST",
+          "/auth/v1/recover?redirect_to=" + encodeURIComponent(redirectTarget()),
+          { email: email });
         // The same answer whether or not the address has an account: no account enumeration.
         setAuthView("forgot", sent.ok
           ? "If that address has an account, a link is on its way."
@@ -3239,16 +4606,44 @@
           setAuthView("setpassword", "Those two passwords do not match.");
           return;
         }
-        if (!pendingToken) { showAuth("signin", "That link has expired. Sign in, or request a new one."); return; }
-        var saved = await authRequest("PUT", "/auth/v1/user", { password: password }, pendingToken);
-        if (!saved.ok) { setAuthView("setpassword", authError(saved)); return; }
-        pendingToken = null;
-        var session = readSession();
-        if (!session) { showAuth("signin", "Password saved. Sign in with it now."); return; }
-        await afterSignIn(session);
+        // The credential is the exact session /verify returned, kept in page memory. Reading
+        // localStorage here would let another tab's account receive this password change.
+        var verified = pendingAuthSession;
+        if (!verified || !verified.access_token) {
+          clearPendingAuth();
+          showAuth("expired", "Your verified session is no longer available. Request a new link below.");
+          return;
+        }
+        var epoch = authGuard.begin();
+        var changed = await updatePasswordForSession(verified, password, {
+          request: authRequest,
+          refresh: refreshVerifiedSession,
+          isExpired: sessionExpired
+        });
+        // Back or any other view change makes this response stale: no app entry, no success toast.
+        if (!authGuard.current(epoch) || authView !== "setpassword" || pendingAuthSession !== verified) return;
+        if (!changed.ok) {
+          // A refresh may have rotated the refresh token before a retryable failure; keep the fresh
+          // session so the next attempt does not use a spent token.
+          if (changed.session && pendingAuthSession === verified) pendingAuthSession = changed.session;
+          if (changed.kind === "expired") { expireVerifiedSession(); return; }
+          if (changed.kind === "network") {
+            setAuthView("setpassword", "Can't reach the sign-in service. Check your connection and try again.");
+            return;
+          }
+          setAuthView("setpassword", authError(changed.response || { body: null }));
+          return;
+        }
+        var reason = pendingAuthLinkType;
+        var session = changed.session;
+        clearPendingAuth();
+        if (reason === "invite") await afterSignIn(session);
+        else await enterApp(session);
         toast("Password saved.");
         return;
       }
+
+      if (authView === "confirmation" || authView === "expired") return;
 
       if (!email || !password) { setAuthView("signin", "Enter your email and password."); return; }
       var result = await authRequest("POST", "/auth/v1/token?grant_type=password",
@@ -3267,11 +4662,18 @@
     } catch (error) {
       setAuthView(authView, "Can't reach the sign-in service. Check your connection and try again.");
     } finally {
-      button.disabled = false;
+      if (submitToken === authSubmitBusyToken) {
+        authSubmitInFlight = false;
+        setAuthBusy(button, false, authSubmitLabel(authView));
+      }
     }
   }
 
   async function signOut() {
+    authGuard.cancel();
+    authLink.cancel();
+    oauthFlow.cancel();
+    clearPendingAuth();
     var session = readSession();
     try {
       if (session && session.access_token) {
@@ -3282,7 +4684,6 @@
       }
     } catch (error) { /* offline: the local sign-out stands either way */ }
     writeSession(null);
-    pendingToken = null;
     clearCaches();
     renderAccount();
     showAuth("signin");
@@ -3305,7 +4706,7 @@
   function revealAuthField(input) {
     setTimeout(function () {
       if (!input || document.activeElement !== input) return;
-      if (input.scrollIntoView) input.scrollIntoView({ block: "center", behavior: "smooth" });
+      if (input.scrollIntoView) input.scrollIntoView({ block: "center", behavior: reducedMotion() ? "auto" : "smooth" });
     }, AUTH_REVEAL_DELAY_MS);
   }
 
@@ -3313,10 +4714,10 @@
   function resetAuthScroll() {
     var scroller = $("authScreen");
     if (scroller) {
-      if (scroller.scrollTo) scroller.scrollTo({ top: 0, behavior: "smooth" });
+      if (scroller.scrollTo) scroller.scrollTo({ top: 0, behavior: reducedMotion() ? "auto" : "smooth" });
       else scroller.scrollTop = 0;
     }
-    if (window.scrollY) window.scrollTo({ top: 0, behavior: "smooth" });
+    if (window.scrollY) window.scrollTo({ top: 0, behavior: reducedMotion() ? "auto" : "smooth" });
   }
 
   /* ---------- home ---------- */
@@ -5879,6 +7280,17 @@
     if (row) openSheet(row);
   }
 
+  function wirePasswordToggle(inputId, buttonId, showLabel, hideLabel) {
+    var input = $(inputId);
+    var button = $(buttonId);
+    if (!input || !button) return;
+    button.addEventListener("click", function () {
+      var visible = input.type === "password";
+      applyPasswordVisibility(input, button, visible, showLabel, hideLabel);
+      focusWithoutScroll(input);
+    });
+  }
+
   function wire() {
     // One empty touch listener: iOS Safari does not apply :active (and so the press spring) to a
     // <button> unless the page has a touch handler, and this is the cheapest one. It never runs.
@@ -6049,7 +7461,12 @@
     });
     watchKeyboard();
     $("welcomeContinue").addEventListener("click", continueFromWelcome);
+    $("welcomeBack").addEventListener("click", welcomeBack);
+    $("welcomeSkip").addEventListener("click", welcomeSkip);
+    $("welcomeEmail").addEventListener("click", continueWithEmail);
     $("welcomeSignIn").addEventListener("click", signInFromWelcome);
+    $("welcomeGoogle").addEventListener("click", startGoogleSignIn);
+    $("authGoogle").addEventListener("click", startGoogleSignIn);
     $("onboardingSave").addEventListener("click", saveOptionalOnboarding);
     $("onboardingSkip").addEventListener("click", skipOptionalOnboarding);
     $("onboardingBalance").addEventListener("keydown", function (event) {
@@ -6058,11 +7475,13 @@
     $("onboardingBudget").addEventListener("keydown", function (event) {
       if (event.key === "Enter") { event.preventDefault(); saveOptionalOnboarding(); }
     });
+    wirePasswordToggle("authPassword", "authPasswordToggle", "Show password", "Hide password");
+    wirePasswordToggle("authPassword2", "authPassword2Toggle", "Show confirm password", "Hide confirm password");
     $("authSubmit").addEventListener("click", submitAuth);
     $("authCreate").addEventListener("click", function () { setAuthView("signup"); });
     $("authResend").addEventListener("click", resendSignup);
     $("authForgot").addEventListener("click", function () { setAuthView("forgot"); });
-    $("authBack").addEventListener("click", function () { setAuthView("signin"); });
+    $("authBack").addEventListener("click", backFromAuth);
     $("signOutBtn").addEventListener("click", signOut);
     $("openingBalance").addEventListener("change", function () { saveMoneySetting("opening"); });
     $("monthlyBudget").addEventListener("change", function () { saveMoneySetting("budget"); });
@@ -6119,13 +7538,17 @@
     }
     var fade = splash.animate([{ opacity: 1 }, { opacity: 0 }],
       { duration: duration, easing: "linear", fill: "both" });
+    var finished = false;
     var finish = function () {
+      if (finished) return;
+      finished = true;
       splash.style.visibility = "hidden";      // not display: none — the fade had to be able to run
       splash.style.pointerEvents = "none";     // and the app is tappable from this moment on
       splash.style.opacity = "0";
       splash.setAttribute("aria-hidden", "true");
       try { fade.cancel(); } catch (error) { /* already gone */ }
       showTimeoutNotice();
+      if ($("welcomeScreen") && !$("welcomeScreen").hidden) playWelcomeEntrance();
     };
     fade.finished.then(finish, finish);
     setTimeout(finish, duration + 150);        // and never rely on the animation alone
@@ -6170,6 +7593,9 @@
   var splashSettled = startSplash();
 
   async function start() {
+    // Read and strip the auth callback before any unrelated UI renders; credentials stay in memory only.
+    var oauth = oauthFlow.begin(window.location.search, window.location.hash);
+    var link = authLink.begin(window.location.search, window.location.hash);
     renderScreenHeaders(); // before wire(), so the shared pills exist to bind and paint
     wire();
     setMode("personal");
@@ -6177,29 +7603,48 @@
     paintMonth();
     setScanBusy(false); // paints the camera icon on the scan row
     renderAccount();
-    await restoreSession();   // the session check the splash waits for
+    await restoreSession(link, oauth);   // the session check the splash waits for
     splashSettled();
   }
 
   // The splash stays up until this has settled, then the user sees either the sign-in card or their own
-  // data. An invite or recovery link wins over a stored session: it is there to set a password.
-  async function restoreSession() {
-    if (readAuthRedirect()) {
-      // Email confirmation creates a session; it is not a password-reset flow. Invite and recovery
-      // links still need the user to choose a password before entering the app.
-      if (pendingAuthRedirectType === "signup") {
-        var confirmedSession = readSession();
-        if (!confirmedSession) {
-          showAuth("signin", "Your email is confirmed. Sign in to continue.");
-          return;
-        }
+  // data. A token link is only read here; nothing is verified until the user presses the button.
+  async function restoreSession(link, oauth) {
+    link = link || { kind: "none" };
+    oauth = oauth || { kind: "none" };
+    if (oauth.kind === "ready") {
+      await finishOAuthSignIn();
+      return;
+    }
+    if (oauth.kind !== "none") {
+      var existingOAuth = readSession();
+      if (existingOAuth && !sessionExpired(existingOAuth)) {
+        // A bad OAuth callback must not sign a valid user out.
         hideAuth();
-        clearCaches();
-        await Promise.all([loadHome(), loadTransactions(), loadInsights()]);
-        await showOptionalOnboarding();
+        await reloadScreen();
+        if (await needsOptionalOnboarding()) { showOptionalOnboarding(); return; }
+        maybeShowWhatsNew();
         return;
       }
-      showAuth("setpassword");
+      showAuth("signin", oauthMessage(oauth.kind));
+      return;
+    }
+    if (link.kind === "ready") {
+      showAuth(link.type === "signup" ? "link-signup"
+        : link.type === "invite" ? "link-invite" : "link-recovery");
+      return;
+    }
+    if (link.kind === "invalid") {
+      var existing = readSession();
+      if (existing && !sessionExpired(existing)) {
+        // A bad link must not sign a valid user out: ignore it and open the app as normal.
+        hideAuth();
+        await reloadScreen();
+        if (await needsOptionalOnboarding()) { showOptionalOnboarding(); return; }
+        maybeShowWhatsNew();
+        return;
+      }
+      showAuth("expired", authLinkMessage(link.reason || "invalid"));
       return;
     }
     var session = readSession();
@@ -6227,7 +7672,12 @@
     maybeShowWhatsNew();
   }
 
-  start().then(splashSettled, splashSettled);   // a boot that throws still shows the app
+  // A boot that throws still shows the app, but the failure must be visible: the splash settles
+  // either way, and the original error is logged rather than discarded.
+  start().then(splashSettled, function (error) {
+    console.error("Duits boot failed: the app could not finish starting.", error);
+    splashSettled();
+  });
 })();
 </script>
 </body>

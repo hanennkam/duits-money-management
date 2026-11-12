@@ -28,6 +28,14 @@ every console before you run anything.**
 **Rules.** Stop on any unexpected result. Do not fix forward. Take the backups before step 7 — the migration
 is the only irreversible-feeling step and it is the one with a rollback.
 
+**Legacy key policy — read before step 10.** A public multi-user deployment accepts **only verified per-user
+JWTs** (`Authorization: Bearer <Supabase access token>`). `ALLOW_LEGACY_API_KEY` must be **absent or false**
+and `LEGACY_USER_ID` must be **unset**. The legacy key authenticates every request as one fixed account: it
+has no per-user identity, no expiry and no per-user revocation, so it is not a public-user identity mechanism
+and it must never be used to let anyone into a shared deployment. Keeping it on is a full authorization
+bypass for anyone who obtains the value. `API_KEY` itself stays set because the app requires the variable to
+start, but with the flag off its value is never accepted.
+
 > **Note from the actual run (Pass 13).** Step 7 was applied before steps 2–4 were recorded, so confirm step 2's
 > `pg_dump` exists. If it does not, the database's only recovery path is `0002 down`; the receipts backup (step
 > 3) was taken and is byte-verified, so Storage is covered either way.
@@ -244,13 +252,17 @@ this closes before step 7.
 - **Do:** Render dashboard → service **duits** → **Environment**:
   - `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `SUPABASE_PUBLISHABLE_KEY`, `ANTHROPIC_API_KEY`, `API_KEY`
   - `ENVIRONMENT=production`
-  - `ALLOW_LEGACY_API_KEY=true` and `LEGACY_USER_ID=<owner id>` — only while the iOS Shortcut still uses the
-    shared key. Remove both once personal access tokens exist.
+  - **Do not set `ALLOW_LEGACY_API_KEY` or `LEGACY_USER_ID`.** For a public multi-user deployment both must be
+    absent (or the flag explicitly `false`). If an existing iOS Shortcut still depends on the shared key,
+    that deployment stays private and single-owner until `public.api_tokens` replaces it; enabling the flag
+    on a shared deployment would let every holder act as one fixed account.
   - `PORT` is already set to `10000` by `render.yaml`. **Do not change the Dockerfile default of 8000.**
 - **Expected:** every variable saves, and no secret is printed back in full.
 - **STOP if** any required variable is blank — the app refuses to start and names the missing ones.
-- **Roll back from here:** restore the previous values from the dashboard's own history, or unset the two
-  `ALLOW_LEGACY_API_KEY` / `LEGACY_USER_ID` values (the web UI no longer needs them).
+- **STOP if** `ALLOW_LEGACY_API_KEY` is present and truthy, or `LEGACY_USER_ID` is set: that is not a
+  public-user configuration.
+- **Roll back from here:** restore the previous values from the dashboard's own history. Do **not** restore
+  `ALLOW_LEGACY_API_KEY` / `LEGACY_USER_ID` on a shared deployment.
 
 ## 11. Merge to main and deploy — MINE
 
@@ -291,7 +303,9 @@ curl -s -D - -o /dev/null $BASE/ | grep -iE '^(HTTP|cache-control|content-securi
 - Keep `public.migration_0002_saved_constraints` until you are satisfied with the release, then
   **MINE**: `drop table public.migration_0002_saved_constraints;` in the SQL editor.
 - **YOURS:** re-run `scripts/audit_live.py` and compare the counts with step 4.
-- **MINE:** remove `ALLOW_LEGACY_API_KEY` and `LEGACY_USER_ID` once the Shortcut no longer needs them.
+- **MINE:** confirm `ALLOW_LEGACY_API_KEY` and `LEGACY_USER_ID` are **unset** and stay unset. They are not
+  part of a public multi-user deployment; verified per-user JWTs are the only accepted identity mechanism.
+  The Shortcut moves to a per-user token (`public.api_tokens`) instead of the shared key.
 
 ---
 

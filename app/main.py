@@ -37,7 +37,8 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from app import db, extractor, finance
 from app.auth import CurrentUser
-from app.config import Settings, get_settings, is_production
+from app.config import Settings, docs_enabled, environment_name, get_settings
+from app.logging_redaction import install as install_access_log_redaction
 from app.models import (
     Commitment,
     CommitmentCreate,
@@ -59,6 +60,10 @@ from app.models import (
 
 logger = logging.getLogger(__name__)
 
+# Uvicorn imports the app after configuring logging, so this attaches the access-log filter
+# before the first request. The lifespan call below is an idempotent belt-and-braces repeat.
+install_access_log_redaction()
+
 # Receipt images Claude accepts. HEIC is out of scope: have Shortcuts convert first.
 IMAGE_EXTENSIONS = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
 
@@ -67,8 +72,8 @@ STATIC_DIR = Path(__file__).parent / "static"
 # Receipt links are handed out just long enough to load the image.
 RECEIPT_URL_TTL = 60
 
-# ENVIRONMENT=production turns the interactive API docs off.
-IS_PRODUCTION = is_production()
+# Interactive API docs are development-only. Staging and production both hide them.
+DOCS_ENABLED = docs_enabled()
 
 # API responses that must never be cached by a proxy, browser or CDN. `/health` is here so a
 # keep-alive probe always reaches Render instead of being answered from a cache.
@@ -78,6 +83,7 @@ NO_STORE_PREFIXES = ("/health", "/transactions", "/summary", "/finance", "/commi
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Fail fast: a container with missing configuration must not start serving."""
+    install_access_log_redaction()
     settings = get_settings()  # raises with the missing NAME(s), never the values
     if not settings.supabase_publishable_key:
         logger.warning(
@@ -86,7 +92,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         )
     logger.info(
         "Duits starting: environment=%s, model=%s, bucket=%s",
-        "production" if IS_PRODUCTION else "development",
+        environment_name(),
         settings.claude_model,
         settings.receipts_bucket,
     )
@@ -97,9 +103,9 @@ app = FastAPI(
     title="Duits Expense Tracker",
     version="0.1.0",
     lifespan=lifespan,
-    docs_url=None if IS_PRODUCTION else "/docs",
-    redoc_url=None if IS_PRODUCTION else "/redoc",
-    openapi_url=None if IS_PRODUCTION else "/openapi.json",
+    docs_url="/docs" if DOCS_ENABLED else None,
+    redoc_url="/redoc" if DOCS_ENABLED else None,
+    openapi_url="/openapi.json" if DOCS_ENABLED else None,
 )
 
 @app.middleware("http")

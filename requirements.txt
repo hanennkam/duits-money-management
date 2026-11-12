@@ -1,6 +1,8 @@
 # Production runtime only. Anything needed just for tests lives in requirements-dev.txt.
 fastapi>=0.115
-uvicorn[standard]>=0.30
+# Uvicorn's access-record shape is a security boundary for the token_hash redaction filter.
+# 0.54.x is the minor verified by tests/test_logging_redaction.py; patch releases are allowed.
+uvicorn[standard]>=0.54.0,<0.55.0
 python-dotenv>=1.0
 supabase>=2.9
 anthropic>=0.40

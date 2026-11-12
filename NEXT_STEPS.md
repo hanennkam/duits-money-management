@@ -760,8 +760,39 @@ If the Mac's address has changed, run `ipconfig getifaddr en0`, or restart the s
 it prints: `./.venv/bin/python scripts/serve_staging.py`. Stop it with Ctrl-C (or
 `lsof -nP -iTCP:8765 -sTCP:LISTEN -t | xargs kill`). This is the **staging** project only.
 
-Test accounts: `duits-staging-a@example.com` and `duits-staging-b@example.com`. The password is
-`STAGING_TEST_PASSWORD` in `.env.staging`. A owns 21 rows, B owns 4.
+Test accounts: the two dedicated staging users named by `STAGING_USER_A_EMAIL` and
+`STAGING_USER_B_EMAIL` in `.env.staging` (gitignored; never commit it). Their passwords are
+`STAGING_USER_A_PASSWORD` and `STAGING_USER_B_PASSWORD`; their ids are `STAGING_USER_A_ID` and
+`STAGING_USER_B_ID`. `scripts/run_staging_tests.py` refuses to run unless the four credential names are
+present, and the ordinary suite never needs them.
+
+### Staging test cleanup and manual recovery
+
+Both staging modules delete what they create by exact id, restore finance settings (including deleting a
+settings row that did not exist before the run), and never find rows by merchant name. Fixture teardown
+cannot run when the process is killed — SIGKILL, a crashed machine, a CI timeout — so an interrupted run
+can leave rows or receipt objects behind. Every cleanup delete is idempotent and scoped to an id the test
+created, so the same steps can be repeated safely.
+
+If a run is interrupted, do this read-only check first (service key in an environment variable, never on
+the command line), and confirm the URL is the staging ref `tddigsmukmhkjrwiqdec` before any write:
+
+1. `GET /rest/v1/transactions?select=id,user_id,merchant,receipt_path&merchant=like.STAGING-ISOLATION-*`
+2. `GET /rest/v1/transactions?select=id,user_id,merchant,receipt_path&merchant=like.Kedai B *` — keep only
+   `Kedai B [0-9a-f]{8}`; the seeded names are `Kedai B 0`, `Kedai B 1`, `Kedai B 2`, `Kedai B Sendiri`.
+3. `GET /rest/v1/transactions?select=id,user_id,merchant,receipt_path&merchant=eq.Kedai Teks B`
+4. `GET /rest/v1/monthly_commitments?select=id,user_id,name&name=like.STAGING-ISOLATION-*`, plus the exact
+   names `Kedai Sewa Staging`, `Sewa Staging A`, `Sewa Staging B`, `Sewa Untuk FK`.
+5. `GET /rest/v1/user_finance_settings?select=user_id,opening_balance,monthly_budget` — flag the two test
+   values `812345.67` and `98765.43` (the suite restores the row, so either means a killed run).
+
+For every row found, check `user_id` is `STAGING_USER_A_ID` or `STAGING_USER_B_ID`. Anything else is not
+test residue: leave it alone and report it. Then delete only by exact id and owner, receipt object first:
+`DELETE /storage/v1/object/receipts/<receipt_path>` then
+`DELETE /rest/v1/transactions?id=eq.<id>&user_id=eq.<owner>`. Commitments take the same form, and their
+paid marks cascade. Delete a settings row only when it held a test value and did not exist before the run;
+otherwise restore the backup values. Repeat the read-only check: zero rows is the proof. Never run a
+pattern-based bulk delete against the whole table.
 
 ---
 
@@ -788,13 +819,17 @@ The polish itself is commit `f33651a`. No files changed in this verification ses
   is rejected (400); restored afterwards. The screen shows the confirm field, locks the email (the link
   already proved identity) and **clears the token out of the URL**.
 - **Secrets.** 77 tracked files scanned against the real values of `SUPABASE_SERVICE_KEY`,
-  `ANTHROPIC_API_KEY`, `API_KEY`, `SUPABASE_PUBLISHABLE_KEY` and `STAGING_TEST_PASSWORD`: **no hits**.
+  `ANTHROPIC_API_KEY`, `API_KEY`, `SUPABASE_PUBLISHABLE_KEY` and the two staging account passwords:
+  **no hits**.
   None of them appear in `index.html`. `.env` and `.env.staging` are untracked and gitignored.
   The publishable key is injected at serve time, never stored in the page source.
 - **RLS and isolation** — 15/15 staging tests with two real accounts: cross-user list/read/patch/delete
   and receipt URLs all answer 404, dedupe is per owner, creates stamp the caller, and RLS is enforced
   through PostgREST **and** Storage (B cannot read A's receipt object).
-- **No sign-up in the UI.** The page has no registration screen and never calls `/auth/v1/signup`.
+- **Sign-up UI — historical, superseded.** At the time of this staging pass the page had no registration
+  screen and never called `/auth/v1/signup`. The current page has email sign-up, password recovery and
+  token-hash link screens, but staging still reports `disable_signup: true`, so `/auth/v1/signup` is
+  refused. Public sign-up is therefore not live. See `README.md` → “Authentication status (Phase 6B)”.
 - **`redirect_to` on recovery** is `window.location.origin + "/"` (commit `59a8018`), pinned by two page
   tests. It was previously built from `pathname`, which would break the allow-list if the page were opened
   as `/index.html`.
@@ -891,8 +926,10 @@ full detail; this is the summary.
 **B. Environment variables (Render dashboard)**
 - [ ] `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `SUPABASE_PUBLISHABLE_KEY`, `ANTHROPIC_API_KEY`, `API_KEY`
 - [ ] `ENVIRONMENT=production`
-- [ ] `ALLOW_LEGACY_API_KEY=true` and `LEGACY_USER_ID=<your auth.users id>` — only while the iOS Shortcut
-      still uses the shared key. Remove both once personal access tokens exist.
+- [ ] **Leave `ALLOW_LEGACY_API_KEY` and `LEGACY_USER_ID` unset.** A public multi-user deployment accepts only
+      verified per-user JWTs. The legacy shared key authenticates every request as one fixed account, so
+      enabling it would let anyone holding the value into the owner's data. `API_KEY` stays set because the
+      app requires the variable to start, but it is never accepted while the flag is off.
 - [ ] Check `PORT` in the dashboard. The `Dockerfile` defaults to `8000`; Render's default is `10000`.
       **Do not change the Dockerfile default** — set `PORT` in the dashboard instead.
 
@@ -1021,9 +1058,10 @@ order below is fixed. Step 1 is done — **PR #1 is open and unmerged**.
 
 1. **DONE — PR opened.** `multi-user` → `main`, PR #1, no merge.
 2. **Step 10 — the Render environment variables (yours).** `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`,
-   `SUPABASE_PUBLISHABLE_KEY`, `ANTHROPIC_API_KEY`, `API_KEY`, `ENVIRONMENT=production`, and
-   `ALLOW_LEGACY_API_KEY=true` + `LEGACY_USER_ID=<your auth.users id>` while the Shortcut still uses the shared
-   key. Confirm `PORT=10000` is set **in the dashboard** — do not change the Dockerfile's 8000 default. Your
+   `SUPABASE_PUBLISHABLE_KEY`, `ANTHROPIC_API_KEY`, `API_KEY`, `ENVIRONMENT=production`. Do **not** set
+   `ALLOW_LEGACY_API_KEY` or `LEGACY_USER_ID`: this deployment accepts only verified per-user JWTs, and the
+   shared key identifies one fixed account rather than a user. The Shortcut moves to `public.api_tokens`.
+   Confirm `PORT=10000` is set **in the dashboard** — do not change the Dockerfile's 8000 default. Your
    "env vars set" is the merge trigger.
 3. **Merge (authorised) + step 12 smoke test, immediately.** Render auto-deploys from `main`. Acceptance is a
    **real write**, not `/health`: one scan and one manual entry → 201 and the rows appear; edit one; delete one
@@ -1088,7 +1126,8 @@ cleanup. With `--apply` first the object sits at `<owner>/2026/10/…` and match
 takes both together: no orphans, no follow-up. Tidiness rather than safety, since the bytes are in the
 export either way — and it has now been done, so the tidy path is the one left.
 
-The evidence that made this worth holding — the rows are not mine (mine are `duits-staging-a/b@example.com`):
+The evidence that made this worth holding — the rows are not mine (mine belong to the two dedicated
+staging accounts):
 
 - **The rows read as real spending**, not probe junk: four manual entries (RM 550.00, 46.00, 23.00, 10.00)
   and a scanned receipt from `Fresh Choice (Pekan) Pantai Selamat` dated 2026-10-11.

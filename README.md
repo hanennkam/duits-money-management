@@ -128,7 +128,7 @@ store); never commit them, never bake them into the image or pass them as build 
 | `CLAUDE_FALLBACK_MODEL` | no | defaults to `claude-sonnet-5-5`. Check the model ID against Anthropic's docs |
 | `RECEIPTS_BUCKET` | no | defaults to `receipts` |
 | `MAX_UPLOAD_BYTES` | no | defaults to `10485760` (10 MB) |
-| `ENVIRONMENT` | no | set to `production` to switch `/docs`, `/redoc` and `/openapi.json` off |
+| `ENVIRONMENT` | no | `development` (or unset) keeps `/docs`, `/redoc` and `/openapi.json`; `staging` and `production` hide them. `scripts/serve_staging.py` sets `staging` automatically |
 | `PORT` | no | port uvicorn binds inside the container. `render.yaml` sets it to `10000`; the `Dockerfile` default is `8000` |
 
 If a required variable is missing or blank, startup aborts with a message naming exactly which
@@ -162,8 +162,8 @@ carries `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`.
 ## Web UI (iPhone-first)
 
 One page, no build step, no frameworks: `app/static/index.html` (HTML + CSS + vanilla JS in
-a single file), served by the API itself at `GET /`. The page is public; every call it makes
-still sends `X-API-Key`.
+a single file), served by the API itself at `GET /`. The page is public; every call it makes sends
+`Authorization: Bearer <Supabase access token>` from the signed-in session — never the shared key.
 
 All five screens rebuilt from `design/` are built and in use — Home, Transactions, Insights, Settings
 and the Add sheet — light and dark. The sticky top bar carries the app icon as a 24px rounded
@@ -321,27 +321,48 @@ Settings keeps the large title alone.
 
   Opening `app/static/index.html` from disk shows `{{BUILD}}`; only the served page is filled in.
 
-**Signing in.** The page has an email + password screen (invite only, no sign-up) that talks to Supabase
-Auth over its REST endpoints — no SDK, no CDN, no build step. The session (access and refresh tokens) is
-kept in `localStorage` under `duits.session`, and every API call sends it as `Authorization: Bearer`. A
-`401` triggers one token refresh (serialised, so a burst of 401s costs one refresh request) and, if that
-fails, returns to the sign-in screen **without clearing unsaved input in the Add sheet**. Invite and
-password-reset links are handled on the page: the token in the link's hash is read once and the address bar
-is rewritten immediately, so a token never lingers in a URL. Settings shows an *Account* card (email,
-Sign out) instead of the old API key row; sign out clears the session **and** every rendered list. The
-publishable key and the project URL are injected into the page by `GET /` at serve time (like `{{BUILD}}`);
-the **service key never reaches the page**.
+**Signing in and signing up.** The page has email/password sign-in, public sign-up, password recovery and
+token-hash email-link verification, all against Supabase Auth over REST — no SDK, no CDN, no build step.
+The session (access and refresh tokens) is kept in `localStorage` under `duits.session`, and every API call
+sends it as `Authorization: Bearer`. A `401` triggers one token refresh (serialised, so a burst of 401s
+costs one refresh request) and, if that fails, returns to the sign-in screen **without clearing unsaved
+input in the Add sheet**. Email links use `?token_hash=<hash>&type=signup|recovery|invite`: the hash is
+read once, stripped from the address bar before any request, and verified only when the user explicitly
+taps Confirm, Continue or Accept. Settings shows an *Account* card (email, Sign out) instead of the old API
+key row; sign out clears the session **and** every rendered list. The publishable key and project URL are
+injected into the page by `GET /` at serve time (like `{{BUILD}}`); the **service key never reaches the
+page**. Google is presented on the sign-in and sign-up screens as a disabled option with an honest
+availability note. The client-side Google OAuth PKCE flow is implemented behind
+`GOOGLE_OAUTH_CONFIGURED = false`; the provider is still disabled and real Google authentication is not
+verified.
 
-The sign-in screen is one column, centred and sitting at **45%** from the top (the bottom padding is 10vh
-taller than the top, which is what shifts a centred block up). It is `min-height: 100dvh` — never `100vh`,
-which is what iOS breaks — and scrolls when the keyboard eats the height. The centring is `safe center`,
-because a centred flex item taller than its box overflows off the *top*, where the logo and title could
-never be scrolled back into view. Focusing a field scrolls it to the middle of what the keyboard leaves
-after ~250ms; leaving the form scrolls back to the top so the logo and title return. Fields are 16px with
-`maximum-scale=1`, `enterkeyhint` `next`/`go`, and `autocapitalize`/`autocorrect` off. The set-password and
-reset views use the same column and the same sizes. The form is taller than the strip a 45% keyboard
-leaves on a small phone (456px of content against 300px at 375×667), so it is designed to scroll rather
-than to fit in one glance; every control is reachable and lands clear of the keyboard when focused.
+**Authentication UI.** The auth gate is a single-column mobile layout and a two-column editorial shell from
+900px up (max 1040px), sharing the existing safe-area, `100dvh`, keyboard-reveal and 16px input rules. The
+keyboard reveal and scroll reset honour `prefers-reduced-motion`. The app shell is inert and hidden from
+assistive technology while the welcome/auth/onboarding gate is open; auth view changes focus the form title;
+buttons use a consistent `:focus-visible` ring; and the password fields have accessible visibility toggles.
+The set-password and reset views use the same shell.
+
+**Authentication status (Phase 6B).** Email sign-in/sign-up/recovery/token-hash UI is implemented, and the
+local keyboard and asynchronous tests pass with controlled mocks. **This is not end-to-end staging proof.**
+At the time of the Phase 6B-1F verification, staging reported `disable_signup: true` and
+`mailer_autoconfirm: false`, so `/auth/v1/signup` is refused and email confirmation is required. Google
+remains disabled (`external.google: false`): the client PKCE flow exists behind
+`GOOGLE_OAUTH_CONFIGURED = false` and has Node/static regression coverage, but no real Google
+authentication has been performed. Account linking is left to Supabase; the app never links identities by
+email or frontend input. Production auth settings were not verified and sign-up must stay closed until the
+release gates pass. Automated verification covers real keyboard input, async
+busy/focus behaviour with mocked requests, and widths from 320px to 1440px, but it is browser simulation, not
+a real iPhone or VoiceOver. Automated contrast checks now pass WCAG AA 4.5:1 for the auth labels, the Google
+note and the primary button text in both themes, including loading states; focus rings pass 3:1. Disabled
+controls remain visibly distinct and the Google note is readable.
+Outstanding: enable and test staging signup/confirmation/recovery end to end; apply the `?token_hash=` email
+templates and exact redirect allow-list from ADR-001; configure the Google provider and an HTTPS staging
+origin, enable the dark PKCE flag, and run real Google E2E per ADR-001; confirm external log coverage per
+ADR-002; and run real iPhone/VoiceOver testing. See
+`docs/decisions/ADR-001-authentication-link-and-oauth-architecture.md`,
+`docs/decisions/ADR-002-access-log-token-exposure.md`, `docs/PHASE_4_RELEASE_AUDIT.md` and
+`docs/phase-6b/PHASE_6B_1A_AUTH_UI_REDESIGN_PLAN.md`.
 
 **Content-Security-Policy.** `GET /` sends a strict policy with a fresh per-response nonce:
 `default-src 'self'`, `script-src 'self' 'nonce-…'` (no `unsafe-inline`, so an injected script cannot run),
@@ -799,6 +820,11 @@ migration, which is a separate decision.
 
 ### curl
 
+> **Single-owner deployments only.** The `X-API-Key` header below works only while
+> `ALLOW_LEGACY_API_KEY` is on, which is a private single-owner setup. A public multi-user deployment
+> accepts only verified per-user JWTs (`Authorization: Bearer <Supabase access token>`); `X-API-Key`
+> alone answers `401` there. See `docs/CUTOVER_RUNBOOK.md` for the deployment policy.
+
 ```bash
 export API_KEY="paste-the-key-from-your-.env"
 BASE=http://127.0.0.1:8000
@@ -916,6 +942,10 @@ arrived.
 Optional now that the web UI exists — the UI covers the same ground on the phone, so a Shortcut is
 for the cases where you want one tap from the Lock Screen, the share sheet or a photo without opening
 Safari. Both write the same rows.
+
+> The Shortcut still authenticates with the shared key, so it works only on a private single-owner
+> deployment (`ALLOW_LEGACY_API_KEY` on with `LEGACY_USER_ID`). That is not a public-user identity: do
+> not enable it on a shared deployment. Per-user Shortcut tokens (`public.api_tokens`) are not built.
 
 1. **Take Photo** / **Select Photo** → **Get Contents of URL**
    - URL: `https://<your-host>/transactions/scan`, Method `POST`

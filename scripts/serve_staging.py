@@ -1,7 +1,8 @@
 """Serve the app against the STAGING Supabase project. For trying the UI on a phone on the same Wi-Fi.
 
 Reads .env.staging (never .env), refuses the live project, and binds 0.0.0.0 so a phone can reach it.
-Nothing secret is printed: the project ref, the port and the URLs to open.
+It marks the app as ENVIRONMENT=staging, so the interactive API docs stay off. Nothing secret is
+printed: the project ref, the port and the URLs to open.
 
 Usage:
   ./.venv/bin/python scripts/serve_staging.py               # port 8765, all interfaces
@@ -64,6 +65,7 @@ def main() -> int:
 
     # The app reads the environment; the app's own .env loading will not override values already set.
     os.environ.update(values)
+    os.environ["ENVIRONMENT"] = "staging"          # docs are development-only; staging hides them
     os.environ.pop("ALLOW_LEGACY_API_KEY", None)   # the web UI signs in; the legacy key is for the Shortcut
     os.environ.pop("RENDER_GIT_COMMIT", None)      # so the Build row reads "dev" locally
     os.chdir(REPO)

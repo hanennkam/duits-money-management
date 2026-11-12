@@ -2,9 +2,15 @@
 
 Run only through scripts/run_staging_tests.py, which loads .env.staging before the app is imported. The
 module refuses to run against the live project. It writes test rows and receipts to staging, and removes them.
+Each user signs in with their own STAGING_USER_A_* / STAGING_USER_B_* credentials.
 
 Nothing here is mocked except the Claude extraction, which is replaced with a fixed answer so the duplicate
 checks can be driven by known merchants, dates and amounts. The image bytes and the dedupe keys are real.
+
+Cleanup deletes the exact ids this module created, never rows found by name. Fixture teardown cannot run
+when the process is killed (SIGKILL, a crashed machine, a CI timeout), so an interrupted run can leave
+residue; every delete here is idempotent and safe to repeat, and NEXT_STEPS.md holds the staging-only
+recovery procedure.
 """
 
 from __future__ import annotations
@@ -34,7 +40,6 @@ from conftest import redact_secrets  # noqa: E402  (tests/ is on sys.path via th
 
 REAL_SIGNING_KEY_FOR = auth.signing_key_for  # captured before the root conftest can replace it
 LEGACY_0_BYTES = b"fake receipt legacy-0"
-SEEDED_B_MERCHANTS = {"Kedai B 0", "Kedai B 1", "Kedai B 2", "Kedai B Sendiri"}
 
 # B's fixture receipt is unique to this run. A fixed identity would collide with its own earlier copy,
 # because `0002 down`/`up` backfills every row to one owner and leaves the previous copy behind — and
@@ -45,6 +50,12 @@ B_MERCHANT = f"Kedai B {B_TOKEN}"
 B_DAY = date(2026, 10, 25)
 B_AMOUNT = "66.60"
 B_PHOTO = f"fake receipt b-own-{B_TOKEN}".encode()
+
+# Every transaction this module creates is recorded here by id, with the receipt path the write returned,
+# as soon as the response arrives. Cleanup drains these ids and never looks rows up by merchant, so a NULL
+# merchant or one of B's seeded names cannot hide a test row. The registry is per-process: a hard kill
+# loses it, which is why NEXT_STEPS.md documents the read-only residue check and the recovery steps.
+CREATED_TRANSACTIONS: dict[str, str | None] = {}
 
 LIVE_PROJECT_REF = "viorpltdkpexswvofeul"
 STAGING_PROJECT_REF = "tddigsmukmhkjrwiqdec"
@@ -90,11 +101,12 @@ def service(env: dict[str, str]) -> dict[str, str]:
     )
 
 
-def sign_in(base: str, env: dict[str, str], email: str) -> str:
+def sign_in(base: str, env: dict[str, str], email_var: str, password_var: str) -> str:
+    """A password grant for the account named by two environment variable NAMES, never by a value here."""
     response = httpx.post(
         f"{base}/auth/v1/token?grant_type=password",
         headers={"apikey": env["SUPABASE_SERVICE_KEY"], "Content-Type": "application/json"},
-        json={"email": email, "password": env["STAGING_TEST_PASSWORD"]},
+        json={"email": env[email_var], "password": env[password_var]},
         timeout=30,
     )
     assert response.status_code == 200, f"sign-in failed with HTTP {response.status_code}"
@@ -103,12 +115,13 @@ def sign_in(base: str, env: dict[str, str], email: str) -> str:
 
 @pytest.fixture(scope="module")
 def token_a(base: str, env: dict[str, str]) -> str:
-    return sign_in(base, env, "duits-staging-a@example.com")
+    """A's own staging account; the credentials are the runner's, not a fixed address in this file."""
+    return sign_in(base, env, "STAGING_USER_A_EMAIL", "STAGING_USER_A_PASSWORD")
 
 
 @pytest.fixture(scope="module")
 def token_b(base: str, env: dict[str, str]) -> str:
-    return sign_in(base, env, "duits-staging-b@example.com")
+    return sign_in(base, env, "STAGING_USER_B_EMAIL", "STAGING_USER_B_PASSWORD")
 
 
 @pytest.fixture(scope="module")
@@ -160,7 +173,7 @@ def b_own_row(base: str, service: dict[str, str], ids: dict[str, str]) -> dict[s
 
     It is created, not looked up, because a `down`/`up` cycle backfills **every** row to one owner and
     leaves the previous copy behind under someone else. Its identity is unique to this run so the two can
-    never share a hash. `cleanup_test_rows` removes it at the end of the module.
+    never share a hash. `cleanup_test_rows` removes it by id at the end of the module.
     """
     image_hash = hashlib.sha256(B_PHOTO).hexdigest()
     created = httpx.post(
@@ -183,7 +196,9 @@ def b_own_row(base: str, service: dict[str, str], ids: dict[str, str]) -> dict[s
         timeout=30,
     )
     assert created.status_code in (200, 201), created.text[:200]
-    return created.json()[0]
+    row = created.json()[0]
+    CREATED_TRANSACTIONS[row["id"]] = row.get("receipt_path")
+    return row
 
 
 @pytest.fixture(scope="module")
@@ -207,22 +222,89 @@ def client() -> Iterator[TestClient]:
     yield TestClient(app)
 
 
+SUCCESSFUL_DELETE = (200, 204)
+
+
+def _storage_headers(service: dict[str, str]) -> dict[str, str]:
+    """Only the two credential headers: a JSON content-type makes Storage refuse an empty-bodied delete."""
+    return {"apikey": service["apikey"], "Authorization": service["Authorization"]}
+
+
+def delete_receipt_object(base: str, service: dict[str, str], path: str, *, owner_id: str) -> None:
+    """Delete one receipt this module created, or prove it is already gone.
+
+    A 404 is success on a repeated run. Any other unexpected answer is raised, so cleanup cannot report
+    a clean module while the object is still there. The owner-folder assertion aims the service key only
+    at a path this test wrote under its own user, never at another owner's object.
+    """
+    assert path.startswith(f"{owner_id}/"), f"refusing to delete a receipt outside {owner_id}'s folder"
+    response = httpx.delete(
+        f"{base}/storage/v1/object/receipts/{path}",
+        headers=_storage_headers(service),
+        timeout=30,
+    )
+    if response.status_code == 404 or (
+        response.status_code == 400 and "not found" in response.text.lower()
+    ):
+        return
+    if response.status_code not in SUCCESSFUL_DELETE:
+        raise AssertionError(
+            f"receipt {path} was not deleted: HTTP {response.status_code} {response.text[:200]}"
+        )
+    # Storage can answer success and still serve the bytes; only a 200 here means it truly remains.
+    still_there = httpx.get(
+        f"{base}/storage/v1/object/receipts/{path}", headers=_storage_headers(service), timeout=30
+    )
+    if still_there.status_code == 200:
+        raise AssertionError(f"receipt {path} is still downloadable after a successful delete")
+
+
+def delete_row(base: str, service: dict[str, str], table: str, row_id: str, *, owner_id: str) -> None:
+    """Delete one row by id and owner. A missing row is success: cleanup must be safe to repeat."""
+    response = httpx.delete(
+        f"{base}/rest/v1/{table}?id=eq.{row_id}&user_id=eq.{owner_id}", headers=service, timeout=30
+    )
+    if response.status_code not in SUCCESSFUL_DELETE:
+        raise AssertionError(
+            f"{table} row {row_id} was not deleted: HTTP {response.status_code} {response.text[:200]}"
+        )
+
+
 @pytest.fixture(scope="module", autouse=True)
 def cleanup_test_rows(base: str, service: dict[str, str], ids: dict[str, str]) -> Iterator[None]:
-    """Remove the rows and receipts the tests created for B. The seeded B rows are left as they are."""
+    """Remove exactly the transactions and receipts this module created, by id.
+
+    The receipt goes first. If that fails, the row is kept so the object keeps a pointer and the failure
+    is raised at the end; deleting the row first would turn a failed object delete into a silent orphan.
+    """
     yield
-    for row in rows_for(base, service, f"user_id=eq.{ids['b']}&select=id,merchant,receipt_path"):
-        if row.get("merchant") is None or row["merchant"] in SEEDED_B_MERCHANTS:
-            continue
-        if row.get("receipt_path"):
-            # No Content-Type here: Supabase Storage answers 400 to a JSON content-type with an empty
-            # body, which was silently leaving the objects behind.
-            httpx.delete(
-                f"{base}/storage/v1/object/receipts/{row['receipt_path']}",
-                headers={"apikey": service["apikey"], "Authorization": service["Authorization"]},
-                timeout=30,
-            )
-        httpx.delete(f"{base}/rest/v1/transactions?id=eq.{row['id']}", headers=service, timeout=30)
+    problems: list[str] = []
+    for transaction_id, known_path in list(CREATED_TRANSACTIONS.items()):
+        try:
+            found = rows_for(base, service, f"id=eq.{transaction_id}&select=id,user_id,receipt_path")
+        except Exception as exc:  # a transport failure must not stop the other ids
+            problems.append(f"transaction {transaction_id}: could not read the row ({exc})")
+            found = []
+        path = known_path
+        if found:
+            if found[0]["user_id"] != ids["b"]:
+                problems.append(f"transaction {transaction_id} is not B's; left alone")
+                continue
+            path = found[0].get("receipt_path") or known_path
+        if path:
+            try:
+                delete_receipt_object(base, service, path, owner_id=ids["b"])
+            except Exception as exc:
+                problems.append(str(exc))
+                problems.append(f"transaction {transaction_id} kept so its receipt can be found again")
+                continue
+        try:
+            delete_row(base, service, "transactions", transaction_id, owner_id=ids["b"])
+        except Exception as exc:
+            problems.append(str(exc))
+    CREATED_TRANSACTIONS.clear()
+    if problems:
+        raise AssertionError("transaction cleanup failed:\n" + "\n".join(problems))
 
 
 # ---------------------------------------------------------------- real tokens, real JWKS
@@ -324,9 +406,11 @@ def test_b_scanning_a_photo_a_saved_is_not_a_duplicate_and_leaks_nothing(
                     amount=str(a_unshared_receipt["amount"]), day=date.fromisoformat(a_unshared_receipt["txn_date"]))
     assert response.status_code == 201, response.text
     assert a_id not in response.text
-    created = rows_for(base, service, f"id=eq.{response.json()['id']}&select=user_id")[0]
+    created_body = response.json()
+    CREATED_TRANSACTIONS[created_body["id"]] = created_body.get("receipt_path")
+    created = rows_for(base, service, f"id=eq.{created_body['id']}&select=user_id")[0]
     assert created["user_id"] == ids["b"]
-    assert client.delete(f"/transactions/{response.json()['id']}", headers=bearer(token_b)).status_code == 204
+    assert client.delete(f"/transactions/{created_body['id']}", headers=bearer(token_b)).status_code == 204
 
 
 def test_a_409_for_b_carries_only_b_rows(
@@ -358,8 +442,10 @@ def test_text_entries_are_stamped_with_the_caller(
         txn_date=date(2026, 10, 27), amount=Decimal("3.00"), merchant="Kedai Teks B", category="food", type="expense"))
     response = client.post("/transactions/text", json={"text": "kopi 3 ringgit", "user_id": ids["a"]}, headers=bearer(token_b))
     assert response.status_code == 201, response.text
-    assert rows_for(base, service, f"id=eq.{response.json()['id']}&select=user_id")[0]["user_id"] == ids["b"]
-    assert client.delete(f"/transactions/{response.json()['id']}", headers=bearer(token_b)).status_code == 204
+    created_body = response.json()
+    CREATED_TRANSACTIONS[created_body["id"]] = created_body.get("receipt_path")
+    assert rows_for(base, service, f"id=eq.{created_body['id']}&select=user_id")[0]["user_id"] == ids["b"]
+    assert client.delete(f"/transactions/{created_body['id']}", headers=bearer(token_b)).status_code == 204
 
 
 def test_a_user_id_in_a_manual_body_never_writes_a(
@@ -413,7 +499,8 @@ def test_storage_rls_stops_b_reading_a_receipt(base: str, env, token_a: str, tok
 # on, and anon/publishable still gets nothing at all. `0003 down` leaves the project without these tables,
 # so the fixtures skip with the reason rather than failing the whole module.
 
-CREATED_COMMITMENTS: list[str] = []
+# Commitment id -> owner id, so cleanup deletes exactly what a test made and never scans by name.
+CREATED_COMMITMENTS: dict[str, str] = {}
 SETTINGS_MONTH = "2026-10"
 MONEY_TABLES = ("user_finance_settings", "monthly_commitments", "commitment_payments")
 # The column that identifies a row: the settings table is one row per owner and is keyed by user_id, the
@@ -435,29 +522,65 @@ def money_tables(base: str, service: dict[str, str]) -> None:
 
 @pytest.fixture(scope="module", autouse=True)
 def cleanup_money_rows(base: str, service: dict[str, str]) -> Iterator[None]:
-    """Remove the commitments these tests created; their paid marks cascade with them."""
+    """Remove the commitments these tests created, by id and owner; their paid marks cascade.
+
+    Every id is attempted even if one fails, so a single bad delete cannot hide the rest, and the
+    collected problems are raised at the end instead of disappearing into teardown.
+    """
     yield
-    for commitment_id in CREATED_COMMITMENTS:
-        httpx.delete(
-            f"{base}/rest/v1/monthly_commitments?id=eq.{commitment_id}", headers=service, timeout=30
-        )
+    problems: list[str] = []
+    for commitment_id, owner_id in list(CREATED_COMMITMENTS.items()):
+        try:
+            delete_row(base, service, "monthly_commitments", commitment_id, owner_id=owner_id)
+        except Exception as exc:
+            problems.append(str(exc))
     CREATED_COMMITMENTS.clear()
+    if problems:
+        raise AssertionError("commitment cleanup failed:\n" + "\n".join(problems))
 
 
 @pytest.fixture(scope="module")
 def restore_b_settings(base: str, service: dict[str, str], ids: dict[str, str]) -> Iterator[None]:
-    """Put B's settings row back exactly as it was: these tests write real values into it."""
+    """Put B's settings row back exactly as it was, including deleting it when there was no row.
+
+    `before` is read directly with the service key, so "no row" is distinguishable from a row of
+    defaults. The restore is checked: a write that answers a non-success, or a read-back that differs,
+    fails the module instead of leaving altered settings behind.
+    """
     before = money_rows(base, service, "user_finance_settings", f"user_id=eq.{ids['b']}&select=*")
     yield
-    if before:
-        httpx.post(
-            f"{base}/rest/v1/user_finance_settings?on_conflict=user_id",
-            headers={**service, "Prefer": "resolution=merge-duplicates"},
-            json=before[0],
-            timeout=30,
-        )
-    else:
-        httpx.delete(f"{base}/rest/v1/user_finance_settings?user_id=eq.{ids['b']}", headers=service, timeout=30)
+    problems: list[str] = []
+    try:
+        if before:
+            response = httpx.post(
+                f"{base}/rest/v1/user_finance_settings?on_conflict=user_id",
+                headers={**service, "Prefer": "resolution=merge-duplicates"},
+                json=before[0],
+                timeout=30,
+            )
+            if response.status_code not in (200, 201):
+                problems.append(f"B settings restore answered HTTP {response.status_code}")
+            else:
+                after = money_rows(
+                    base, service, "user_finance_settings", f"user_id=eq.{ids['b']}&select=*"
+                )
+                stable = ("user_id", "opening_balance", "monthly_budget", "currency")
+                if not after or any(after[0].get(key) != before[0].get(key) for key in stable):
+                    problems.append("B settings did not read back as they were before the test")
+        else:
+            response = httpx.delete(
+                f"{base}/rest/v1/user_finance_settings?user_id=eq.{ids['b']}", headers=service, timeout=30
+            )
+            if response.status_code not in (200, 204):
+                problems.append(f"B settings restore-to-absence answered HTTP {response.status_code}")
+            elif money_rows(
+                base, service, "user_finance_settings", f"user_id=eq.{ids['b']}&select=user_id"
+            ):
+                problems.append("B settings row still exists; it did not exist before the test")
+    except Exception as exc:
+        problems.append(f"B settings restore failed: {exc}")
+    if problems:
+        raise AssertionError("settings cleanup failed:\n" + "\n".join(problems))
 
 
 def money_rows(base: str, service: dict[str, str], table: str, query: str) -> list[dict[str, Any]]:
@@ -486,7 +609,7 @@ def test_the_api_still_reads_and_writes_with_force_rls_on(
     )
     assert created.status_code == 201, created.text
     commitment_id = created.json()["id"]
-    CREATED_COMMITMENTS.append(commitment_id)
+    CREATED_COMMITMENTS[commitment_id] = ids["b"]
 
     # The row is really in the table, not only in the response: the service key reads it back.
     assert money_rows(base, service, "monthly_commitments", f"id=eq.{commitment_id}&select=user_id")[0][
@@ -575,7 +698,7 @@ def test_b_cannot_see_change_or_delete_a_commitment_through_postgrest(
     )
     assert created.status_code in (200, 201), created.text[:200]
     commitment = created.json()[0]
-    CREATED_COMMITMENTS.append(commitment["id"])
+    CREATED_COMMITMENTS[commitment["id"]] = ids["a"]
 
     seen = httpx.get(
         f"{base}/rest/v1/monthly_commitments?id=eq.{commitment['id']}&select=*", headers=b_headers, timeout=30
@@ -611,7 +734,7 @@ def test_b_cannot_see_change_or_delete_a_commitment_through_postgrest(
         timeout=30,
     )
     assert b_own.status_code in (200, 201), b_own.text[:200]
-    CREATED_COMMITMENTS.append(b_own.json()[0]["id"])
+    CREATED_COMMITMENTS[b_own.json()[0]["id"]] = ids["b"]
     a_sees = httpx.get(
         f"{base}/rest/v1/monthly_commitments?id=eq.{b_own.json()[0]['id']}&select=id",
         headers=a_headers, timeout=30,
@@ -633,7 +756,7 @@ def test_a_paid_mark_cannot_point_at_another_owners_commitment(
     )
     assert created.status_code in (200, 201), created.text[:200]
     a_commitment = created.json()[0]["id"]
-    CREATED_COMMITMENTS.append(a_commitment)
+    CREATED_COMMITMENTS[a_commitment] = ids["a"]
 
     # B claims A's commitment: (commitment_id, user_id) has no such parent row, so the FK refuses it.
     as_b_for_a = httpx.post(

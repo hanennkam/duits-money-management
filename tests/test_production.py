@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import importlib
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main_module
-from app.config import REQUIRED_ENV, get_settings, missing_env
+from app.config import REQUIRED_ENV, docs_enabled, environment_name, get_settings, missing_env
 from conftest import HEADERS
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture
@@ -34,6 +37,66 @@ def test_the_api_itself_still_works_in_production(production: TestClient) -> Non
     assert production.get("/health").status_code == 200
 
 
+@pytest.fixture
+def staging(monkeypatch: pytest.MonkeyPatch) -> TestClient:
+    """A fresh app built with ENVIRONMENT=staging, then torn down again."""
+    monkeypatch.setenv("ENVIRONMENT", "staging")
+    reloaded = importlib.reload(main_module)
+    try:
+        yield TestClient(reloaded.app)
+    finally:
+        monkeypatch.delenv("ENVIRONMENT", raising=False)
+        importlib.reload(main_module)
+
+
+def test_api_docs_are_switched_off_in_staging(staging: TestClient) -> None:
+    assert staging.get("/docs").status_code == 404
+    assert staging.get("/redoc").status_code == 404
+    assert staging.get("/openapi.json").status_code == 404
+
+
+def test_the_api_itself_still_works_in_staging(staging: TestClient) -> None:
+    assert staging.get("/health").status_code == 200
+    assert staging.get("/").status_code == 200
+
+
+def test_a_normal_api_route_still_works_in_staging(
+    staging: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("app.db.list_transactions", lambda *_args, **_kwargs: [])
+    response = staging.get("/transactions?month=2026-10", headers=HEADERS)
+    assert response.status_code == 200
+
+
+def test_docs_are_development_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    assert environment_name() == "development"
+    assert docs_enabled() is True
+
+    for name in ("staging", "production"):
+        monkeypatch.setenv("ENVIRONMENT", name)
+        assert environment_name() == name
+        assert docs_enabled() is False
+
+
+def test_staging_entrypoints_mark_the_environment_as_staging() -> None:
+    for path in (ROOT / "scripts" / "serve_staging.py", ROOT / "scripts" / "run_staging_tests.py"):
+        assert 'os.environ["ENVIRONMENT"] = "staging"' in path.read_text(encoding="utf-8"), path
+
+
+def test_repository_and_environment_files_are_not_served(client: TestClient) -> None:
+    for path in (
+        "/.env",
+        "/.env.staging",
+        "/.git/config",
+        "/README.md",
+        "/app/main.py",
+        "/app/static/index.html",
+        "/schema.sql",
+    ):
+        assert client.get(path).status_code == 404, path
+
+
 def test_health_is_public_head_and_never_cached(client: TestClient) -> None:
     """UptimeRobot polls /health with HEAD and no token; a cached reply would not keep Render awake."""
     for method in (client.get, client.head):
@@ -46,9 +109,15 @@ def test_health_is_public_head_and_never_cached(client: TestClient) -> None:
     assert body.headers["content-type"] == "application/json"
 
 
-def test_docs_stay_on_outside_production() -> None:
-    assert main_module.app.docs_url == "/docs"
-    assert main_module.app.openapi_url == "/openapi.json"
+def test_docs_stay_on_in_development(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    reloaded = importlib.reload(main_module)
+    try:
+        assert reloaded.app.docs_url == "/docs"
+        assert reloaded.app.redoc_url == "/redoc"
+        assert reloaded.app.openapi_url == "/openapi.json"
+    finally:
+        importlib.reload(main_module)
 
 
 def test_missing_environment_variables_are_named(

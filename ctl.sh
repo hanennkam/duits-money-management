@@ -12,7 +12,15 @@
 # Env overrides: PORT (default 8000), HOST (default 0.0.0.0)
 set -uo pipefail
 
-PROJ="/Users/Apple/Dev/Duits-money-management"
+# Resolve the checkout this script lives in (following symlinks), so a worktree runs its own
+# app/ and .venv instead of whichever checkout happens to be hardcoded.
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  SOURCE_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  case "$SOURCE" in /*) ;; *) SOURCE="$SOURCE_DIR/$SOURCE" ;; esac
+done
+PROJ="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 PORT="${PORT:-8000}"
 HOST="${HOST:-0.0.0.0}"
 PY="$PROJ/.venv/bin/python"
